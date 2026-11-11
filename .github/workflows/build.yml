@@ -67,6 +67,16 @@ jobs:
         shell: bash
         run: grep -rq 'MUI_LANGUAGE "SimpChinese"' src-tauri/target/release/nsis
 
+      - name: 验证 Windows 安装器用的是悬浮球的图标和图片
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          nsi=$(ls src-tauri/target/release/nsis/x64/installer.nsi)
+          grep -E '!define (INSTALLERICON|SIDEBARIMAGE|HEADERIMAGE) ' "$nsi"
+          grep -Eq '!define INSTALLERICON ".*icon\.ico"' "$nsi"
+          grep -Eq '!define SIDEBARIMAGE ".*installer-sidebar\.bmp"' "$nsi"
+          grep -Eq '!define HEADERIMAGE ".*installer-header\.bmp"' "$nsi"
+
       - name: 验证 Windows 的安装、重装和卸载
         if: runner.os == 'Windows'
         shell: pwsh
