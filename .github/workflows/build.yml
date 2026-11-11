@@ -1,11 +1,23 @@
 name: 构建安装包
 
 on:
+  pull_request:
   workflow_dispatch:        # 在 Actions 页面手动点「Run workflow」
   push:
     tags: ['v*']            # 或者推一个 v0.1.0 这样的标签
 
 jobs:
+  test-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install playwright pillow
+      - run: python -m playwright install --with-deps chromium
+      - run: python tools/test_ui.py ui-shots
+
   build:
     strategy:
       fail-fast: false
@@ -31,6 +43,9 @@ jobs:
           workspaces: src-tauri -> target
 
       - run: npm ci
+
+      - run: cargo test --locked
+        working-directory: src-tauri
 
       - uses: tauri-apps/tauri-action@v0
         with:
