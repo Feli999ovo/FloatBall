@@ -62,14 +62,15 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
-      - name: 验证 Windows 安装器使用英文和 FloatBall 安装目录
+      - name: 验证 Windows 安装器可选中文或英文，安装目录是 FloatBall
         if: runner.os == 'Windows'
         shell: bash
         run: |
           nsi=$(ls src-tauri/target/release/nsis/x64/installer.nsi)
           grep -q '!define PRODUCTNAME "FloatBall"' "$nsi"
           grep -q '!insertmacro MUI_LANGUAGE "English"' "$nsi"
-          ! grep -q 'MUI_LANGUAGE "SimpChinese"' "$nsi"
+          grep -q '!insertmacro MUI_LANGUAGE "SimpChinese"' "$nsi"
+          grep -q '!define DISPLAYLANGUAGESELECTOR "true"' "$nsi"
           grep -q 'StrCpy $INSTDIR "\$LOCALAPPDATA\\${PRODUCTNAME}"' "$nsi"
 
       - name: 验证 Windows 安装器用的是悬浮球的图标和图片
