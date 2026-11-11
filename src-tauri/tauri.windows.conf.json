@@ -1,10 +1,12 @@
 {
+  "productName": "FloatBall",
   "app": {
     "appDirectoriesOverride": "./data"
   },
   "bundle": {
     "windows": {
       "nsis": {
+        "languages": ["English"],
         "installerHooks": "./windows/hooks.nsh"
       }
     }

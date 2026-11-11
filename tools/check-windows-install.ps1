@@ -10,7 +10,7 @@ param(
   [string]$InstallDir = (Join-Path $env:TEMP '悬浮球-安装测试')
 )
 $ErrorActionPreference = 'Stop'
-$name = '悬浮球'
+$name = 'FloatBall'
 $id = 'com.floatball.desktop'
 $credTarget = "api_key.$id"
 $roaming = Join-Path $env:APPDATA $id
@@ -98,13 +98,13 @@ function Uninstall([string[]]$extra) {
 }
 
 if ((Test-Path $uninstKey) -or (Test-Path $roaming) -or (Test-Path $local) -or (Test-Path $InstallDir) -or (Test-Cred)) {
-  throw '这台电脑上已经有悬浮球的安装或数据，测试脚本不在这里运行（它会删除数据）'
+  throw '这台电脑上已经有 FloatBall 的安装或数据，测试脚本不在这里运行（它会删除数据）'
 }
 $Installer = (Resolve-Path $Installer).Path
 
 try {
-  Write-Host "== 安装到 $InstallDir"
-  Write-Host "   （临时目录的原始写法：$env:TEMP）"
+  Write-Host "== Install to $InstallDir"
+  Write-Host "   (original temp path: $env:TEMP)"
   Check ((Install @()) -eq 0) '安装程序正常结束'
   Check (Test-Path $exe) '程序装进了选定的目录'
   Check (Test-Path $uninstaller) '安装目录里有卸载程序'
