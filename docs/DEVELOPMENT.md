@@ -112,7 +112,7 @@ floatball/
 ```
 
 数据位置：
-- 设置：Mac `~/Library/Application Support/com.floatball.app/config.json`，Windows `%APPDATA%\com.floatball.app\config.json`
+- 设置：Mac `~/Library/Application Support/com.floatball.desktop/config.json`，Windows `%APPDATA%\com.floatball.desktop\config.json`
 - 历史：同目录下的 `history.db`
 
 ---

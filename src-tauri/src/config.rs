@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const KEYRING_SERVICE: &str = "com.floatball.app";
+const KEYRING_SERVICE: &str = "com.floatball.desktop";
 const KEYRING_USER: &str = "api_key";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
