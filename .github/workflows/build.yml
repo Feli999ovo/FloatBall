@@ -15,7 +15,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install playwright pillow
-      - run: python -m playwright install --with-deps chromium
+      - name: 安装测试用的浏览器
+        run: |
+          # 系统软件源偶尔连不上，装不了字体。连不上时只装浏览器本身，测试照常跑
+          python -m playwright install --with-deps chromium || {
+            printf '::warning::系统软件源连不上，没装上字体，这次的界面截图里中文可能显示成方块\n'
+            python -m playwright install chromium
+          }
       - run: python tools/test_ui.py ui-shots
       - uses: actions/upload-artifact@v7
         if: always()        # 测试失败时也留下截图
