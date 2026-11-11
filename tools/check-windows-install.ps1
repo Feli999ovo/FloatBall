@@ -123,7 +123,8 @@ try {
   Set-Content -Path $marker -Value 'keep me'
   Set-TestCred
   Check (Test-Cred) '放入一条测试用的 API Key 凭据'
-  New-Item -Path $approvedKey -Force | Out-Null
+  # 只在注册表项不存在时才新建：对已有的项用 New-Item -Force 会清空里面原有的内容
+  foreach ($k in @($runKey, $approvedKey)) { if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null } }
   New-ItemProperty -Path $runKey -Name $name -Value "`"$exe`"" -Force | Out-Null
   New-ItemProperty -Path $approvedKey -Name $name -PropertyType Binary -Value ([byte[]](2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)) -Force | Out-Null
 
