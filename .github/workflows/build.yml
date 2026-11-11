@@ -51,6 +51,11 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
+      - name: 验证 Windows 安装器带简体中文
+        if: runner.os == 'Windows'
+        shell: bash
+        run: grep -rq 'MUI_LANGUAGE "SimpChinese"' src-tauri/target/release/nsis
+
       - name: 验证 macOS 临时签名
         if: runner.os == 'macOS'
         run: |

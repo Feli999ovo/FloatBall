@@ -50,6 +50,11 @@
     "macOS": {
       "minimumSystemVersion": "12.3",
       "signingIdentity": "-"
+    },
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese", "English"]
+      }
     }
   }
 }
