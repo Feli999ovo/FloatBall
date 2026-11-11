@@ -50,12 +50,12 @@
 
 > v0.1 为预览版，尚未经过 Apple 公证与 Windows 代码签名，首次打开系统会拦截一次。
 
-从 [Releases](../../releases) 或 [Actions](../../actions) 的构建产物下载：
+从 [Releases](../../releases) 下载。[Actions](../../actions) 的构建产物内容相同，文件名以「悬浮球」开头，需要登录 GitHub 才能下载。
 
 | 平台 | 文件 | 首次打开 |
 |---|---|---|
-| macOS（Apple 芯片） | `悬浮球_x.y.z_aarch64.dmg` | 拖入「应用程序」后打开一次，被拦截时前往 **系统设置 → 隐私与安全性**，点 **仍要打开**。若提示「已损坏」，执行 `xattr -cr /Applications/悬浮球.app` |
-| Windows 10 / 11 | `悬浮球_x.y.z_x64-setup.exe` | SmartScreen 提示时点 **更多信息 → 仍要运行** |
+| macOS（Apple 芯片） | `FloatBall_x.y.z_aarch64.dmg` | 拖入「应用程序」后打开一次，被拦截时前往 **系统设置 → 隐私与安全性**，点 **仍要打开**。若提示「已损坏」，执行 `xattr -cr /Applications/悬浮球.app` |
+| Windows 10 / 11 | `FloatBall_x.y.z_x64-setup.exe` | SmartScreen 提示时点 **更多信息 → 仍要运行** |
 
 在 macOS 上首次使用截屏提问，需要在 **系统设置 → 隐私与安全性 → 屏幕与系统录音** 中允许悬浮球，然后重启应用。
 
@@ -132,7 +132,7 @@ npm run build    # 生成 .dmg / 安装程序
 
 不想装 Node 也可以：前端是纯 HTML/CSS/JS，`cd src-tauri && cargo run` 即可运行。
 
-**云端构建**：仓库自带 GitHub Actions 工作流。在 **Actions → 构建安装包 → Run workflow** 手动触发，或推送 `v*` 标签，即可同时得到 macOS 与 Windows 安装包。
+**云端构建**：仓库自带 GitHub Actions 工作流。在 **Actions → 构建安装包 → Run workflow** 手动触发，或推送 `v*` 标签，即可同时得到 macOS 与 Windows 安装包。推送标签还会生成一份 Release 草稿，核对后手动公开；GitHub 会去掉文件名里的中文，所以 Release 里的下载文件用英文名。
 
 **测试**
 
