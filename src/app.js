@@ -558,13 +558,14 @@ $("#saveBtn").onclick = async () => {
   if (!cfg.model) return setMsg("模型名不能为空", "bad");
   const key = $("#fKey").value.trim();
   try {
-    await invoke("save_config", { cfg, apiKey: key ? key : null });
+    const busy = await invoke("save_config", { cfg, apiKey: key ? key : null });
     const want = $("#fAuto").checked;
     if (want !== S.cfg.autostart) await invoke("set_autostart", { on: want });
     S.cfg = await invoke("get_config");
     $("#fKey").value = "";
     $("#fKey").placeholder = S.cfg.has_key ? "已保存（留空不改，填新的会替换）" : "sk-…";
-    setMsg("已保存", "ok"); mood("done", 1500);
+    if (busy) { setMsg("其余设置已保存。" + busy + "，换一个快捷键才能用", "bad"); mood("error", 2500); }
+    else { setMsg("已保存", "ok"); mood("done", 1500); }
   } catch (e) { setMsg(String(e), "bad"); }
 };
 
