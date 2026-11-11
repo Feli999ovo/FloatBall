@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>悬浮球</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body class="collapsed">
+<div id="app">
+  <!-- 顶栏：小球 + 胶囊输入框（展开时） -->
+  <div id="bar">
+    <div id="orb" class="s-idle" role="button" tabindex="0" aria-label="悬浮球：点一下打开，拖动换位置，右键更多">
+      <div class="float"><div class="breath">
+        <div class="body"></div>
+        <img class="glass" src="assets/orb.png" alt="" draggable="false" />
+        <div class="face" id="face">
+          <i class="eye l"></i><i class="eye r"></i>
+          <svg class="arc l" viewBox="0 0 18 9"><path d="M1.4 7.2A7.8 7.8 0 0 1 16.5 7.2"/></svg>
+          <svg class="arc r" viewBox="0 0 18 9"><path d="M1.4 7.2A7.8 7.8 0 0 1 16.5 7.2"/></svg>
+          <span class="orbit"></span>
+        </div>
+      </div></div>
+    </div>
+    <form id="capsule" autocomplete="off">
+      <div id="attach" hidden></div>
+      <textarea id="ask" rows="1" placeholder="有什么可以帮你？" aria-label="输入问题"></textarea>
+      <button type="button" class="ib" id="shotBtn" title="截屏提问（截鼠标所在屏幕）" aria-label="截屏提问">
+        <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      <button type="submit" class="ib send" id="sendBtn" title="发送（Enter）" aria-label="发送">
+        <svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+      </button>
+    </form>
+  </div>
+
+  <!-- 卡片 -->
+  <section id="card" aria-live="polite">
+    <header>
+      <div class="title" id="title">新对话</div>
+      <button class="ib" id="newBtn" title="新对话" aria-label="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="ib" id="histBtn" title="历史记录" aria-label="历史记录"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></button>
+      <button class="ib" id="setBtn" title="设置" aria-label="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      <button class="ib" id="pinBtn" title="固定：点别处不收起" aria-label="固定" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 3H7l3-3zM12 13v7"/></svg></button>
+      <button class="ib" id="closeBtn" title="收起（Esc）" aria-label="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+
+    <!-- 对话 -->
+    <div class="view" id="vChat">
+      <div id="msgs"></div>
+      <div id="empty">
+        <p class="hello">嗨，我在。</p>
+        <p class="sub">直接问，或者把文本文件拖到小球上，或者截屏提问。</p>
+        <div class="chips">
+          <button data-q="帮我把这段话改得更简洁：">改得更简洁</button>
+          <button data-q="把下面的内容翻译成英文：">翻译成英文</button>
+          <button data-q="用三句话解释：">三句话解释</button>
+        </div>
+      </div>
+      <div id="stopRow" hidden><button id="stopBtn">停止生成</button></div>
+    </div>
+
+    <!-- 历史 -->
+    <div class="view" id="vHist" hidden>
+      <div class="vh"><b>历史记录</b><span class="grow"></span><button class="txt danger" id="clearHist">全部删除</button></div>
+      <ul id="histList"></ul>
+      <p class="muted" id="histEmpty" hidden>还没有对话。</p>
+    </div>
+
+    <!-- 设置 -->
+    <div class="view" id="vSet" hidden>
+      <div class="vh"><b>设置</b></div>
+      <div class="form">
+        <label>接口地址<input id="fBase" placeholder="https://api.openai.com/v1" spellcheck="false" /></label>
+        <div class="presets" id="presets">
+          <button data-b="https://api.openai.com/v1" data-m="gpt-4o-mini">OpenAI</button>
+          <button data-b="https://api.deepseek.com/v1" data-m="deepseek-chat" data-v="0">DeepSeek</button>
+          <button data-b="https://dashscope.aliyuncs.com/compatible-mode/v1" data-m="qwen-plus">通义千问</button>
+          <button data-b="https://api.moonshot.cn/v1" data-m="moonshot-v1-8k" data-v="0">Kimi</button>
+          <button data-b="https://openrouter.ai/api/v1" data-m="openai/gpt-4o-mini">OpenRouter</button>
+          <button data-b="http://localhost:11434/v1" data-m="qwen2.5:7b" data-k="1" data-v="0">Ollama 本地</button>
+        </div>
+        <label>模型<input id="fModel" placeholder="gpt-4o-mini" spellcheck="false" /></label>
+        <label>API Key<input id="fKey" type="password" placeholder="sk-…" spellcheck="false" autocomplete="off" /></label>
+        <p class="hint" id="keyHint">保存在系统钥匙串里，不写进任何文件。</p>
+        <label class="ck"><input type="checkbox" id="fNoKey" />不需要 Key（本地模型）</label>
+        <label class="ck"><input type="checkbox" id="fVision" />模型支持图片（截屏提问会把截图发给它）</label>
+        <label>系统提示词<textarea id="fSys" rows="3"></textarea></label>
+        <div class="two">
+          <label>呼出小球<input id="fKeyMain" spellcheck="false" /></label>
+          <label>截屏提问<input id="fKeyCap" spellcheck="false" /></label>
+        </div>
+        <p class="hint">写法如 Alt+Space、CommandOrControl+Shift+K。Mac 上 Alt 就是 ⌥。</p>
+        <label class="ck"><input type="checkbox" id="fAuto" />开机启动</label>
+      </div>
+      <div class="actions">
+        <span class="msg" id="setMsg" role="status"></span>
+        <button class="txt" id="testBtn">测试连接</button>
+        <button class="pri" id="saveBtn">保存</button>
+      </div>
+    </div>
+  </section>
+  <div id="toast" role="status"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

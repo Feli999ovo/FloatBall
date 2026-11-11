@@ -1,0 +1,337 @@
+/* Hark's shop components: a plain page title, a shelf of product cards, and the stage the library's compare puts its photos on. They use hark.css's tokens, so link this file after it. style-gates: data */
+
+/* @component shop foundations */
+:root {
+  --stage: light-dark(#ececee, #262629); /* the card: a studio sweep behind each product */
+  --stage-glow: light-dark(
+    #fafafb,
+    #3c3c41
+  ); /* the sweep's lit centre, so a black product still reads in dark */
+  --stage-fill: radial-gradient(ellipse 70% 60% at 50% 46%, var(--stage-glow), var(--stage));
+  --type-product: var(--weight-medium) 22px / 1.2 var(--sans);
+}
+/* Section heads stay left-aligned at every width on a shop page. */
+.head {
+  grid-template-columns: minmax(0, 1fr);
+}
+.head__sub {
+  justify-self: start;
+  text-align: left;
+}
+.dot--no::before {
+  background: var(--fill-system-red);
+}
+
+/* @component shop title */
+.shop-title {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  max-width: 680px;
+  padding-block: clamp(24px, 5vw, 56px) 8px;
+}
+.shop-title h1 {
+  font: var(--weight-regular) clamp(28px, 3.75vw, 42px) / 1.1 var(--sans);
+  letter-spacing: -0.01em;
+}
+.shop-title__eyebrow {
+  font: var(--type-small);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.shop-title__intro {
+  max-width: 46ch;
+  font-size: clamp(16px, 1.5vw, 18px);
+  color: var(--text-secondary);
+}
+
+/* @component shelf */
+/* The products as cards that wrap into rows, as many to a row as fit at 300px or wider: three on a
+   desktop, two on a tablet, one on a phone. Every card in a row is as tall as the tallest, so the
+   store links line up. */
+.shelf {
+  padding-block: clamp(32px, 4vw, 48px) 16px;
+}
+.shelf__head {
+  margin-bottom: 14px;
+}
+.shelf__label {
+  font: var(--type-label);
+  color: var(--text-secondary);
+}
+.deck {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+
+/* @component product */
+/* A tall card on the studio sweep: the photo, then the name and price, a line on why, the colors and
+   the store link, which sits at the foot of every card so the cards line up. */
+.product {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: var(--r-l);
+  background: var(--stage);
+  scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 72px);
+}
+.product__stage {
+  position: relative;
+  display: grid;
+  /* A wide photo must not widen the card past the screen. */
+  grid-template-columns: minmax(0, 1fr);
+  border-radius: var(--r-l) var(--r-l) 0 0;
+  background: var(--stage-fill);
+}
+.rank {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 1;
+  max-width: calc(100% - 28px);
+  padding: 7px 12px;
+  border-radius: var(--r-pill);
+  background: var(--mat-agent);
+  border: 1px solid var(--stroke-secondary);
+  -webkit-backdrop-filter: var(--hark-blur);
+  backdrop-filter: var(--hark-blur);
+  font: var(--type-label);
+}
+/* The photos sit in one square cell, sized by the card's width and never by a photo, so a tall photo
+   fits inside it. Before the script runs only the first shows; with two or more, a tap turns the
+   product to the next one, cross-fading in place. */
+.product__photos {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  aspect-ratio: 1;
+  padding: 9% 9% 2%;
+  -webkit-tap-highlight-color: transparent;
+}
+.product__photos img {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  transition: opacity 240ms ease;
+}
+.product__photos img + img {
+  opacity: 0;
+}
+.product__photos[data-turn] {
+  cursor: pointer;
+}
+.product__photos[data-turn] img {
+  opacity: 0;
+}
+.product__photos[data-turn] img.is-on {
+  opacity: 1;
+}
+.product__photos[data-turn]:active img.is-on {
+  transform: scale(0.98);
+  transition:
+    opacity 240ms ease,
+    transform 100ms ease-out;
+}
+:root[data-theme='dark'] .product__photos img {
+  mix-blend-mode: normal;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .product__photos img {
+    mix-blend-mode: normal;
+  }
+}
+.product__angles {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  pointer-events: none;
+}
+.product__angles i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  opacity: 0.2;
+  transition: opacity var(--dur-quick) ease;
+}
+.product__angles i.is-on {
+  opacity: 0.9;
+}
+
+.product__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 20px 20px;
+}
+.product__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.product__head h3 {
+  font: var(--type-product);
+}
+.product__price {
+  font: var(--type-heading);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.product__price s {
+  margin-right: 6px;
+  font: var(--type-small);
+  color: var(--text-secondary);
+}
+.product__meta {
+  margin-top: -6px;
+  font: var(--type-small);
+  color: var(--text-secondary);
+}
+.product__note {
+  font: var(--type-body);
+}
+.product .dot {
+  margin-top: 0;
+}
+.product__colors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+  font: var(--type-small);
+  color: var(--text-secondary);
+}
+.minis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.minis i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px var(--stroke-primary);
+}
+.compare .minis {
+  margin-top: 6px;
+}
+.compare .minis i {
+  width: 10px;
+  height: 10px;
+}
+
+/* @component buy */
+/* A full-width capsule at the foot of the card, linking to the store. */
+.buy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 48px;
+  margin-top: 4px;
+  padding: 0 20px;
+  border-radius: 24px;
+  background: var(--fill-primary);
+  color: var(--text-primary-on);
+  font: var(--weight-medium) var(--size-body) / 1.3 var(--sans);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 100ms ease-out;
+}
+/* The link sits at the card's foot; the colors above it take the free space when there are any. */
+.product__body > .buy {
+  margin-top: auto;
+}
+.product__colors + .buy {
+  margin-top: 4px;
+}
+@media (hover: hover) {
+  .buy:hover {
+    box-shadow: inset 0 0 0 100px var(--hover-wash-primary-on);
+  }
+}
+.buy:active {
+  transform: scale(0.97);
+}
+.buy:focus-visible {
+  border-radius: 24px;
+}
+.buy[target='_blank']::after {
+  content: '\2197';
+  font-size: 12px;
+  color: var(--text-secondary-on);
+}
+
+/* @component compare, on the stage */
+/* The library's compare, with each photo on the same sweep as the cards, and a bar on one scale per
+   row for numbers worth reading at a glance. */
+.compare .compare__media {
+  background: var(--stage-fill);
+  padding: 8px;
+}
+.compare .compare__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.meter {
+  display: block;
+  max-width: 140px;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--fill-primary) calc(var(--v) * 100%),
+    var(--fill-tertiary) 0
+  );
+}
+
+@media (min-width: 761px) {
+  .section {
+    padding-block: 48px 16px;
+  }
+  .head {
+    row-gap: 6px;
+    margin-bottom: 28px;
+  }
+  .head h2 {
+    font-size: 28px;
+    line-height: 1.25;
+  }
+}
+@media (max-width: 760px) {
+  .shelf {
+    padding-top: 28px;
+  }
+  .section {
+    padding-block: 32px 12px;
+  }
+  .head {
+    gap: 4px;
+    margin-bottom: 18px;
+  }
+  .head h2 {
+    font-size: 24px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .product__photos img,
+  .product__angles i,
+  .buy {
+    transition: none;
+  }
+  .product__photos[data-turn]:active img.is-on {
+    transform: none;
+  }
+}

@@ -1,0 +1,305 @@
+/* Hark's map: a figure of places on a map Hark draws from their addresses. It uses hark.css's tokens, so link this after hark.css. style-gates: data */
+
+/* @component map */
+/* The colors must equal mapPalette in internal/placemap/draw.go, which map.svg shows until
+   hark-map.js puts the map inline. The frame keeps the map's 3:2, since pins sit at its fractions. */
+:root {
+  --map-land: light-dark(#f2f1ee, #26262a);
+  --map-water: light-dark(#c9e0ec, #1f3340);
+  --map-park: light-dark(#d5e8c8, #263a2a);
+  --map-road: light-dark(#ffffff, #3a3a3f);
+  --map-rail: light-dark(#c8c6c2, #4a4a50);
+}
+.map {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 3 / 2;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--r-l);
+  background: var(--map-land);
+}
+/* A map Hark could not draw stays out of the page. */
+.map:not([data-map-drawn]) {
+  display: none;
+}
+.map__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+svg.map__img .map-land {
+  fill: var(--map-land);
+}
+svg.map__img .map-water {
+  fill: var(--map-water);
+  fill-rule: evenodd;
+}
+svg.map__img .map-park {
+  fill: var(--map-park);
+  fill-rule: evenodd;
+}
+svg.map__img .map-road {
+  stroke: var(--map-road);
+}
+svg.map__img .map-rail {
+  stroke: var(--map-rail);
+}
+.map__pin {
+  position: absolute;
+  left: calc(var(--x) * 100%);
+  top: calc(var(--y) * 100%);
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  transform: translate(calc(-50% + var(--nx, 0px)), calc(-50% + var(--ny, 0px)));
+  border-radius: var(--r-pill);
+  background: var(--fill-primary);
+  color: var(--text-primary-on);
+  font: var(--type-tag);
+  text-decoration: none;
+  box-shadow: var(--hark-shadow);
+}
+.map__label {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font: var(--type-tag);
+  color: var(--text-primary);
+  text-shadow:
+    0 0 3px var(--map-land),
+    0 0 3px var(--map-land),
+    0 0 3px var(--map-land);
+  pointer-events: none;
+}
+.map__pin.is-label-above .map__label {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.map__pin.is-label-quiet .map__label {
+  display: none;
+}
+.map__credit {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+}
+
+/* @component map view */
+/* A map whose pins link to photo cards becomes their map view: a switch above the cards shows them
+   or the map, the lit card's pin is ringed, and a strip of the cards runs along the map's foot. */
+.view-switch {
+  display: flex;
+  width: fit-content;
+  gap: 2px;
+  margin: 0 auto 16px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--fill-tertiary);
+}
+.view-switch button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--type-label);
+  cursor: pointer;
+}
+.view-switch button[aria-checked='true'] {
+  background: var(--fill-primary);
+  color: var(--text-primary-on);
+}
+/* A pin whose place Hark could not find is hidden, as is whichever of the map and the cards is off. */
+.map[hidden],
+.map__pin[hidden],
+.photo-cards[hidden] {
+  display: none;
+}
+.map--view .map__pin {
+  cursor: pointer;
+  transition:
+    transform var(--dur-quick) var(--ease-out),
+    box-shadow var(--dur-quick) var(--ease-out);
+}
+.map--view .map__pin.is-lit {
+  z-index: 2;
+  transform: translate(calc(-50% + var(--nx, 0px)), calc(-50% + var(--ny, 0px))) scale(1.15);
+  box-shadow:
+    0 0 0 3px var(--fill-primary-on),
+    0 0 0 5px var(--fill-primary),
+    var(--hark-shadow);
+}
+.map--view .map__pin.is-lit .map__label {
+  font-weight: var(--weight-bold);
+}
+/* The strip is at most 30% of the map's height, the room placemap leaves at its foot
+   (cardStripFrame in site_lookup_map.go); the crop under map--below and STRIP_SHARE in
+   hark-map.js must use the same 30%. */
+.map__strip {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 3;
+  display: flex;
+  gap: 12px;
+  max-height: 30%;
+  padding: 12px 16px 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 16px;
+  scrollbar-width: none;
+}
+.map__strip::-webkit-scrollbar {
+  display: none;
+}
+.map__card {
+  flex: 0 0 min(380px, 82%);
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--stroke-primary);
+  border-radius: var(--r-m);
+  background: var(--fill-primary-on);
+  box-shadow: var(--hark-shadow);
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+.map__card.is-lit {
+  border-color: var(--text-primary);
+}
+.map__card-photo {
+  flex: none;
+  align-self: center;
+  width: 88px;
+  height: 88px;
+  border-radius: var(--r-s);
+  object-fit: cover;
+}
+.map__card-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+.map__card-body p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.map__card-rank,
+.map__card-meta {
+  font: var(--type-caption);
+  color: var(--text-secondary);
+}
+.map__card-name {
+  font: var(--type-body-strong);
+}
+.map__card-price {
+  font: var(--type-label);
+  font-variant-numeric: tabular-nums;
+}
+.map__card-price s {
+  margin-right: 4px;
+  color: var(--text-secondary);
+}
+/* The card's link, as the photo card has it, at a size the strip holds. */
+.map__card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+.map__card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  background: var(--fill-primary);
+  color: var(--text-primary-on);
+  font: var(--type-label);
+  text-decoration: none;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .map__card-link:hover {
+    box-shadow: inset 0 0 0 100px var(--hover-wash-primary-on);
+  }
+}
+.map__card-link[target='_blank']::after {
+  content: '\2197';
+  font-size: 11px;
+  color: var(--text-secondary-on);
+}
+.map__card-link[data-hark-action] {
+  cursor: pointer;
+}
+.map__card-link[data-hark-state='sent'] {
+  background: var(--fill-tertiary);
+  color: var(--text-primary);
+}
+.map__card-site {
+  font: var(--type-label);
+  color: var(--text-secondary);
+}
+/* A strip card has room for one action, so the store link shows only while Hark keeps the button hidden. */
+.map__card-link[data-hark-ready] + .map__card-site {
+  display: none;
+}
+.map--view .map__credit {
+  top: 8px;
+  bottom: auto;
+}
+.map__stage,
+.map__frame {
+  position: absolute;
+  inset: 0;
+}
+/* When the map is too short to carry its cards (hark-map.js sets map--below), the strip runs under
+   it, and the stage crops off the band the map kept clear for it: the frame stays the whole map,
+   1 / (1 - 0.3) of the stage's height, so the pins keep their spots. */
+.map--view.map--below {
+  aspect-ratio: auto;
+  overflow: visible;
+  background: none;
+}
+.map--below .map__stage {
+  position: relative;
+  aspect-ratio: 15 / 7;
+  overflow: hidden;
+  border-radius: var(--r-l);
+  background: var(--map-land);
+}
+.map--below .map__frame {
+  bottom: auto;
+  height: calc(100% / 0.7);
+}
+.map--below .map__strip {
+  position: static;
+  max-height: none;
+  margin: 0 calc(-1 * var(--gutter));
+  padding: 12px var(--gutter) 4px;
+  scroll-padding-inline: var(--gutter);
+}
+@media (max-width: 599px) {
+  .map__card-photo {
+    width: 72px;
+    height: 72px;
+  }
+}

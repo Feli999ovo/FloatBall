@@ -1,0 +1,45 @@
+name: 构建安装包
+
+on:
+  workflow_dispatch:        # 在 Actions 页面手动点「Run workflow」
+  push:
+    tags: ['v*']            # 或者推一个 v0.1.0 这样的标签
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest      # Apple 芯片 Mac
+            args: --bundles app,dmg
+          - os: windows-latest
+            args: --bundles nsis  # 中文名用 NSIS 安装器更稳
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          args: ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 悬浮球-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
