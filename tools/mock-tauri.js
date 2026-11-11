@@ -11,7 +11,7 @@
     st.calls.push(cmd);
     switch (cmd) {
       case "get_config": return { ...st.cfg };
-      case "save_config": Object.assign(st.cfg, a.cfg); if (a.apiKey) st.cfg.has_key = true; return null;
+      case "save_config": Object.assign(st.cfg, a.cfg); if (a.apiKey) st.cfg.has_key = true; return st.shortcutBusy ? a.cfg.shortcut + " 被别的程序占用了" : null;
       case "set_autostart": st.cfg.autostart = a.on; return a.on;
       case "save_position": st.cfg.position = [a.x, a.y]; return null;
       case "test_connection": return "连接成功，用时 412 毫秒";

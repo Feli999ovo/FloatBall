@@ -67,6 +67,20 @@ async def main():
         check(m["cfg"]["has_key"] and m["cfg"]["model"] == "gpt-4o-mini" and m["cfg"]["autostart"], "保存设置（Key、模型、开机启动）")
         await shot("02_settings_saved")
 
+        # 2b 快捷键被别的程序占用：其余设置照常保存，只提示换快捷键
+        await pg.evaluate("__mock.shortcutBusy = true")
+        await pg.fill("#fModel", "gpt-4o")
+        await pg.click("#saveBtn"); await pg.wait_for_timeout(200)
+        m = await pg.evaluate("__mock")
+        msg = await pg.inner_text("#setMsg")
+        check(m["cfg"]["model"] == "gpt-4o", "快捷键被占用时其余设置照常保存")
+        check("已保存" in msg and "占用" in msg and "换一个" in msg, f"快捷键被占用时提示换一个（{msg}）")
+        await shot("02b_shortcut_busy")
+        await pg.evaluate("__mock.shortcutBusy = false")
+        await pg.fill("#fModel", "gpt-4o-mini")
+        await pg.click("#saveBtn"); await pg.wait_for_timeout(200)
+        check(await pg.inner_text("#setMsg") == "已保存", "快捷键没被占用时照常提示已保存")
+
         # 3 回到对话，空状态
         await pg.click("#setBtn"); await pg.wait_for_timeout(200)
         check(await pg.is_visible("#empty"), "空对话显示引导")

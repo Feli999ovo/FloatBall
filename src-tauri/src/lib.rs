@@ -82,18 +82,19 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> ConfigView {
     }
 }
 
-/// api_key：None 表示不改；Some("") 表示删除
+/// api_key：None 表示不改；Some("") 表示删除。
+/// 返回 Some(提示)：设置已经保存，但有快捷键被别的程序占用了
 #[tauri::command]
-fn save_config(app: AppHandle, state: State<'_, AppState>, cfg: Config, api_key: Option<String>) -> Result<(), String> {
+fn save_config(app: AppHandle, state: State<'_, AppState>, cfg: Config, api_key: Option<String>) -> Result<Option<String>, String> {
     if let Some(k) = api_key {
         config::set_api_key(k.trim())?;
     }
     let mut next = cfg;
     next.position = state.cfg.lock().unwrap().position;
-    register_shortcuts(&app, &state, &next)?;
+    let busy = register_shortcuts(&app, &state, &next)?;
     next.save(&state.cfg_dir)?;
     *state.cfg.lock().unwrap() = next;
-    Ok(())
+    Ok(busy)
 }
 
 #[tauri::command]
@@ -314,7 +315,8 @@ fn hide_ball(app: AppHandle) {
     refresh_menus(&app);
 }
 
-fn register_shortcuts<R: Runtime>(app: &AppHandle<R>, state: &AppState, cfg: &Config) -> Result<(), String> {
+/// 写法不对或两个一样时返回 Err；写法没问题但被别的程序占用时返回 Ok(Some(提示))
+fn register_shortcuts<R: Runtime>(app: &AppHandle<R>, state: &AppState, cfg: &Config) -> Result<Option<String>, String> {
     let parse = |s: &str| -> Result<Option<Shortcut>, String> {
         let s = s.trim();
         if s.is_empty() {
@@ -336,7 +338,7 @@ fn register_shortcuts<R: Runtime>(app: &AppHandle<R>, state: &AppState, cfg: &Co
         }
     }
     *state.shortcuts.lock().unwrap() = (main, cap);
-    if errs.is_empty() { Ok(()) } else { Err(errs.join("；")) }
+    Ok(if errs.is_empty() { None } else { Some(errs.join("；")) })
 }
 
 /// 首次启动或上次的位置已经不在任何屏幕上（拔了外接屏）时，放到主屏右侧中间
@@ -404,8 +406,9 @@ pub fn run() {
                 shortcuts: Mutex::new((None, None)),
             });
             let handle = app.handle().clone();
-            if let Err(e) = register_shortcuts(&handle, &app.state::<AppState>(), &cfg) {
-                log::warn!("shortcut: {e}");
+            match register_shortcuts(&handle, &app.state::<AppState>(), &cfg) {
+                Ok(None) => {}
+                Ok(Some(e)) | Err(e) => eprintln!("[快捷键] {e}"),
             }
 
             // 托盘 / 菜单栏图标
