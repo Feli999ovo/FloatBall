@@ -51,6 +51,14 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
+      - name: 验证 macOS 临时签名
+        if: runner.os == 'macOS'
+        run: |
+          app="src-tauri/target/release/bundle/macos/悬浮球.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --verbose=4 "$app" 2>&1 | tee signing.txt
+          grep -qx 'Signature=adhoc' signing.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: 悬浮球-${{ matrix.os }}
