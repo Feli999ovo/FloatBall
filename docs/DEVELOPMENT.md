@@ -101,6 +101,7 @@ floatball/
 │  ├─ tauri.conf.json      窗口：96×96、透明、无边框、置顶
 │  ├─ tauri.windows.conf.json  只在 Windows 上生效：数据放在 安装目录\data
 │  ├─ windows/hooks.nsh    Windows 卸载时按勾选清掉数据和 API Key
+│  ├─ windows/installer-*.bmp  安装器左侧和页眉的图，用 tools/make-installer-images.py 从图标生成
 │  ├─ capabilities/        前端能调用哪些窗口接口
 │  ├─ icons/               应用图标、托盘图标（Mac 用模板图标，自动适配深浅色菜单栏）
 │  └─ src/
