@@ -95,7 +95,7 @@
 | 数据 | macOS | Windows |
 |---|---|---|
 | 设置 | `~/Library/Application Support/com.floatball.app/` | `%APPDATA%\com.floatball.app\` |
-| 历史 | 同上 `history.db` | `%LOCALAPPDATA%\com.floatball.app\history.db` |
+| 历史 | 同上 `history.db` | `%APPDATA%\com.floatball.app\history.db` |
 
 ## 路线图
 
