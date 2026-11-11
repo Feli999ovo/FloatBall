@@ -94,8 +94,12 @@
 
 | 数据 | macOS | Windows |
 |---|---|---|
-| 设置 | `~/Library/Application Support/com.floatball.desktop/` | `%APPDATA%\com.floatball.desktop\` |
-| 历史 | 同上 `history.db` | `%APPDATA%\com.floatball.desktop\history.db` |
+| 设置 | `~/Library/Application Support/com.floatball.desktop/` | `安装目录\data\` |
+| 历史 | 同上 `history.db` | `安装目录\data\history.db` |
+
+在 Windows 上，设置、历史和界面缓存都放在安装目录里的 `data` 文件夹，不往 `AppData` 写。卸载时勾选「删除应用程序数据」，会连同 `data` 和凭据管理器里的 API Key 一起删掉，不留东西；不勾选则保留 `data` 和 Key，重装后可以接着用。升级和重装不会动数据。
+
+请装到你有写入权限的文件夹，比如 `D:\悬浮球`。装到 `C:\Program Files` 这类需要管理员权限的目录会存不了设置。
 
 ## 路线图
 
