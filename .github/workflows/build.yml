@@ -17,6 +17,11 @@ jobs:
       - run: python -m pip install playwright pillow
       - run: python -m playwright install --with-deps chromium
       - run: python tools/test_ui.py ui-shots
+      - uses: actions/upload-artifact@v7
+        if: always()        # 测试失败时也留下截图
+        with:
+          name: 界面截图
+          path: ui-shots
 
   build:
     strategy:
