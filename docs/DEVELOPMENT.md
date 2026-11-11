@@ -99,6 +99,8 @@ floatball/
 │  └─ assets/orb.png       玻璃球（从原型的球转成透明 PNG）
 ├─ src-tauri/
 │  ├─ tauri.conf.json      窗口：96×96、透明、无边框、置顶
+│  ├─ tauri.windows.conf.json  只在 Windows 上生效：数据放在 安装目录\data
+│  ├─ windows/hooks.nsh    Windows 卸载时按勾选清掉数据和 API Key
 │  ├─ capabilities/        前端能调用哪些窗口接口
 │  ├─ icons/               应用图标、托盘图标（Mac 用模板图标，自动适配深浅色菜单栏）
 │  └─ src/
@@ -112,8 +114,10 @@ floatball/
 ```
 
 数据位置：
-- 设置：Mac `~/Library/Application Support/com.floatball.desktop/config.json`，Windows `%APPDATA%\com.floatball.desktop\config.json`
+- 设置：Mac `~/Library/Application Support/com.floatball.desktop/config.json`，Windows `安装目录\data\config.json`
 - 历史：同目录下的 `history.db`
+- Windows 上界面（WebView2）的缓存也在 `安装目录\data` 里。这是 `src-tauri/tauri.windows.conf.json` 里的 `appDirectoriesOverride` 决定的；开发时（`npm run dev`）对应 `src-tauri\target\debug\data`。
+- Windows 的卸载：卸载界面勾选「删除应用程序数据」时（静默卸载用 `uninstall.exe /S /CLEAN`），`src-tauri/windows/hooks.nsh` 会删掉 `data` 和凭据管理器里的 API Key；不勾选、升级和重装时都不删。`tools/check-windows-install.ps1` 会真装、重装、卸载一遍来检查，云端每次构建都跑；它会删数据，所以在已经装了悬浮球的电脑上会直接拒绝运行。
 
 ---
 

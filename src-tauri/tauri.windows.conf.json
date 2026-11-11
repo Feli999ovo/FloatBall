@@ -1,0 +1,12 @@
+{
+  "app": {
+    "appDirectoriesOverride": "./data"
+  },
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    }
+  }
+}

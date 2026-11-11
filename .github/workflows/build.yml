@@ -61,6 +61,13 @@ jobs:
         shell: bash
         run: grep -rq 'MUI_LANGUAGE "SimpChinese"' src-tauri/target/release/nsis
 
+      - name: 验证 Windows 的安装、重装和卸载
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1).FullName
+          ./tools/check-windows-install.ps1 -Installer $installer
+
       - name: 验证 macOS 临时签名
         if: runner.os == 'macOS'
         run: |
