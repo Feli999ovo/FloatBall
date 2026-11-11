@@ -31,11 +31,61 @@ function Wait-For([scriptblock]$cond, [int]$seconds) {
   for ($i = 0; $i -lt $seconds * 2; $i++) { if (& $cond) { return $true }; Start-Sleep -Milliseconds 500 }
   return [bool](& $cond)
 }
-function Test-Cred { return ((cmdkey /list:$credTarget | Out-String) -match "target=$([regex]::Escape($credTarget))") }
+#region 凭据
+# 直接调用 Windows 的凭据接口，和程序里 keyring 库的做法一样（1 = 通用凭据，3 = 保存方式）。
+# 不用 cmdkey：它的输出格式随系统语言变化，失败时也不说原因
+Add-Type -Namespace FloatBall -Name Cred -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct CREDENTIAL {
+  public uint Flags; public uint Type; public string TargetName; public string Comment;
+  public long LastWritten; public uint CredentialBlobSize; public IntPtr CredentialBlob;
+  public uint Persist; public uint AttributeCount; public IntPtr Attributes;
+  public string TargetAlias; public string UserName;
+}
+[DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredWriteW(ref CREDENTIAL cred, uint flags);
+[DllImport("advapi32.dll", CharSet = CharSet.Unicode)] public static extern bool CredReadW(string target, uint type, uint flags, out IntPtr cred);
+[DllImport("advapi32.dll", CharSet = CharSet.Unicode)] public static extern bool CredDeleteW(string target, uint type, uint flags);
+[DllImport("advapi32.dll")] public static extern void CredFree(IntPtr cred);
+'@
+function Test-Cred {
+  $p = [IntPtr]::Zero
+  if (-not [FloatBall.Cred]::CredReadW($credTarget, 1, 0, [ref]$p)) { return $false }
+  [FloatBall.Cred]::CredFree($p)
+  return $true
+}
+function Set-TestCred {
+  $bytes = [Text.Encoding]::Unicode.GetBytes('not-a-real-key')
+  $c = New-Object 'FloatBall.Cred+CREDENTIAL'
+  $c.Type = 1; $c.Persist = 3; $c.TargetName = $credTarget; $c.UserName = 'api_key'
+  $c.CredentialBlobSize = $bytes.Length
+  $c.CredentialBlob = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+  [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $c.CredentialBlob, $bytes.Length)
+  try {
+    $ok = [FloatBall.Cred]::CredWriteW([ref]$c, 0)
+    $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  }
+  finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($c.CredentialBlob) }
+  if (-not $ok) { Write-Host "   写入测试凭据失败，Windows 错误码 $err" }
+}
+function Remove-TestCred { [void][FloatBall.Cred]::CredDeleteW($credTarget, 1, 0) }
+#endregion
 function Test-RegValue([string]$key, [string]$value) { return $null -ne (Get-ItemProperty -Path $key -Name $value -ErrorAction SilentlyContinue) }
 function Find-Shortcuts {
   $dirs = @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop'))
   return @(Get-ChildItem -Path $dirs -Recurse -Filter "$name.lnk" -ErrorAction SilentlyContinue)
+}
+# 检查没过时把现场打印出来，方便看是哪里没清掉
+function Show-Leftovers([string]$title) {
+  Write-Host "   [$title]"
+  foreach ($s in Find-Shortcuts) {
+    $target = (New-Object -ComObject WScript.Shell).CreateShortcut($s.FullName).TargetPath
+    Write-Host "   快捷方式 $($s.FullName) -> $target"
+  }
+  if (Test-Path $InstallDir) {
+    Get-ChildItem -LiteralPath $InstallDir -Force -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 25 | ForEach-Object { Write-Host "   留下 $($_.FullName)" }
+  }
+  Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Write-Host "   还在运行 $($_.Path)" }
+  Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$InstallDir*" } | Select-Object -First 3 | ForEach-Object { Write-Host "   还在运行 WebView2 进程 $($_.ProcessId)，数据目录在安装目录里" }
 }
 function Stop-App { Get-Process -Name 'floatball' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2 }
 # /D= 必须是最后一个参数，而且不能加引号
@@ -54,6 +104,7 @@ $Installer = (Resolve-Path $Installer).Path
 
 try {
   Write-Host "== 安装到 $InstallDir"
+  Write-Host "   （临时目录的原始写法：$env:TEMP）"
   Check ((Install @()) -eq 0) '安装程序正常结束'
   Check (Test-Path $exe) '程序装进了选定的目录'
   Check (Test-Path $uninstaller) '安装目录里有卸载程序'
@@ -70,7 +121,7 @@ try {
 
   # 放一个记号文件、一条假的 API Key 和一份开机启动记录，看重装和卸载分别怎么处理它们
   Set-Content -Path $marker -Value 'keep me'
-  cmdkey /generic:$credTarget /user:api_key /pass:not-a-real-key | Out-Null
+  Set-TestCred
   Check (Test-Cred) '放入一条测试用的 API Key 凭据'
   New-Item -Path $approvedKey -Force | Out-Null
   New-ItemProperty -Path $runKey -Name $name -Value "`"$exe`"" -Force | Out-Null
@@ -94,6 +145,7 @@ try {
   Check (-not (Test-RegValue $approvedKey $name)) '开机启动的启用状态记录删掉了'
   Check (-not (Test-Path $uninstKey)) '「应用」列表里的记录删掉了'
   Check ((Find-Shortcuts).Count -eq 0) '开始菜单和桌面的快捷方式删掉了'
+  if ((Find-Shortcuts).Count) { Show-Leftovers '普通卸载之后' }
 
   Write-Host '== 再装一次，然后带 /CLEAN 卸载（等于勾选「删除应用程序数据」）'
   Check ((Install @()) -eq 0) '再次安装正常结束'
@@ -111,11 +163,12 @@ try {
   Check (-not (Test-Path $roaming)) 'AppData\Roaming 里没有残留'
   Check (-not (Test-Path $local)) 'AppData\Local 里没有残留'
   Check ((Find-Shortcuts).Count -eq 0) '开始菜单和桌面的快捷方式没有了'
+  if ((Find-Shortcuts).Count -or (Test-Path $InstallDir)) { Show-Leftovers '带 /CLEAN 卸载之后' }
 }
 finally {
   # 测试中途失败也不留下假的凭据和开机启动记录
   Stop-App
-  cmdkey /delete:$credTarget 2>&1 | Out-Null
+  Remove-TestCred
   Remove-ItemProperty -Path $runKey -Name $name -ErrorAction SilentlyContinue
   Remove-ItemProperty -Path $approvedKey -Name $name -ErrorAction SilentlyContinue
 }

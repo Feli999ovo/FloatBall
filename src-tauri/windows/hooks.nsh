@@ -20,7 +20,14 @@
       ; 确认是悬浮球自己的 data 才删，免得误删同一目录下别的东西
       ${If} ${FileExists} "$INSTDIR\data\history.db"
       ${OrIf} ${FileExists} "$INSTDIR\data\EBWebView\*.*"
-        RMDir /r "$INSTDIR\data"
+        ; 小球刚被卸载程序关掉时，它的界面进程可能还占着缓存文件一小会儿，所以最多试 10 秒
+        ${For} $1 1 20
+          RMDir /r "$INSTDIR\data"
+          ${IfNot} ${FileExists} "$INSTDIR\data\*.*"
+            ${ExitFor}
+          ${EndIf}
+          Sleep 500
+        ${Next}
       ${EndIf}
       ; 打包工具之前删安装目录时 data 还在，没删掉；现在空了才会被删
       RMDir "$INSTDIR"
