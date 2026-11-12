@@ -91,6 +91,19 @@ jobs:
           # 装到 runner 临时目录：覆盖 Browse 自选目录和安装目录内 data 的用法
           ./tools/check-windows-install.ps1 -Installer $installer -InstallDir (Join-Path $env:RUNNER_TEMP 'FloatBall-安装测试')
 
+      - name: 在真实桌面上打开程序并截图
+        if: runner.os == 'Windows'
+        continue-on-error: true   # 截图是给人看的，截不到不该让构建失败
+        shell: pwsh
+        run: ./tools/shoot-windows.ps1 -Exe src-tauri/target/release/floatball.exe -Out real-shots -Wallpaper design-reference/wallpaper.jpg
+
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Windows' && always()
+        with:
+          name: 真机截图-windows
+          path: real-shots
+          if-no-files-found: warn
+
       - name: 验证 macOS 临时签名
         if: runner.os == 'macOS'
         run: |
