@@ -87,7 +87,7 @@ const frame = () => new Promise((r) => { const t = setTimeout(r, 60); requestAni
 // 改窗口的大小和位置。窗口往左或往上长（缩）的时候，有一两帧画的还是旧版面，小球会闪到别处；
 // 所以这种情况先把内容藏起来，等新版面排好再显示。
 async function reshape(w, h, x, y, hide, relayout) {
-  if (hide) { body.classList.add("resizing"); await frame(); }
+  if (hide) { body.classList.add("resizing"); await frame(); await frame(); } // 等两帧：只等一帧时隐藏还没画出来，小球会在新窗口顶上闪一下（真机截图里见过）
   await appWin.setSize(new LogicalSize(w, h));
   await appWin.setPosition(new LogicalPosition(x, y));
   await new Promise((r) => { // 等网页拿到新的窗口尺寸，最多 300 毫秒
