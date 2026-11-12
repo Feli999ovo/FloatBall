@@ -24,7 +24,7 @@ nav button { text-align: left; padding: 8px 12px; border: 0; border-radius: 9px;
 nav button:hover { background: rgba(255, 255, 255, 0.06); color: var(--txt); }
 nav button[aria-selected="true"] { background: rgba(255, 255, 255, 0.1); color: var(--txt); font-weight: 600; }
 
-main { flex: 1; min-width: 0; overflow-y: auto; }
+main { flex: 1; min-width: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; } /* 系统默认的滚动条是浅色的，和深色界面不搭 */
 section { max-width: 620px; padding: 22px 28px 28px; display: flex; flex-direction: column; gap: 14px; }
 #libView, #formView { display: flex; flex-direction: column; gap: 14px; }
 header { display: flex; align-items: center; gap: 12px; min-height: 34px; }
