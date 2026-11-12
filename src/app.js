@@ -104,7 +104,10 @@ async function expand(view) {
     await appWin.setPosition(new LogicalPosition(x, y));
     S.open = true;
     body.classList.remove("collapsed");
-    showView(view || "chat");
+    // 设置填到一半点了别处被收起：再点开时接着填，不清空
+    const resume = S.resumeSet && !view;
+    S.resumeSet = false;
+    if (!resume) showView(view || "chat");
     await appWin.setFocus();
     focusAsk();
     mood("listen");
@@ -193,8 +196,7 @@ async function settle() {
 appWin.onFocusChanged(({ payload: focused }) => {
   if (focused || !S.open || S.pinned || S.busy) return;
   if (ask.value.trim() || S.attach.length) return;
-  if (!$("#vSet").hidden) return; // 设置没保存时不收
-  setTimeout(() => { if (!document.hasFocus()) collapse(); }, 150);
+  setTimeout(() => { if (!document.hasFocus()) { S.resumeSet = !$("#vSet").hidden; collapse(); } }, 150);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.open) {
@@ -274,9 +276,12 @@ function md(src) {
 }
 
 /* ───────── 对话 ───────── */
+function needsSetup() { return !!S.cfg && !S.cfg.has_key && !S.cfg.allow_no_key; }
 const msgsEl = $("#msgs");
 function updateEmpty() {
   $("#empty").hidden = msgsEl.children.length > 0;
+  // 还没设置模型时，空白页改成提示去设置（不再一启动就强行打开设置页）
+  $("#empty").classList.toggle("setup", needsSetup());
   msgsEl.hidden = msgsEl.children.length === 0;
 }
 function scrollEnd() { msgsEl.scrollTop = msgsEl.scrollHeight; }
@@ -410,6 +415,7 @@ function autosize() { ask.style.height = "auto"; ask.style.height = Math.min(40,
 ask.addEventListener("input", () => { autosize(); S.lastActive = Date.now(); });
 ask.addEventListener("focus", () => { if (!S.busy) mood("listen"); });
 ask.addEventListener("blur", () => { if (!S.busy && orb.className.includes("s-listen")) mood("idle"); });
+$("#setupBtn").onclick = () => showView("set");
 document.querySelectorAll("#empty .chips button").forEach((b) => (b.onclick = () => { ask.value = b.dataset.q; autosize(); ask.focus(); }));
 
 /* ───────── 附件：截图、拖进来的文件 ───────── */
@@ -586,8 +592,6 @@ listen("menu", async ({ payload }) => {
   try { S.cfg = await invoke("get_config"); } catch (_) {}
   updateEmpty();
   mood("idle");
-  if (S.cfg && !S.cfg.has_key && !S.cfg.allow_no_key) {
-    // 第一次用：直接打开设置
-    setTimeout(() => expand("set").then(() => setMsg("先填好你的模型接口和 Key")), 500);
-  }
+  // 还没设置模型：小球露出好奇的表情提醒一下，不自动展开，免得挡住屏幕
+  if (needsSetup()) mood("curious", 4000);
 })();

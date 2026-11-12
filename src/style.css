@@ -95,13 +95,15 @@ body.flip-x #bar { flex-direction: row-reverse; }
 /* ───────── 胶囊 ───────── */
 #capsule { flex: 1; min-width: 0; height: 52px; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 16px;
   border-radius: 26px; background: rgba(23, 20, 42, 0.9); border: 1px solid var(--line);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 10px 28px rgba(8, 6, 20, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 3px 9px rgba(8, 6, 20, 0.3);
   opacity: 0; transform: scaleX(0.6); transform-origin: left center; transition: opacity 0.25s, transform 0.45s var(--spring); }
 body.flip-x #capsule { transform-origin: right center; }
 body:not(.collapsed) #capsule { opacity: 1; transform: none; }
 #ask { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--txt);
   font: inherit; font-size: 15px; line-height: 20px; max-height: 40px; padding: 0; user-select: text; -webkit-user-select: text; }
 #ask::placeholder { color: var(--mut); }
+#ask::-webkit-scrollbar { display: none; } /* 不然 Windows 会在输入框里画出白色的上下箭头 */
+#ask { scrollbar-width: none; }
 .ib { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border: 0; border-radius: 12px;
   background: transparent; color: var(--mut); transition: background 0.15s, color 0.15s; }
 .ib:hover { background: rgba(255, 255, 255, 0.08); color: var(--txt); }
@@ -121,7 +123,7 @@ body:not(.collapsed) #capsule { opacity: 1; transform: none; }
 /* ───────── 卡片 ───────── */
 #card { flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 22px;
   background: linear-gradient(180deg, rgba(34, 30, 58, 0.94), rgba(23, 20, 42, 0.95));
-  border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 18px 40px rgba(8, 6, 20, 0.4);
+  border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 9px rgba(8, 6, 20, 0.3);
   opacity: 0; transform: translateY(-8px) scale(0.97); transition: opacity 0.22s, transform 0.4s var(--spring); }
 body.flip-y #card { transform: translateY(8px) scale(0.97); }
 body:not(.collapsed) #card { opacity: 1; transform: none; }
@@ -209,3 +211,7 @@ body.collapsed #toast { display: none; }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 #empty[hidden], #msgs[hidden], #attach[hidden] { display: none; }
+#empty .setup-tip .pri { align-self: flex-start; }
+#empty .setup-tip { display: none; flex-direction: column; }
+#empty.setup .setup-tip { display: flex; }
+#empty.setup > .hello, #empty.setup > .sub, #empty.setup > .chips { display: none; }
