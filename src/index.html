@@ -73,38 +73,6 @@
       <p class="muted" id="histEmpty" hidden>还没有对话。</p>
     </div>
 
-    <!-- 设置 -->
-    <div class="view" id="vSet" hidden>
-      <div class="vh"><b>设置</b></div>
-      <div class="form">
-        <label>接口地址<input id="fBase" placeholder="https://api.openai.com/v1" spellcheck="false" /></label>
-        <div class="presets" id="presets">
-          <button data-b="https://api.openai.com/v1" data-m="gpt-4o-mini">OpenAI</button>
-          <button data-b="https://api.deepseek.com/v1" data-m="deepseek-chat" data-v="0">DeepSeek</button>
-          <button data-b="https://dashscope.aliyuncs.com/compatible-mode/v1" data-m="qwen-plus">通义千问</button>
-          <button data-b="https://api.moonshot.cn/v1" data-m="moonshot-v1-8k" data-v="0">Kimi</button>
-          <button data-b="https://openrouter.ai/api/v1" data-m="openai/gpt-4o-mini">OpenRouter</button>
-          <button data-b="http://localhost:11434/v1" data-m="qwen2.5:7b" data-k="1" data-v="0">Ollama 本地</button>
-        </div>
-        <label>模型<input id="fModel" placeholder="gpt-4o-mini" spellcheck="false" /></label>
-        <label>API Key<input id="fKey" type="password" placeholder="sk-…" spellcheck="false" autocomplete="off" /></label>
-        <p class="hint" id="keyHint">保存在系统钥匙串里，不写进任何文件。</p>
-        <label class="ck"><input type="checkbox" id="fNoKey" />不需要 Key（本地模型）</label>
-        <label class="ck"><input type="checkbox" id="fVision" />模型支持图片（截屏提问会把截图发给它）</label>
-        <label>系统提示词<textarea id="fSys" rows="3"></textarea></label>
-        <div class="two">
-          <label>呼出小球<input id="fKeyMain" spellcheck="false" /></label>
-          <label>截屏提问<input id="fKeyCap" spellcheck="false" /></label>
-        </div>
-        <p class="hint">写法如 Alt+Space、CommandOrControl+Shift+K。Mac 上 Alt 就是 ⌥。</p>
-        <label class="ck"><input type="checkbox" id="fAuto" />开机启动</label>
-      </div>
-      <div class="actions">
-        <span class="msg" id="setMsg" role="status"></span>
-        <button class="txt" id="testBtn">测试连接</button>
-        <button class="pri" id="saveBtn">保存</button>
-      </div>
-    </div>
   </section>
   <div id="toast" role="status"></div>
 </div>

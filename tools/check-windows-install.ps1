@@ -12,7 +12,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $name = 'FloatBall'
 $id = 'com.floatball.desktop'
-$credTarget = "api_key.$id"
+# 模型库里每个模型一把 Key：1 号叫 api_key，其余叫 api_key_编号，最多到 32（和 src-tauri/src/config.rs、windows/hooks.nsh 一致）。
+# 测第一个、第二个和最后一个。
+$credUsers = @('api_key', 'api_key_2', 'api_key_32')
 $roaming = Join-Path $env:APPDATA $id
 $local = Join-Path $env:LOCALAPPDATA $id
 $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$name"
@@ -47,16 +49,20 @@ public struct CREDENTIAL {
 [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] public static extern bool CredDeleteW(string target, uint type, uint flags);
 [DllImport("advapi32.dll")] public static extern void CredFree(IntPtr cred);
 '@
-function Test-Cred {
+function Test-OneCred([string]$user) {
   $p = [IntPtr]::Zero
-  if (-not [FloatBall.Cred]::CredReadW($credTarget, 1, 0, [ref]$p)) { return $false }
+  if (-not [FloatBall.Cred]::CredReadW("$user.$id", 1, 0, [ref]$p)) { return $false }
   [FloatBall.Cred]::CredFree($p)
   return $true
 }
-function Set-TestCred {
+# 有几把测试用的 Key 还在
+function Count-Creds { return @($credUsers | Where-Object { Test-OneCred $_ }).Count }
+function Test-Cred { return (Count-Creds) -eq $credUsers.Count }
+function Set-TestCred { foreach ($u in $credUsers) { Set-OneCred $u } }
+function Set-OneCred([string]$user) {
   $bytes = [Text.Encoding]::Unicode.GetBytes('not-a-real-key')
   $c = New-Object 'FloatBall.Cred+CREDENTIAL'
-  $c.Type = 1; $c.Persist = 3; $c.TargetName = $credTarget; $c.UserName = 'api_key'
+  $c.Type = 1; $c.Persist = 3; $c.TargetName = "$user.$id"; $c.UserName = $user
   $c.CredentialBlobSize = $bytes.Length
   $c.CredentialBlob = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
   [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $c.CredentialBlob, $bytes.Length)
@@ -67,7 +73,7 @@ function Set-TestCred {
   finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($c.CredentialBlob) }
   if (-not $ok) { Write-Host "   写入测试凭据失败，Windows 错误码 $err" }
 }
-function Remove-TestCred { [void][FloatBall.Cred]::CredDeleteW($credTarget, 1, 0) }
+function Remove-TestCred { foreach ($u in $credUsers) { [void][FloatBall.Cred]::CredDeleteW("$u.$id", 1, 0) } }
 #endregion
 function Test-RegValue([string]$key, [string]$value) { return $null -ne (Get-ItemProperty -Path $key -Name $value -ErrorAction SilentlyContinue) }
 function Find-Shortcuts {
@@ -97,7 +103,7 @@ function Uninstall([string[]]$extra) {
   return $code
 }
 
-if ((Test-Path $uninstKey) -or (Test-Path $roaming) -or (Test-Path $local) -or (Test-Path $InstallDir) -or (Test-Cred)) {
+if ((Test-Path $uninstKey) -or (Test-Path $roaming) -or (Test-Path $local) -or (Test-Path $InstallDir) -or ((Count-Creds) -gt 0)) {
   throw '这台电脑上已经有 FloatBall 的安装或数据，测试脚本不在这里运行（它会删除数据）'
 }
 $Installer = (Resolve-Path $Installer).Path
@@ -122,7 +128,7 @@ try {
   # 放一个记号文件、一条假的 API Key 和一份开机启动记录，看重装和卸载分别怎么处理它们
   Set-Content -Path $marker -Value 'keep me'
   Set-TestCred
-  Check (Test-Cred) '放入一条测试用的 API Key 凭据'
+  Check (Test-Cred) '放入三条测试用的 API Key 凭据（模型库里第 1、2、32 个模型的）'
   # 只在注册表项不存在时才新建：对已有的项用 New-Item -Force 会清空里面原有的内容
   foreach ($k in @($runKey, $approvedKey)) { if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null } }
   New-ItemProperty -Path $runKey -Name $name -Value "`"$exe`"" -Force | Out-Null
@@ -158,7 +164,7 @@ try {
   Check ((Uninstall @('/CLEAN')) -eq 0) '程序开着时卸载，卸载程序正常结束'
   Check ($null -eq (Get-Process -Name 'floatball' -ErrorAction SilentlyContinue)) '卸载程序把正在运行的小球关掉了'
   Check (Wait-For { -not (Test-Path $InstallDir) } 60) '安装目录整个没有了（包括 data）'
-  Check (-not (Test-Cred)) '凭据管理器里的 API Key 没有了'
+  Check ((Count-Creds) -eq 0) '凭据管理器里的 API Key 都没有了（包括模型库里其余模型的）'
   Check (-not (Test-Path $uninstKey)) '「应用」列表里的记录没有了'
   Check (-not (Test-Path 'HKCU:\Software\floatball')) '注册表里的安装位置记录没有了'
   Check (-not (Test-Path $roaming)) 'AppData\Roaming 里没有残留'

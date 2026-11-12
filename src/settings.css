@@ -1,0 +1,89 @@
+/* 设置窗口（独立的普通窗口）。颜色和小球窗口一致：墨 #17142A、眼 #FFF1DC，不用橙色。 */
+:root {
+  --ink: #17142a;
+  --ink-2: #221e3a;
+  --eye: #fff1dc;
+  --line: rgba(255, 255, 255, 0.12);
+  --txt: #f4f1ff;
+  --mut: rgba(244, 241, 255, 0.62);
+  --acc: #a99cff;
+  --ok: #7fe0b0;
+  --bad: #ff8fa3;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; background: var(--ink); color: var(--txt); font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif; user-select: none; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+nav { flex: none; width: 168px; padding: 20px 10px; display: flex; flex-direction: column; gap: 2px; background: rgba(0, 0, 0, 0.22); border-right: 1px solid var(--line); }
+nav button { text-align: left; padding: 8px 12px; border: 0; border-radius: 9px; background: none; color: var(--mut); }
+nav button:hover { background: rgba(255, 255, 255, 0.06); color: var(--txt); }
+nav button[aria-selected="true"] { background: rgba(255, 255, 255, 0.1); color: var(--txt); font-weight: 600; }
+
+main { flex: 1; min-width: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; } /* 系统默认的滚动条是浅色的，和深色界面不搭 */
+section { max-width: 620px; padding: 22px 28px 28px; display: flex; flex-direction: column; gap: 14px; }
+#libView, #formView { display: flex; flex-direction: column; gap: 14px; }
+header { display: flex; align-items: center; gap: 12px; min-height: 34px; }
+h1 { flex: 1; margin: 0; font-size: 18px; font-weight: 600; }
+.grow { flex: 1; }
+.hint, .empty { margin: 0; font-size: 12.5px; color: var(--mut); }
+.empty { padding: 26px 16px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
+.msg { margin: 0; min-height: 20px; font-size: 13px; color: var(--mut); }
+.msg.ok { color: var(--ok); }
+.msg.bad { color: var(--bad); }
+
+button { border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); border-radius: 9px; padding: 6px 14px; }
+button:hover { background: rgba(255, 255, 255, 0.1); }
+button:disabled { opacity: 0.5; cursor: default; }
+.pri { border-color: transparent; background: var(--eye); color: var(--ink); font-weight: 600; }
+.pri:hover { background: #fff; }
+.danger { color: var(--bad); }
+
+/* 模型库 */
+#modelList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#modelList li { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.03); }
+#modelList li.def { border-color: rgba(255, 241, 220, 0.5); }
+#modelList .info { flex: 1; min-width: 0; }
+#modelList .name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+#modelList .name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#modelList .sub { font-size: 12px; color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { flex: none; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--mut); }
+.tag.def { border-color: transparent; background: var(--eye); color: var(--ink); }
+.tag.warn { border-color: rgba(255, 143, 163, 0.5); color: var(--bad); }
+#modelList button { flex: none; padding: 4px 10px; font-size: 12.5px; }
+
+/* 表单 */
+label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--mut); }
+input:not([type=checkbox]):not([type=range]), textarea { width: 100%; padding: 8px 10px; font-size: 13.5px; color: var(--txt); background: rgba(0, 0, 0, 0.28); border: 1px solid var(--line); border-radius: 9px; outline: none; user-select: text; }
+input:not([type=checkbox]):not([type=range]):focus, textarea:focus { border-color: var(--acc); }
+textarea { resize: vertical; min-height: 96px; }
+.row { display: flex; gap: 8px; }
+.row input { flex: 1; min-width: 0; }
+.row button { flex: none; }
+.ck { flex-direction: row; align-items: center; gap: 8px; font-size: 13.5px; color: var(--txt); }
+.ck input { width: 16px; height: 16px; margin: 0; accent-color: var(--acc); }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.presets button { padding: 4px 11px; font-size: 12.5px; border-radius: 99px; }
+footer { display: flex; align-items: center; gap: 8px; padding-top: 6px; }
+
+/* 外观、快捷键 */
+.field { display: flex; align-items: center; gap: 14px; min-height: 36px; }
+.field > span:first-child, .field > label { flex: none; width: 120px; font-size: 13.5px; color: var(--txt); }
+.seg { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 11px; background: rgba(0, 0, 0, 0.25); }
+.seg button { border: 0; background: none; padding: 5px 16px; border-radius: 8px; color: var(--mut); }
+.seg button[aria-checked="true"] { background: rgba(255, 255, 255, 0.14); color: var(--txt); font-weight: 600; }
+input[type=range] { flex: 1; max-width: 260px; accent-color: var(--acc); }
+output { width: 48px; font-size: 13px; color: var(--mut); font-variant-numeric: tabular-nums; }
+.dots { display: flex; gap: 10px; }
+.dots button { width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid transparent; background: var(--c); box-shadow: 0 0 0 1px var(--line); }
+.dots button[aria-checked="true"] { border-color: var(--ink); box-shadow: 0 0 0 2px var(--c); }
+.keycap { min-width: 150px; padding: 7px 14px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; text-align: center; background: rgba(0, 0, 0, 0.28); }
+.keycap.rec { border-color: var(--acc); color: var(--acc); }
+
+@media (prefers-reduced-motion: no-preference) {
+  button, nav button { transition: background 0.15s, color 0.15s, border-color 0.15s; }
+}

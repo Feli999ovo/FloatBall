@@ -55,10 +55,10 @@ body.flip-x .cap { transform: scaleX(-1); }
 /* 展开后小球自己的底和玻璃让位给胶囊的 */
 body:not(.collapsed) #orb .body, body:not(.collapsed) #orb .glass { opacity: 0; transition: opacity 0.15s 0.1s; }
 body:not(.collapsed) #orb .float, body:not(.collapsed) #orb .breath { animation: none; }
-.face { position: absolute; inset: 0; pointer-events: none; --c: var(--eye); }
+.face { position: absolute; left: 0; top: 0; width: 72px; height: 72px; transform-origin: 0 0; transform: scale(var(--k, 1)); pointer-events: none; --c: var(--eye); }
 .face > * { position: absolute; transition: all 0.42s var(--spring); }
-.eye { width: 9px; height: 21px; top: 25px; border-radius: 99px; background: var(--c);
-  box-shadow: 0 0 6px #ffd9a8, 0 0 14px var(--eye-glow); transform: translate(var(--lx, 0), var(--ly, 0)); }
+.eye { width: 9px; height: 21px; top: 25px; /* 眼睛按 72 像素的小球画，别的大小靠 .face 整体缩放 */ border-radius: 99px; background: var(--c);
+  box-shadow: 0 0 6px var(--eye-near, #ffd9a8), 0 0 14px var(--eye-glow); transform: translate(var(--lx, 0), var(--ly, 0)); }
 .eye.l { left: 23px; } .eye.r { left: 40px; }
 .arc { top: 30px; width: 16px; height: 8px; opacity: 0; }
 .arc path { stroke: var(--c); stroke-width: 2.8; fill: none; stroke-linecap: round; }
@@ -110,10 +110,10 @@ body:not(.collapsed) #orb .float, body:not(.collapsed) #orb .breath { animation:
 
 /* ───────── 胶囊 ───────── */
 /* 输入框正好落在素材那一圈轮廓里：轮廓从小球右侧四分之一处开始，所以往小球下面伸进去一截 */
-#capsule { position: relative; z-index: 1; flex: 1; min-width: 0; height: 46px; margin: 0 14px 0 -20px; display: flex; align-items: center; gap: 2px; padding: 0 5px 0 34px;
-  border-radius: 23px; background: rgba(255, 255, 255, 0.04);
+#capsule { position: relative; z-index: 1; flex: 1; min-width: 0; height: calc(var(--orb) * 0.64); margin: 0 calc(var(--orb) * 0.2) 0 calc(var(--orb) * -0.28); display: flex; align-items: center; gap: 2px; padding: 0 5px 0 calc(var(--orb) * 0.47);
+  border-radius: 99px; background: rgba(255, 255, 255, 0.04);
   opacity: 0; transition: opacity 0.25s 0.2s; }
-body.flip-x #capsule { margin: 0 -20px 0 14px; padding: 0 34px 0 14px; }
+body.flip-x #capsule { margin: 0 calc(var(--orb) * -0.28) 0 calc(var(--orb) * 0.2); padding: 0 calc(var(--orb) * 0.47) 0 14px; }
 body:not(.collapsed) #capsule { opacity: 1; }
 #ask { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--txt);
   font: inherit; font-size: 15px; line-height: 20px; max-height: 40px; padding: 0; user-select: text; -webkit-user-select: text; }
@@ -144,7 +144,7 @@ body:not(.collapsed) #capsule { opacity: 1; }
 body.flip-y #card { transform: translateY(8px) scale(0.97); }
 /* 毛玻璃：程序在展开前截下卡片后面那块桌面、模糊后传过来（见 app.js 的 grabBackdrop），垫在一层墨色下面。拿不到时就是上面不透明的底。 */
 #card::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0; transition: opacity 0.3s;
-  background: linear-gradient(180deg, rgba(34, 30, 58, 0.72), rgba(23, 20, 42, 0.8)), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
+  background: linear-gradient(180deg, rgba(34, 30, 58, var(--tint, 0.75)), rgba(23, 20, 42, calc(var(--tint, 0.75) + 0.08))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
 #card.glassy::before { opacity: 1; }
 body:not(.collapsed) #card { opacity: 1; transform: none; }
 body.collapsed #capsule, body.collapsed #card { pointer-events: none; visibility: hidden; }
@@ -182,8 +182,8 @@ body.collapsed #app { padding: var(--pad); }
 #empty .hello { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
 #empty .sub { margin: 0 0 16px; color: var(--mut); line-height: 1.6; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chips button, .presets button { border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); border-radius: 99px; padding: 6px 12px; font-size: 13px; }
-.chips button:hover, .presets button:hover { background: rgba(255, 255, 255, 0.1); }
+.chips button { border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); border-radius: 99px; padding: 6px 12px; font-size: 13px; }
+.chips button:hover { background: rgba(255, 255, 255, 0.1); }
 #stopRow { display: flex; justify-content: center; padding: 4px 0 10px; }
 #stopRow[hidden] { display: none; }
 #stopBtn { border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); border-radius: 99px; padding: 6px 14px; font-size: 12px; }
@@ -205,21 +205,6 @@ body.collapsed #app { padding: var(--pad); }
 #histList li:hover .x, #histList .x:focus-visible { opacity: 1; }
 #histList .x:hover { color: var(--bad); background: rgba(255, 255, 255, 0.08); }
 #histList .x svg { width: 14px; height: 14px; }
-
-.form { flex: 1; overflow-y: auto; padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 10px; }
-.form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--mut); }
-.form input:not([type=checkbox]), .form textarea { font: inherit; font-size: 13px; color: var(--txt); background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; outline: none; user-select: text; -webkit-user-select: text; resize: vertical; }
-.form input:focus, .form textarea:focus { border-color: rgba(169, 156, 255, 0.7); }
-.form .ck { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--txt); }
-.form .ck input { accent-color: #a99cff; width: 15px; height: 15px; margin: 0; }
-.form .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -2px; }
-.presets button { padding: 4px 10px; font-size: 12px; }
-.hint { margin: -4px 0 0; font-size: 11.5px; color: var(--mut); line-height: 1.5; }
-.actions { display: flex; align-items: center; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
-.actions .msg { flex: 1; min-width: 0; font-size: 12px; color: var(--mut); line-height: 1.4; }
-.actions .msg.ok { color: var(--ok); } .actions .msg.bad { color: var(--bad); }
 
 #toast { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 10px); max-width: calc(100% - 40px);
   padding: 8px 14px; border-radius: 12px; background: rgba(23, 20, 42, 0.96); border: 1px solid var(--line);

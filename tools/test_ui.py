@@ -48,56 +48,23 @@ async def main():
         check(await pg.is_visible("#setupBtn") and not await pg.is_visible("#empty .chips"), "没设置模型时点开小球，提示先去设置")
         await shot("01b_first_run_tip")
         await pg.click("#setupBtn"); await pg.wait_for_timeout(200)
-        m = await shot("01c_first_run_settings")
-        check(await pg.is_visible("#vSet"), "点「去设置」打开设置")
-
-        # 1b 设置填到一半点了别处：收起成小球，再点开还在设置页，填的内容没丢
-        await pg.fill("#fModel", "half-typed")
-        await pg.evaluate("document.hasFocus = () => false; __mock.focus[0]({ payload: false })")
-        await pg.wait_for_timeout(600)
-        check((await pg.evaluate("__mock"))["size"] == {"w": 96, "h": 96}, "设置页点别处会收起，不再一直挡着")
-        await pg.evaluate("delete document.hasFocus")
-        await pg.click("#orb"); await pg.wait_for_timeout(500)
-        check(await pg.is_visible("#vSet") and await pg.input_value("#fModel") == "half-typed", "再点开接着填，内容没丢")
+        check((await pg.evaluate("__mock")).get("settingsOpened") == 1, "点「去设置」打开设置窗口")
         check(await pg.evaluate("getComputedStyle(document.querySelector('#ask'), '::-webkit-scrollbar').display") == "none", "输入框不显示滚动条箭头")
         m = await pg.evaluate("__mock")
         bodycls = await pg.get_attribute("body", "class")
         check("flip-x" in bodycls, f"小球在右侧时卡片向左展开 ({bodycls})")
         check(m["pos"]["x"] + 420 <= 1440, f"展开后不超出屏幕右边 x={m['pos']['x']}")
 
-        # 2 预设 + 填 Key + 测试 + 保存
-        await pg.click("#presets button:has-text('DeepSeek')")
-        check(await pg.input_value("#fModel") == "deepseek-chat", "预设填入模型名")
-        check(not await pg.is_checked("#fVision"), "DeepSeek 预设关闭图片")
-        await pg.fill("#fKey", "sk-test")
-        await pg.click("#testBtn"); await pg.wait_for_timeout(200)
-        check("连接成功" in await pg.inner_text("#setMsg"), "测试连接显示结果")
-        await pg.fill("#fBase", "ftp://x"); await pg.click("#saveBtn")
-        check("http" in await pg.inner_text("#setMsg"), "接口地址校验")
-        await pg.click("#presets button:has-text('OpenAI')")
-        await pg.fill("#fKey", "sk-test")
-        await pg.check("#fAuto")
-        await pg.click("#saveBtn"); await pg.wait_for_timeout(200)
-        m = await pg.evaluate("__mock")
-        check(m["cfg"]["has_key"] and m["cfg"]["model"] == "gpt-4o-mini" and m["cfg"]["autostart"], "保存设置（Key、模型、开机启动）")
-        await shot("02_settings_saved")
+        # 2 设置窗口里加好了模型：小球窗口收到通知，提示换成正常的引导
+        await pg.evaluate("""() => {
+            __mock.cfg.models = [{ id: 1, name: "", base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", vision: true, no_key: false, has_key: true }];
+            __mock.cfg.default_model = 1;
+            __emit("config");
+        }""")
+        await pg.wait_for_timeout(200)
+        check(not await pg.is_visible("#setupBtn") and await pg.is_visible("#empty .chips"), "加好模型后不再提示去设置")
 
-        # 2b 快捷键被别的程序占用：其余设置照常保存，只提示换快捷键
-        await pg.evaluate("__mock.shortcutBusy = true")
-        await pg.fill("#fModel", "gpt-4o")
-        await pg.click("#saveBtn"); await pg.wait_for_timeout(200)
-        m = await pg.evaluate("__mock")
-        msg = await pg.inner_text("#setMsg")
-        check(m["cfg"]["model"] == "gpt-4o", "快捷键被占用时其余设置照常保存")
-        check("已保存" in msg and "占用" in msg and "换一个" in msg, f"快捷键被占用时提示换一个（{msg}）")
-        await shot("02b_shortcut_busy")
-        await pg.evaluate("__mock.shortcutBusy = false")
-        await pg.fill("#fModel", "gpt-4o-mini")
-        await pg.click("#saveBtn"); await pg.wait_for_timeout(200)
-        check(await pg.inner_text("#setMsg") == "已保存", "快捷键没被占用时照常提示已保存")
-
-        # 3 回到对话，空状态
-        await pg.click("#setBtn"); await pg.wait_for_timeout(200)
+        # 3 空状态
         check(await pg.is_visible("#empty"), "空对话显示引导")
         await shot("03_empty_chat")
 
@@ -242,9 +209,11 @@ async def main():
         await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
 
         # 12 菜单事件与快捷键事件
-        await pg.evaluate("__emit('menu','settings')"); await pg.wait_for_timeout(500)
-        check(await pg.is_visible("#vSet"), "菜单「设置」打开设置")
-        await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(400)
+        await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(900)
+        check((await pg.evaluate("__mock"))["size"]["w"] == 420, "快捷键呼出")
+        await pg.click("#setBtn"); await pg.wait_for_timeout(200)
+        check((await pg.evaluate("__mock")).get("settingsOpened") == 2, "卡片上的设置按钮打开设置窗口")
+        await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(800)
         check((await pg.evaluate("__mock"))["size"]["w"] == 96, "快捷键收起")
         await pg.click("#orb", button="right")
         check((await pg.evaluate("__mock")).get("menuShown"), "右键弹出系统菜单")
@@ -261,7 +230,126 @@ async def main():
         m = await pg.evaluate("__mock")
         check(m.get("dragStarted") and m["size"]["w"] == 96, "拖动不会误触展开")
 
+        # 14 外观设置：小球大小、眼睛颜色、卡片透明度
+        await pg.evaluate("""() => { Object.assign(__mock.cfg, { orb_size: 84, eye: "#CFE3FF", glass: 50 }); __emit("config"); }""")
+        await pg.wait_for_timeout(400)
+        look = await pg.evaluate("""() => { const s = getComputedStyle(document.documentElement); return {
+            size: __mock.size, orb: document.querySelector('#orb').offsetWidth, eye: s.getPropertyValue('--eye').trim(), tint: s.getPropertyValue('--tint').trim(),
+            // 眼睛那一层和它外面那一层一样大才对（两者一起做呼吸动画，所以比的是相对大小）
+            face: Math.abs(document.querySelector('.face').getBoundingClientRect().width - document.querySelector('.face').parentElement.getBoundingClientRect().width) }; }""")
+        check(look["size"] == {"w": 108, "h": 108} and look["orb"] == 84 and look["face"] < 1, f"小球调大后窗口和眼睛跟着变大 {look}")
+        check(look["eye"] == "#CFE3FF" and look["tint"] == "0.5", "眼睛颜色和卡片透明度生效")
+        await shot("13_big_orb")
+
         check(not errs, "页面无 JS 错误 " + "; ".join(errs))
+
+        # ───────── 设置窗口（单独的窗口，单独的页面） ─────────
+        ctx2 = await b.new_context(viewport={"width": 760, "height": 560}, device_scale_factor=2)
+        s = await ctx2.new_page()
+        errs2 = []
+        s.on("pageerror", lambda e: errs2.append(str(e)))
+        s.on("console", lambda m: m.type == "error" and errs2.append(m.text))
+        await s.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
+        await s.goto("file://" + os.path.join(ROOT, "src", "settings.html"))
+        await s.wait_for_timeout(400)
+        mock = lambda: s.evaluate("__mock")
+
+        # S1 模型库是空的：直接打开「添加模型」
+        check(await s.is_visible("#formView") and await s.inner_text("#formTitle") == "添加模型", "模型库是空的时直接打开添加模型")
+        await s.click("#presets button:has-text('DeepSeek')")
+        check(await s.input_value("#fModel") == "deepseek-chat" and not await s.is_checked("#fVision"), "预设填入模型名，DeepSeek 关闭图片")
+        await s.fill("#fBase", "ftp://x"); await s.click("#saveModelBtn")
+        check("http" in await s.inner_text("#formMsg") and len((await mock())["cfg"]["models"]) == 0, "接口地址校验")
+        await s.click("#presets button:has-text('DeepSeek')")
+        await s.fill("#fKey", "sk-test")
+        await s.click("#testBtn"); await s.wait_for_timeout(200)
+        check("连接成功" in await s.inner_text("#formMsg") and (await mock())["testArgs"]["apiKey"] == "sk-test", "测试连接用的是表单里填的 Key")
+        await s.click("#fetchBtn"); await s.wait_for_timeout(200)
+        check(await s.locator("#modelOptions option").count() == 3 and "3 个" in await s.inner_text("#formMsg"), "获取模型列表")
+        await s.screenshot(path=f"{OUT}/20_settings_add_model.png")
+        await s.evaluate("__mock.listFails = true")
+        await s.click("#fetchBtn"); await s.wait_for_timeout(200)
+        check("连不上" in await s.inner_text("#formMsg"), "获取模型列表失败时说明原因")
+        await s.evaluate("__mock.listFails = false")
+        await s.fill("#fModel", ""); await s.click("#saveModelBtn")
+        check("模型名" in await s.inner_text("#formMsg"), "模型名不能为空")
+        await s.fill("#fModel", "deepseek-chat")
+        await s.click("#saveModelBtn"); await s.wait_for_timeout(200)
+        m = await mock()
+        check(len(m["cfg"]["models"]) == 1 and m["cfg"]["models"][0]["has_key"] and m["cfg"]["default_model"] == 1, "保存模型，第一个自动成为默认")
+        check(await s.is_visible("#libView") and "默认" in await s.inner_text("#modelList li"), "回到模型库，标出默认模型")
+
+        # S2 第二个模型（本地，不需要 Key），设为默认
+        await s.click("#addBtn")
+        await s.click("#presets button:has-text('Ollama')")
+        check(await s.is_checked("#fNoKey"), "本地模型预设勾上不需要 Key")
+        await s.fill("#fName", "本地千问")
+        await s.click("#saveModelBtn"); await s.wait_for_timeout(200)
+        check(await s.locator("#modelList li").count() == 2 and "本地千问" in await s.inner_text("#modelList"), "模型库里有两个模型，显示自己起的名字")
+        check("没有 Key" not in await s.inner_text("#modelList"), "不需要 Key 的模型不提示没有 Key")
+        await s.click("#modelList li:nth-child(2) button:has-text('设为默认')"); await s.wait_for_timeout(200)
+        check((await mock())["cfg"]["default_model"] == 2 and "默认" in await s.inner_text("#modelList li:nth-child(2)"), "设为默认")
+        await s.screenshot(path=f"{OUT}/21_settings_models.png")
+
+        # S3 编辑：不重填 Key 就不改 Key
+        await s.click("#modelList li:nth-child(1) button:has-text('编辑')")
+        check("已保存" in await s.get_attribute("#fKey", "placeholder") and await s.input_value("#fKey") == "", "编辑时不显示已存的 Key")
+        await s.fill("#fModel", "deepseek-reasoner")
+        await s.click("#saveModelBtn"); await s.wait_for_timeout(200)
+        m = await mock()
+        check(m["cfg"]["models"][0]["model"] == "deepseek-reasoner" and m["cfg"]["models"][0]["has_key"] and m["lastKey"] is None, "编辑后 Key 没动")
+        check(len(m["cfg"]["models"]) == 2, "编辑不会多出一个模型")
+
+        # S4 删除要点两次；删掉默认的，默认换成剩下的
+        await s.click("#modelList li:nth-child(2) button:has-text('删除')")
+        check(len((await mock())["cfg"]["models"]) == 2 and await s.locator("#modelList button:has-text('确认删除')").count() == 1, "删除要再点一次确认")
+        await s.click("#modelList button:has-text('确认删除')"); await s.wait_for_timeout(200)
+        m = await mock()
+        check(len(m["cfg"]["models"]) == 1 and m["cfg"]["default_model"] == 1, "删掉默认模型后默认换成剩下的")
+
+        # S5 左侧分类：键盘上下切换
+        await s.focus("#tabModels"); await s.keyboard.press("ArrowDown")
+        check(await s.is_visible("#pLook") and not await s.is_visible("#pModels") and await s.get_attribute("#tabLook", "aria-selected") == "true", "方向键切换分类")
+
+        # S6 外观
+        await s.click("#fSize button:has-text('大')"); await s.wait_for_timeout(150)
+        await s.click("#fEye button[aria-label='冷白']"); await s.wait_for_timeout(150)
+        await s.evaluate("""() => { const r = document.querySelector('#fGlass'); r.value = 40; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }""")
+        await s.wait_for_timeout(150)
+        c = (await mock())["cfg"]
+        check(c["orb_size"] == 84 and c["eye"] == "#CFE3FF" and c["glass"] == 40, f"外观改了就保存 {c['orb_size']} {c['eye']} {c['glass']}")
+        check(await s.inner_text("#glassOut") == "40%" and await s.inner_text("#lookMsg") == "已保存", "外观页显示当前值和已保存")
+        await s.screenshot(path=f"{OUT}/22_settings_look.png")
+
+        # S7 快捷键：点一下再按组合键
+        await s.click("#tabKeys")
+        await s.click("#fKeyMain")
+        check("请按" in await s.inner_text("#fKeyMain"), "点一下进入录入")
+        await s.keyboard.press("KeyK")
+        check("至少带一个" in await s.inner_text("#keysMsg") and (await mock())["cfg"]["shortcut"] == "Alt+Space", "不带修饰键的不接受")
+        await s.keyboard.press("Control+Shift+KeyK"); await s.wait_for_timeout(150)
+        check((await mock())["cfg"]["shortcut"] == "Control+Shift+K" and await s.inner_text("#fKeyMain") == "Control+Shift+K", "录入新的快捷键")
+        await s.click("#fKeyCap"); await s.keyboard.press("Control+Shift+KeyK"); await s.wait_for_timeout(150)
+        check("不能一样" in await s.inner_text("#keysMsg") and (await mock())["cfg"]["capture_shortcut"] == "Alt+Shift+S", "两个快捷键不能一样")
+        await s.keyboard.press("Escape")
+        check(await s.inner_text("#fKeyCap") == "Alt+Shift+S", "Esc 取消录入")
+        await s.evaluate("__mock.shortcutBusy = true")
+        await s.click("#fKeyMain"); await s.keyboard.press("Alt+KeyJ"); await s.wait_for_timeout(150)
+        msg = await s.inner_text("#keysMsg")
+        check((await mock())["cfg"]["shortcut"] == "Alt+J" and "已保存" in msg and "占用" in msg and "换一个" in msg, f"快捷键被占用时其余设置照常保存，提示换一个（{msg}）")
+        await s.screenshot(path=f"{OUT}/23_settings_shortcut_busy.png")
+        await s.evaluate("__mock.shortcutBusy = false")
+        await s.click("#fKeyMain"); await s.keyboard.press("Alt+Space"); await s.wait_for_timeout(150)
+        check(await s.inner_text("#keysMsg") == "已保存" and (await mock())["cfg"]["shortcut"] == "Alt+Space", "快捷键没被占用时提示已保存")
+
+        # S8 通用
+        await s.click("#tabGeneral")
+        await s.check("#fAuto"); await s.wait_for_timeout(150)
+        await s.fill("#fSys", "只用中文回答"); await s.press("#fSys", "Tab"); await s.wait_for_timeout(150)
+        c = (await mock())["cfg"]
+        check(c["autostart"] and c["system_prompt"] == "只用中文回答", "开机启动和系统提示词")
+        await s.screenshot(path=f"{OUT}/24_settings_general.png")
+        check(not errs2, "设置窗口无 JS 错误 " + "; ".join(errs2))
         await b.close()
     print("\n%d 项失败" % len(fails) if fails else "\n全部通过")
     sys.exit(1 if fails else 0)

@@ -117,6 +117,12 @@ try {
   Start-Sleep -Milliseconds 800
   Say '收起后'
   Shot '07_收起后'
+
+  # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
+  Start-Process -FilePath $Exe -ArgumentList '--settings'
+  Start-Sleep -Seconds 5
+  Say '打开设置后（面积最大的窗口）'
+  Shot '08_设置窗口'
 } finally {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
   Get-Process -Name floatball -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
