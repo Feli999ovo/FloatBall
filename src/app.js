@@ -119,10 +119,11 @@ async function expand(view) {
     const a = await monitorArea();
     const cx = S.anchor.x + SMALL / 2;
     const flipX = cx > a.x + a.w / 2;
-    const h = Math.max(360, Math.min(BIG_H, a.h - 16));
-    // 卡片优先放在胶囊上方（和设计稿一样）；上面放不下时，哪边地方大放哪边
-    const above = S.anchor.y + SMALL - a.y, below = a.y + a.h - S.anchor.y;
-    const flipY = above >= h || above > below;
+    // 卡片优先放在胶囊上方（和设计稿一样）；上面放不下时，哪边地方大放哪边。
+    // 两边都放不下完整的卡片就把卡片缩短，小球留在原地不动；实在太挤（不到 360）才挪窗口。
+    const above = S.anchor.y + SMALL - a.y - 4, below = a.y + a.h - S.anchor.y - 4;
+    const flipY = above >= BIG_H || above > below;
+    const h = Math.max(360, Math.min(BIG_H, flipY ? above : below));
     let x = flipX ? S.anchor.x + SMALL - BIG_W : S.anchor.x;
     let y = flipY ? S.anchor.y + SMALL - h : S.anchor.y;
     x = Math.max(a.x + 4, Math.min(x, a.x + a.w - BIG_W - 4));
