@@ -12,7 +12,24 @@ Add-Type -AssemblyName System.Drawing, System.Windows.Forms
 Add-Type -Namespace FloatBall -Name Desk -MemberDefinition @'
 [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+public delegate bool EnumProc(IntPtr hwnd, IntPtr lParam);
+[DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+// 这个进程里面积最大的可见窗口（按标题找不可靠：标题是中文，而且以后可能改）
+public static IntPtr MainWindowOf(uint pid) {
+  IntPtr best = IntPtr.Zero; long bestArea = 0;
+  EnumWindows(delegate (IntPtr h, IntPtr l) {
+    uint p; GetWindowThreadProcessId(h, out p);
+    if (p == pid && IsWindowVisible(h)) {
+      RECT r; GetWindowRect(h, out r);
+      long a = (long)(r.Right - r.Left) * (r.Bottom - r.Top);
+      if (a > bestArea) { bestArea = a; best = h; }
+    }
+    return true;
+  }, IntPtr.Zero);
+  return best;
+}
 [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
@@ -33,7 +50,7 @@ function Shot([string]$name) {
   $bmp.Dispose()
 }
 function WinRect {
-  $h = [FloatBall.Desk]::FindWindowW($null, '悬浮球')
+  $h = [FloatBall.Desk]::MainWindowOf([uint32]$script:appPid)
   if ($h -eq [IntPtr]::Zero) { return $null }
   $r = New-Object FloatBall.Desk+RECT
   [void][FloatBall.Desk]::GetWindowRect($h, [ref]$r)
@@ -63,7 +80,12 @@ if ($Wallpaper) {
   Start-Sleep -Seconds 2
 }
 
+# 把桌面上别的窗口都最小化，免得挡住小球后面的壁纸
+(New-Object -ComObject Shell.Application).MinimizeAll()
+Start-Sleep -Seconds 1
+
 $p = Start-Process -FilePath $Exe -PassThru
+$script:appPid = $p.Id
 try {
   $r = $null
   for ($i = 0; $i -lt 40 -and -not $r; $i++) { Start-Sleep -Milliseconds 500; $r = WinRect }
