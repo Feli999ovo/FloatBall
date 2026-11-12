@@ -24,6 +24,31 @@ pub fn capture_at(x: i32, y: i32) -> Result<String, String> {
     encode(DynamicImage::ImageRgba8(img))
 }
 
+/// 卡片毛玻璃的底图：截下 (px, py) 所在的屏幕，取出窗口将要盖住的那一块，缩小并模糊。
+/// x、y、w、h 是相对这块屏幕左上角的物理像素。只在 Windows 上用（macOS 截屏要授权，不为了好看去要权限）。
+#[cfg(windows)]
+pub fn backdrop_at(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
+    let monitor = xcap::Monitor::from_point(px, py).map_err(|e| e.to_string())?;
+    let img = monitor.capture_image().map_err(|e| e.to_string())?;
+    blur_region(DynamicImage::ImageRgba8(img), x, y, w, h)
+}
+
+/// 取出一块、缩到八分之一再模糊：图很小，又快又省内存，放大回去正好是毛玻璃的糊。
+#[cfg(any(windows, test))]
+pub fn blur_region(img: DynamicImage, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
+    let inside = x >= 0 && y >= 0 && w >= 8 && h >= 8
+        && (x as u32).checked_add(w).is_some_and(|r| r <= img.width())
+        && (y as u32).checked_add(h).is_some_and(|b| b <= img.height());
+    if !inside {
+        return Err("窗口不完全在这块屏幕里".into());
+    }
+    let small = img
+        .crop_imm(x as u32, y as u32, w, h)
+        .resize_exact(w / 8, h / 8, FilterType::Triangle)
+        .blur(2.5);
+    encode(small)
+}
+
 pub fn encode(img: DynamicImage) -> Result<String, String> {
     let (w, h) = (img.width(), img.height());
     let img = if w.max(h) > MAX_SIDE {
@@ -71,6 +96,20 @@ mod tests {
             .unwrap();
         let back = image::load_from_memory(&b).unwrap();
         assert_eq!((back.width(), back.height()), (1600, 900));
+    }
+
+    #[test]
+    fn blur_region_crops_and_rejects_outside() {
+        let img = DynamicImage::new_rgba8(400, 300);
+        let url = blur_region(img.clone(), 80, 40, 160, 80).unwrap();
+        let b = base64::engine::general_purpose::STANDARD
+            .decode(url.trim_start_matches("data:image/jpeg;base64,"))
+            .unwrap();
+        let back = image::load_from_memory(&b).unwrap();
+        assert_eq!((back.width(), back.height()), (20, 10));
+        assert!(blur_region(img.clone(), 300, 40, 160, 80).is_err());
+        assert!(blur_region(img.clone(), -1, 0, 160, 80).is_err());
+        assert!(blur_region(img, 0, 0, 4, 4).is_err());
     }
 
     #[test]

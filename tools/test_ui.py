@@ -1,6 +1,6 @@
 """界面自动测试：在 Chromium 里加载 src/index.html + mock-tauri.js，走一遍主要流程并截图。
 用法：python3 tools/test_ui.py 输出目录"""
-import sys, os, json, asyncio
+import sys, os, json, asyncio, base64
 from PIL import Image
 from playwright.async_api import async_playwright
 
@@ -209,6 +209,37 @@ async def main():
         await pg.click("#closeBtn"); await pg.wait_for_timeout(400)
         await pg.evaluate("__mock.monitorFails = false")
         errs[:] = [e for e in errs if "currentMonitor" not in e]
+
+        # 11c 小球拉长成胶囊；上方放得下时卡片在胶囊上方；有底图时卡片是毛玻璃
+        check(await pg.evaluate("document.querySelector('#bar').offsetWidth") == 72, "收起时胶囊缩成小球大小")
+        check(await pg.evaluate("getComputedStyle(document.querySelector('.cap')).overflow") == "hidden", "胶囊的玻璃边不会露到小球外面")
+        wall = base64.b64encode(open(os.path.join(ROOT, "design-reference", "wallpaper.jpg"), "rb").read()).decode()
+        # 和程序里一样：把壁纸缩得很小当底图，放大后就是糊的
+        await pg.evaluate("""async (b64) => {
+            const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();
+            const c = document.createElement("canvas"); c.width = 52; c.height = 75;
+            c.getContext("2d").drawImage(im, 0, 0, 52, 75);
+            __mock.backdrop = c.toDataURL("image/jpeg");
+            __mock.pos = { x: 300, y: 700 };
+        }""", wall)
+        await pg.click("#orb"); await pg.wait_for_timeout(900)
+        g = await pg.evaluate("""() => {
+            const bar = document.querySelector('#bar').getBoundingClientRect(), card = document.querySelector('#card');
+            return { barW: Math.round(bar.width), barTop: bar.top, cardBottom: card.getBoundingClientRect().bottom,
+                     cls: document.body.className, glassy: card.classList.contains('glassy'), args: __mock.backdropArgs, pos: __mock.pos };
+        }""")
+        check(g["barW"] == 396, f"展开后小球拉长成和窗口一样宽的胶囊 {g['barW']}")
+        check("flip-y" in g["cls"] and g["cardBottom"] <= g["barTop"], "上方放得下时卡片在胶囊上方")
+        check(g["pos"] == {"x": 300, "y": 196}, f"卡片在上方时小球留在原地（窗口往上长） {g['pos']}")
+        check(g["glassy"] and g["args"]["w"] == 840 and g["args"]["h"] == 1200 and g["args"]["y"] == 392, f"展开前截下窗口后面的桌面当毛玻璃底 {g['args']}")
+        await shot("12_capsule_glass")
+        await pg.evaluate("__mock.backdrop = null")
+        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+        m = await pg.evaluate("__mock")
+        check(m["size"] == {"w": 96, "h": 96} and m["pos"] == {"x": 300, "y": 700}, "收起后小球回到原位")
+        await pg.click("#orb"); await pg.wait_for_timeout(900)
+        check(not await pg.evaluate("document.querySelector('#card').classList.contains('glassy')"), "拿不到底图时卡片用不透明的底")
+        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
 
         # 12 菜单事件与快捷键事件
         await pg.evaluate("__emit('menu','settings')"); await pg.wait_for_timeout(500)

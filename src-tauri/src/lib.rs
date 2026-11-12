@@ -210,6 +210,23 @@ fn history_clear(state: State<'_, AppState>) -> Result<(), String> {
 
 // ───────── 截屏与文件 ─────────
 
+/// 卡片的毛玻璃底图（见 capture::backdrop_at）。拿不到就返回空，前端用不透明的底。
+#[tauri::command]
+async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || capture::backdrop_at(px, py, x, y, w, h))
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (px, py, x, y, w, h);
+        None
+    }
+}
+
 #[tauri::command]
 async fn capture_screen(app: AppHandle) -> Result<String, String> {
     let win = main_window(&app).ok_or("no window")?;
@@ -445,6 +462,7 @@ pub fn run() {
             history_delete,
             history_clear,
             capture_screen,
+            backdrop,
             read_text_file,
             show_context_menu,
             hide_ball,
