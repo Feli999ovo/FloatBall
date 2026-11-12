@@ -70,7 +70,7 @@ async function monitorArea() {
     if (!m) return fallback();
     const s = m.scaleFactor || 1;
     const a = m.workArea && m.workArea.size && m.workArea.size.width ? m.workArea : { position: m.position, size: m.size };
-    return { x: a.position.x / s, y: a.position.y / s, w: a.size.width / s, h: a.size.height / s };
+    return { x: a.position.x / s, y: a.position.y / s, w: a.size.width / s, h: a.size.height / s, mon: { x: m.position.x, y: m.position.y, s } };
   } catch (e) {
     jslog("currentMonitor 失败，改用 screen：" + (e && e.message ? e.message : e));
     return fallback();
@@ -83,6 +83,33 @@ async function winPos() {
 }
 
 let morphing = false;
+const frame = () => new Promise((r) => { const t = setTimeout(r, 60); requestAnimationFrame(() => { clearTimeout(t); r(); }); });
+// 改窗口的大小和位置。窗口往左或往上长（缩）的时候，有一两帧画的还是旧版面，小球会闪到别处；
+// 所以这种情况先把内容藏起来，等新版面排好再显示。
+async function reshape(w, h, x, y, hide, relayout) {
+  if (hide) { body.classList.add("resizing"); await frame(); await frame(); }
+  await appWin.setSize(new LogicalSize(w, h));
+  await appWin.setPosition(new LogicalPosition(x, y));
+  await new Promise((r) => { // 等网页拿到新的窗口尺寸，最多 300 毫秒
+    const ok = () => Math.abs(innerWidth - w) < 2 && Math.abs(innerHeight - h) < 2;
+    if (ok()) return r();
+    const done = () => { removeEventListener("resize", f); clearTimeout(t); r(); };
+    const f = () => { if (ok()) done(); };
+    const t = setTimeout(done, 300);
+    addEventListener("resize", f);
+  });
+  relayout();
+  if (hide) { await frame(); body.classList.remove("resizing"); }
+}
+// 卡片的毛玻璃底：网页画不出窗口后面的桌面，所以在展开之前让程序截下窗口将要盖住的那一块、模糊后垫在卡片下面。
+// 只有 Windows 有；拿不到（macOS、超时、出错）就用不透明的底。图只在内存里，不保存、不外传。
+// shortcut: 底图是展开那一刻截的，之后后面的窗口变了、或者拖动了悬浮球，就退回不透明的底；要实时的话得换成系统原生的毛玻璃。
+function grabBackdrop(r, a) {
+  if (!a.mon) return Promise.resolve(null);
+  const s = a.mon.s, P = (v) => Math.round(v * s);
+  const shot = invoke("backdrop", { px: P(r.x + r.w / 2), py: P(r.y + r.h / 2), x: P(r.x) - a.mon.x, y: P(r.y) - a.mon.y, w: P(r.w), h: P(r.h) }).catch(() => null);
+  return Promise.race([shot, new Promise((res) => setTimeout(() => res(null), 250))]);
+}
 async function expand(view) {
   if (morphing) return;
   if (S.open) { showView(view || "chat"); focusAsk(); return; }
@@ -90,24 +117,36 @@ async function expand(view) {
   try {
     S.anchor = await winPos();
     const a = await monitorArea();
-    const cx = S.anchor.x + SMALL / 2, cy = S.anchor.y + SMALL / 2;
+    const cx = S.anchor.x + SMALL / 2;
     const flipX = cx > a.x + a.w / 2;
-    const flipY = cy > a.y + a.h / 2;
     const h = Math.max(360, Math.min(BIG_H, a.h - 16));
+    // 卡片优先放在胶囊上方（和设计稿一样）；上面放不下时，哪边地方大放哪边
+    const above = S.anchor.y + SMALL - a.y, below = a.y + a.h - S.anchor.y;
+    const flipY = above >= h || above > below;
     let x = flipX ? S.anchor.x + SMALL - BIG_W : S.anchor.x;
     let y = flipY ? S.anchor.y + SMALL - h : S.anchor.y;
     x = Math.max(a.x + 4, Math.min(x, a.x + a.w - BIG_W - 4));
     y = Math.max(a.y + 4, Math.min(y, a.y + a.h - h - 4));
-    body.classList.toggle("flip-x", flipX);
-    body.classList.toggle("flip-y", flipY);
-    await appWin.setSize(new LogicalSize(BIG_W, h));
-    await appWin.setPosition(new LogicalPosition(x, y));
+    const card = $("#card");
+    card.classList.remove("glassy");
+    const bd = await grabBackdrop({ x, y, w: BIG_W, h }, a);
+    await reshape(BIG_W, h, x, y, flipX || flipY, () => {
+      body.classList.toggle("flip-x", flipX);
+      body.classList.toggle("flip-y", flipY);
+    });
+    void body.offsetWidth; // 让小球先在新版面里排好，胶囊才是从小球的位置开始拉长
     S.open = true;
     body.classList.remove("collapsed");
     // 设置填到一半点了别处被收起：再点开时接着填，不清空
     const resume = S.resumeSet && !view;
     S.resumeSet = false;
     if (!resume) showView(view || "chat");
+    if (bd) {
+      card.style.setProperty("--bd", 'url("' + bd + '")');
+      card.style.setProperty("--bd-size", BIG_W + "px " + h + "px");
+      card.style.setProperty("--bd-pos", -card.offsetLeft + "px " + -card.offsetTop + "px");
+      card.classList.add("glassy");
+    }
     await appWin.setFocus();
     focusAsk();
     mood("listen");
@@ -119,10 +158,10 @@ async function collapse() {
   try {
     S.open = false;
     body.classList.add("collapsed");
-    await new Promise((r) => setTimeout(r, 160));
-    await appWin.setSize(new LogicalSize(SMALL, SMALL));
-    if (S.anchor) await appWin.setPosition(new LogicalPosition(S.anchor.x, S.anchor.y));
-    body.classList.remove("flip-x", "flip-y");
+    await new Promise((r) => setTimeout(r, 340)); // 等胶囊缩回小球
+    const flipped = body.classList.contains("flip-x") || body.classList.contains("flip-y");
+    const p = S.anchor || (await winPos());
+    await reshape(SMALL, SMALL, p.x, p.y, flipped, () => body.classList.remove("flip-x", "flip-y"));
     if (!S.busy) mood("idle");
   } finally { morphing = false; }
 }
@@ -159,6 +198,7 @@ let moveTimer = 0;
 appWin.onMoved(() => {
   if (morphing) return;
   orb.classList.remove("dragging");
+  if (S.open) $("#card").classList.remove("glassy"); // 窗口挪了，底图对不上了
   clearTimeout(moveTimer);
   moveTimer = setTimeout(settle, 350);
 });
