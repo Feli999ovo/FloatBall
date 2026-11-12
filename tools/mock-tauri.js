@@ -1,20 +1,36 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", vision: true, system_prompt: "你是住在用户桌面上的悬浮球助手。", shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, allow_no_key: false, has_key: false, autostart: false, platform: "macos" },
+    cfg: { models: [], default_model: 0, system_prompt: "你是住在用户桌面上的悬浮球助手。", shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", autostart: false, platform: "windows" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
   const reply = (q) => q.includes("错误") ? null :
     "好的，这是**三个要点**：\n\n1. 先把窗口做成透明置顶\n2. 再接上 `chat/completions` 流式接口\n3. 最后加托盘和快捷键\n\n```rust\nfn main() {\n    floatball_lib::run()\n}\n```\n\n需要的话我可以继续展开。";
+  const cur = () => st.cfg.models.find((m) => m.id === st.cfg.default_model);
+  const view = () => { const m = cur(); return { ...st.cfg, models: st.cfg.models.map((x) => ({ ...x })), ready: !!m && (m.no_key || m.has_key) }; };
+  // 真实程序里设置变了会给小球窗口发 config 事件
+  const changed = () => setTimeout(() => window.__emit("config"), 0);
   async function invoke(cmd, a = {}) {
     st.calls.push(cmd);
     switch (cmd) {
-      case "get_config": return { ...st.cfg };
-      case "save_config": Object.assign(st.cfg, a.cfg); if (a.apiKey) st.cfg.has_key = true; return st.shortcutBusy ? a.cfg.shortcut + " 被别的程序占用了" : null;
+      case "get_config": return view();
+      case "save_model": {
+        const m = { ...a.model };
+        let old = st.cfg.models.find((x) => m.id && x.id === m.id);
+        if (old) { const k = old.has_key; Object.assign(old, m); old.has_key = k; }
+        else { m.id = 1; while (st.cfg.models.some((x) => x.id === m.id)) m.id++; m.has_key = false; st.cfg.models.push(m); old = m; if (!cur()) st.cfg.default_model = m.id; }
+        if (a.apiKey !== null && a.apiKey !== undefined) old.has_key = a.apiKey !== "";
+        st.lastKey = a.apiKey; changed(); return old.id;
+      }
+      case "delete_model": st.cfg.models = st.cfg.models.filter((x) => x.id !== a.id); if (st.cfg.default_model === a.id) st.cfg.default_model = st.cfg.models.length ? st.cfg.models[0].id : 0; changed(); return null;
+      case "set_default_model": st.cfg.default_model = a.id; changed(); return null;
+      case "save_prefs": Object.assign(st.cfg, a.prefs); changed(); return st.shortcutBusy ? a.prefs.shortcut + " 被别的程序占用了" : null;
+      case "list_models": st.listArgs = a; if (st.listFails) throw "连不上：connection refused"; return ["deepseek-chat", "deepseek-reasoner", "gpt-4o-mini"];
+      case "open_settings": st.settingsOpened = (st.settingsOpened || 0) + 1; return null;
       case "set_autostart": st.cfg.autostart = a.on; return a.on;
       case "save_position": st.cfg.position = [a.x, a.y]; return null;
-      case "test_connection": return "连接成功，用时 412 毫秒";
+      case "test_connection": st.testArgs = a; return "连接成功，用时 412 毫秒";
       case "backdrop": st.backdropArgs = a; return st.backdrop || null;
       case "show_context_menu": st.menuShown = true; return null;
       case "capture_screen": return "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
@@ -34,7 +50,7 @@
         const q = typeof last.content === "string" ? last.content : last.content[0].text;
         st.lastMessages = a.messages;
         const ch = a.onEvent;
-        if (!st.cfg.has_key && !st.cfg.allow_no_key) { setTimeout(() => ch.onmessage({ type: "error", message: "还没有填 API Key。右键小球 → 设置 → 模型。" }), 50); return null; }
+        if (!view().ready) { setTimeout(() => ch.onmessage({ type: "error", message: "还没有填 API Key。右键小球 → 设置 → 模型。" }), 50); return null; }
         const r = reply(q);
         if (!r) { setTimeout(() => ch.onmessage({ type: "error", message: "API Key 不对或没有权限（401）：Incorrect API key" }), 300); return null; }
         const parts = r.match(/[\s\S]{1,6}/g); let i = 0;

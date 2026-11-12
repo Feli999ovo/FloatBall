@@ -7,9 +7,9 @@ mod config;
 mod llm;
 mod store;
 
-use config::Config;
+use config::{Config, Model};
 use llm::ChatEvent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -63,37 +63,88 @@ fn show_ball<R: Runtime>(app: &AppHandle<R>) {
 
 // ───────── 设置 ─────────
 
-#[derive(Serialize)]
-struct ConfigView {
-    #[serde(flatten)]
-    cfg: Config,
-    has_key: bool,
-    autostart: bool,
-    platform: &'static str,
+/// 给界面看的设置：config.json 里的内容，加上每个模型有没有存 Key、默认模型能不能用。Key 本身不给界面。
+#[tauri::command]
+fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
+    let cfg = state.cfg.lock().unwrap().clone();
+    let has_key = |id: u32| config::get_api_key(id).is_some();
+    let mut v = serde_json::to_value(&cfg).unwrap_or_default();
+    for m in v["models"].as_array_mut().into_iter().flatten() {
+        let id = m["id"].as_u64().unwrap_or(0) as u32;
+        m["has_key"] = json!(has_key(id));
+    }
+    v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
+    v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
+    v["platform"] = json!(std::env::consts::OS);
+    v
 }
 
-#[tauri::command]
-fn get_config(app: AppHandle, state: State<'_, AppState>) -> ConfigView {
-    ConfigView {
-        cfg: state.cfg.lock().unwrap().clone(),
-        has_key: config::get_api_key().is_some(),
-        autostart: app.autolaunch().is_enabled().unwrap_or(false),
-        platform: std::env::consts::OS,
-    }
-}
-
-/// api_key：None 表示不改；Some("") 表示删除。
-/// 返回 Some(提示)：设置已经保存，但有快捷键被别的程序占用了
-#[tauri::command]
-fn save_config(app: AppHandle, state: State<'_, AppState>, cfg: Config, api_key: Option<String>) -> Result<Option<String>, String> {
-    if let Some(k) = api_key {
-        config::set_api_key(k.trim())?;
-    }
-    let mut next = cfg;
-    next.position = state.cfg.lock().unwrap().position;
-    let busy = register_shortcuts(&app, &state, &next)?;
+/// 存盘，并告诉小球窗口设置变了
+fn commit(app: &AppHandle, state: &AppState, next: Config) -> Result<(), String> {
     next.save(&state.cfg_dir)?;
     *state.cfg.lock().unwrap() = next;
+    let _ = app.emit_to("main", "config", ());
+    Ok(())
+}
+
+/// 新增或修改模型库里的一个模型。api_key：None 表示不改；Some("") 表示删除。返回模型的编号。
+#[tauri::command]
+fn save_model(app: AppHandle, state: State<'_, AppState>, model: Model, api_key: Option<String>) -> Result<u32, String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    let (id, new) = next.upsert(model)?;
+    // 新模型用的可能是以前删掉的那个编号：先把那个编号下的 Key 清掉，不能让它接着用别的模型的 Key
+    if new {
+        config::set_api_key(id, "")?;
+    }
+    if let Some(k) = api_key {
+        config::set_api_key(id, k.trim())?;
+    }
+    commit(&app, &state, next)?;
+    Ok(id)
+}
+
+#[tauri::command]
+fn delete_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.remove(id);
+    commit(&app, &state, next)?;
+    config::set_api_key(id, "")
+}
+
+#[tauri::command]
+fn set_default_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    if !next.models.iter().any(|m| m.id == id) {
+        return Err("这个模型已经不在了".into());
+    }
+    next.default_model = id;
+    commit(&app, &state, next)
+}
+
+#[derive(Deserialize)]
+struct Prefs {
+    system_prompt: String,
+    shortcut: String,
+    capture_shortcut: String,
+    orb_size: u32,
+    glass: u8,
+    eye: String,
+}
+
+/// 模型以外的设置。返回 Some(提示)：已经保存，但有快捷键被别的程序占用了
+#[tauri::command]
+fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Result<Option<String>, String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.system_prompt = prefs.system_prompt;
+    next.shortcut = prefs.shortcut.trim().to_string();
+    next.capture_shortcut = prefs.capture_shortcut.trim().to_string();
+    next.orb_size = prefs.orb_size.clamp(56, 88);
+    next.glass = prefs.glass.min(60);
+    if prefs.eye.len() == 7 && prefs.eye.starts_with('#') && prefs.eye[1..].chars().all(|c| c.is_ascii_hexdigit()) {
+        next.eye = prefs.eye;
+    }
+    let busy = register_shortcuts(&app, &state, &next)?;
+    commit(&app, &state, next)?;
     Ok(busy)
 }
 
@@ -104,11 +155,21 @@ fn save_position(state: State<'_, AppState>, x: f64, y: f64) -> Result<(), Strin
     c.save(&state.cfg_dir)
 }
 
+/// 表单里填了 Key 就用填的；没填就用这个模型已经存的
+fn key_for(api_key: Option<String>, id: Option<u32>) -> Option<String> {
+    api_key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).or_else(|| id.and_then(config::get_api_key))
+}
+
 #[tauri::command]
-async fn test_connection(base_url: String, model: String, api_key: Option<String>) -> Result<String, String> {
-    let c = Config { base_url, model: model.clone(), ..Config::default() };
-    let key = api_key.filter(|k| !k.trim().is_empty()).or_else(config::get_api_key);
-    llm::test_connection(&c.endpoint(), key.as_deref(), &model).await
+async fn test_connection(base_url: String, model: String, api_key: Option<String>, id: Option<u32>) -> Result<String, String> {
+    let m = Model { base_url, model, ..Model::default() };
+    llm::test_connection(&m.endpoint(), key_for(api_key, id).as_deref(), m.model.trim()).await
+}
+
+#[tauri::command]
+async fn list_models(base_url: String, api_key: Option<String>, id: Option<u32>) -> Result<Vec<String>, String> {
+    let m = Model { base_url, ..Model::default() };
+    llm::list_models(&m.base(), key_for(api_key, id).as_deref()).await
 }
 
 #[tauri::command]
@@ -120,16 +181,44 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<bool, String> {
     Ok(now)
 }
 
+/// 设置是一个单独的普通窗口，已经开着就把它带到前面。
+/// 另起一个线程来建：在 Windows 上，从菜单事件或同步命令里直接建窗口会卡死。
+fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Some(w) = app.get_webview_window("settings") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+            return;
+        }
+        let built = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
+            .title("悬浮球设置")
+            .inner_size(760.0, 560.0)
+            .min_inner_size(640.0, 440.0)
+            .center()
+            .build();
+        if let Err(e) = built {
+            log::error!("settings window: {e}");
+        }
+    });
+}
+
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    open_settings_window(&app);
+}
+
 // ───────── 对话 ─────────
 
 /// 加系统提示词；模型不支持图片时把图片换成一句说明
-fn prepare_messages(cfg: &Config, messages: Vec<Value>) -> Vec<Value> {
+fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> Vec<Value> {
     let mut out = Vec::with_capacity(messages.len() + 1);
-    if !cfg.system_prompt.trim().is_empty() {
-        out.push(json!({"role":"system","content":cfg.system_prompt}));
+    if !system_prompt.trim().is_empty() {
+        out.push(json!({"role":"system","content":system_prompt}));
     }
     for mut m in messages {
-        if !cfg.vision {
+        if !vision {
             if let Some(parts) = m.get("content").and_then(Value::as_array).cloned() {
                 let text: Vec<String> = parts
                     .iter()
@@ -150,16 +239,20 @@ fn prepare_messages(cfg: &Config, messages: Vec<Value>) -> Vec<Value> {
 #[tauri::command]
 fn chat(state: State<'_, AppState>, id: String, messages: Vec<Value>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
-    let key = config::get_api_key();
-    if key.is_none() && !cfg.allow_no_key {
+    let Some(m) = cfg.current().cloned() else {
+        let _ = on_event.send(ChatEvent::Error { message: "还没有设置模型。右键小球 → 设置，添加一个模型。".into() });
+        return Ok(());
+    };
+    let key = config::get_api_key(m.id);
+    if key.is_none() && !m.no_key {
         let _ = on_event.send(ChatEvent::Error {
-            message: "还没有填 API Key。右键小球 → 设置 → 模型。用本地模型（如 Ollama）可勾选「不需要 Key」。".into(),
+            message: "这个模型还没有填 API Key。右键小球 → 设置 → 模型。用本地模型（如 Ollama）可勾选「不需要 Key」。".into(),
         });
         return Ok(());
     }
-    let msgs = prepare_messages(&cfg, messages);
-    let endpoint = cfg.endpoint();
-    let model = cfg.model.clone();
+    let msgs = prepare_messages(&cfg.system_prompt, m.vision, messages);
+    let endpoint = m.endpoint();
+    let model = m.model.clone();
     let task = tauri::async_runtime::spawn(async move {
         llm::stream_chat(&endpoint, key.as_deref(), &model, &msgs, |ev| {
             let _ = on_event.send(ev);
@@ -311,6 +404,7 @@ fn on_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
             let _ = if on { al.disable() } else { al.enable() };
             refresh_menus(app);
         }
+        "settings" => open_settings_window(app),
         other => {
             show_ball(app);
             let _ = app.emit_to("main", "menu", other.to_string());
@@ -384,9 +478,13 @@ fn place_initial<R: Runtime>(w: &WebviewWindow<R>, saved: Option<(f64, f64)>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             show_ball(app);
-            let _ = app.emit_to("main", "menu", "open".to_string());
+            if args.iter().any(|a| a == "--settings") {
+                open_settings_window(app);
+            } else {
+                let _ = app.emit_to("main", "menu", "open".to_string());
+            }
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(
@@ -446,11 +544,20 @@ pub fn run() {
                 place_initial(&w, cfg.position);
                 w.show()?;
             }
+            // 命令行带 --settings：启动后直接打开设置窗口
+            if std::env::args().any(|a| a == "--settings") {
+                open_settings_window(&handle);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
-            save_config,
+            save_model,
+            delete_model,
+            set_default_model,
+            save_prefs,
+            list_models,
+            open_settings,
             save_position,
             test_connection,
             set_autostart,
@@ -478,18 +585,14 @@ mod tests {
 
     #[test]
     fn strips_images_for_text_models() {
-        let mut c = Config::default();
-        c.vision = false;
         let msgs = vec![json!({"role":"user","content":[
             {"type":"text","text":"这是什么"},
             {"type":"image_url","image_url":{"url":"data:image/jpeg;base64,xx"}}
         ]})];
-        let out = prepare_messages(&c, msgs.clone());
+        let out = prepare_messages("你是助手", false, msgs.clone());
         assert_eq!(out[0]["role"], "system");
         assert!(out[1]["content"].as_str().unwrap().contains("这是什么"));
-        c.vision = true;
-        c.system_prompt.clear();
-        let out = prepare_messages(&c, msgs);
+        let out = prepare_messages(" ", true, msgs);
         assert_eq!(out.len(), 1);
         assert!(out[0]["content"].is_array());
     }

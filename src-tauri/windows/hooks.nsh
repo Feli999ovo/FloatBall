@@ -17,6 +17,10 @@
     ${If} $DeleteAppDataCheckboxState = 1
       ; 凭据管理器里的 API Key。目标名是 keyring 库定的「账户名.服务名」，见 src/config.rs；1 = 通用凭据
       System::Call 'advapi32::CredDeleteW(w "api_key.${BUNDLEID}", i 1, i 0)'
+      ; 模型库里其余模型的 Key：api_key_2 … api_key_32（编号规则和上限见 src-tauri/src/config.rs 的 MAX_MODELS）
+      ${For} $1 2 32
+        System::Call 'advapi32::CredDeleteW(w "api_key_$1.${BUNDLEID}", i 1, i 0)'
+      ${Next}
       ; 确认是悬浮球自己的 data 才删，免得误删同一目录下别的东西
       ${If} ${FileExists} "$INSTDIR\data\history.db"
       ${OrIf} ${FileExists} "$INSTDIR\data\EBWebView\*.*"

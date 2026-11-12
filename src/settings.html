@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>悬浮球设置</title>
+<link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+<nav id="nav" role="tablist" aria-label="设置分类" aria-orientation="vertical">
+  <button role="tab" id="tabModels" aria-controls="pModels" aria-selected="true">模型</button>
+  <button role="tab" id="tabLook" aria-controls="pLook" aria-selected="false" tabindex="-1">外观</button>
+  <button role="tab" id="tabKeys" aria-controls="pKeys" aria-selected="false" tabindex="-1">快捷键</button>
+  <button role="tab" id="tabGeneral" aria-controls="pGeneral" aria-selected="false" tabindex="-1">通用</button>
+</nav>
+
+<main>
+  <!-- 模型库 -->
+  <section id="pModels" role="tabpanel" aria-labelledby="tabModels">
+    <div id="libView">
+      <header><h1>模型库</h1><button class="pri" id="addBtn">添加模型</button></header>
+      <ul id="modelList"></ul>
+      <p class="empty" id="modelEmpty" hidden>还没有模型。添加一个 OpenAI 兼容的接口，就能开始提问。</p>
+      <p class="hint">API Key 保存在系统钥匙串里，不写进任何文件。问题只会发给你在这里填的接口。</p>
+    </div>
+
+    <form id="formView" hidden autocomplete="off">
+      <header><h1 id="formTitle">添加模型</h1></header>
+      <div class="presets" id="presets" aria-label="常用接口">
+        <button type="button" data-b="https://api.openai.com/v1" data-m="gpt-4o-mini">OpenAI</button>
+        <button type="button" data-b="https://api.deepseek.com/v1" data-m="deepseek-chat" data-v="0">DeepSeek</button>
+        <button type="button" data-b="https://dashscope.aliyuncs.com/compatible-mode/v1" data-m="qwen-plus">通义千问</button>
+        <button type="button" data-b="https://api.moonshot.cn/v1" data-m="moonshot-v1-8k" data-v="0">Kimi</button>
+        <button type="button" data-b="https://openrouter.ai/api/v1" data-m="openai/gpt-4o-mini">OpenRouter</button>
+        <button type="button" data-b="http://localhost:11434/v1" data-m="qwen2.5:7b" data-k="1" data-v="0">Ollama 本地</button>
+      </div>
+      <label>接口地址<input id="fBase" placeholder="https://api.openai.com/v1" spellcheck="false" /></label>
+      <label>API Key<input id="fKey" type="password" placeholder="sk-…" spellcheck="false" autocomplete="off" /></label>
+      <label class="ck"><input type="checkbox" id="fNoKey" />不需要 Key（本地模型）</label>
+      <label>模型名
+        <span class="row">
+          <input id="fModel" list="modelOptions" placeholder="gpt-4o-mini" spellcheck="false" />
+          <button type="button" id="fetchBtn">获取模型列表</button>
+        </span>
+      </label>
+      <datalist id="modelOptions"></datalist>
+      <label>显示名称（可不填）<input id="fName" placeholder="不填就显示模型名" /></label>
+      <label class="ck"><input type="checkbox" id="fVision" />模型支持图片（截屏提问会把截图发给它）</label>
+      <p class="msg" id="formMsg" role="status"></p>
+      <footer>
+        <button type="button" id="testBtn">测试连接</button>
+        <span class="grow"></span>
+        <button type="button" id="cancelBtn">取消</button>
+        <button type="submit" class="pri" id="saveModelBtn">保存</button>
+      </footer>
+    </form>
+  </section>
+
+  <!-- 外观 -->
+  <section id="pLook" role="tabpanel" aria-labelledby="tabLook" hidden>
+    <header><h1>外观</h1></header>
+    <div class="field">
+      <span id="lblSize">小球大小</span>
+      <div class="seg" id="fSize" role="radiogroup" aria-labelledby="lblSize">
+        <button type="button" role="radio" data-v="60">小</button>
+        <button type="button" role="radio" data-v="72">标准</button>
+        <button type="button" role="radio" data-v="84">大</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fGlass">卡片透明度</label>
+      <input type="range" id="fGlass" min="0" max="60" step="5" />
+      <output id="glassOut" for="fGlass"></output>
+    </div>
+    <p class="hint" id="glassHint">越大越透，能看到卡片后面模糊的桌面。</p>
+    <div class="field">
+      <span id="lblEye">眼睛颜色</span>
+      <div class="dots" id="fEye" role="radiogroup" aria-labelledby="lblEye">
+        <button type="button" role="radio" data-v="#FFF1DC" aria-label="暖白"></button>
+        <button type="button" role="radio" data-v="#FFFFFF" aria-label="白"></button>
+        <button type="button" role="radio" data-v="#CFE3FF" aria-label="冷白"></button>
+        <button type="button" role="radio" data-v="#D9CCFF" aria-label="淡紫"></button>
+        <button type="button" role="radio" data-v="#C8F2DC" aria-label="淡绿"></button>
+      </div>
+    </div>
+    <p class="msg" id="lookMsg" role="status"></p>
+  </section>
+
+  <!-- 快捷键 -->
+  <section id="pKeys" role="tabpanel" aria-labelledby="tabKeys" hidden>
+    <header><h1>快捷键</h1></header>
+    <div class="field">
+      <span id="lblKeyMain">呼出或收起小球</span>
+      <button type="button" class="keycap" id="fKeyMain" aria-labelledby="lblKeyMain fKeyMain"></button>
+    </div>
+    <div class="field">
+      <span id="lblKeyCap">截屏提问</span>
+      <button type="button" class="keycap" id="fKeyCap" aria-labelledby="lblKeyCap fKeyCap"></button>
+    </div>
+    <p class="hint">点一下再按新的组合键，至少带一个 Ctrl、Alt 或 Shift。按 Esc 取消。</p>
+    <p class="msg" id="keysMsg" role="status"></p>
+  </section>
+
+  <!-- 通用 -->
+  <section id="pGeneral" role="tabpanel" aria-labelledby="tabGeneral" hidden>
+    <header><h1>通用</h1></header>
+    <label class="ck"><input type="checkbox" id="fAuto" />开机启动</label>
+    <label>系统提示词<textarea id="fSys" rows="5"></textarea></label>
+    <p class="hint">每次提问都会带上这段话，用来告诉模型怎么回答。</p>
+    <p class="msg" id="generalMsg" role="status"></p>
+  </section>
+</main>
+<script src="settings.js"></script>
+</body>
+</html>

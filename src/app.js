@@ -18,8 +18,8 @@ const orb = $("#orb");
 const ask = $("#ask");
 
 // 尺寸（逻辑像素）
-const PAD = 12, ORB = 72;
-const SMALL = ORB + PAD * 2; // 收起时窗口 96×96
+const PAD = 12;
+let SMALL = 72 + PAD * 2; // 收起时的窗口边长 = 小球直径 + 两边留白；小球大小在设置里能改（见 applyLook）
 const BIG_W = 420, BIG_H = 600;
 
 const S = {
@@ -138,10 +138,7 @@ async function expand(view) {
     void body.offsetWidth; // 让小球先在新版面里排好，胶囊才是从小球的位置开始拉长
     S.open = true;
     body.classList.remove("collapsed");
-    // 设置填到一半点了别处被收起：再点开时接着填，不清空
-    const resume = S.resumeSet && !view;
-    S.resumeSet = false;
-    if (!resume) showView(view || "chat");
+    showView(view || "chat");
     if (bd) {
       card.style.setProperty("--bd", 'url("' + bd + '")');
       card.style.setProperty("--bd-size", BIG_W + "px " + h + "px");
@@ -237,7 +234,7 @@ async function settle() {
 appWin.onFocusChanged(({ payload: focused }) => {
   if (focused || !S.open || S.pinned || S.busy) return;
   if (ask.value.trim() || S.attach.length) return;
-  setTimeout(() => { if (!document.hasFocus()) { S.resumeSet = !$("#vSet").hidden; collapse(); } }, 150);
+  setTimeout(() => { if (!document.hasFocus()) collapse(); }, 150);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.open) {
@@ -251,17 +248,14 @@ document.addEventListener("keydown", (e) => {
 function showView(v) {
   $("#vChat").hidden = v !== "chat";
   $("#vHist").hidden = v !== "hist";
-  $("#vSet").hidden = v !== "set";
   $("#histBtn").setAttribute("aria-pressed", v === "hist");
-  $("#setBtn").setAttribute("aria-pressed", v === "set");
   if (v === "hist") loadHistory();
-  if (v === "set") loadSettings();
   if (v === "chat") updateEmpty();
 }
 $("#closeBtn").onclick = collapse;
 $("#newBtn").onclick = () => { newChat(); showView("chat"); focusAsk(); };
 $("#histBtn").onclick = () => showView($("#vHist").hidden ? "hist" : "chat");
-$("#setBtn").onclick = () => showView($("#vSet").hidden ? "set" : "chat");
+$("#setBtn").onclick = openSettings;
 $("#pinBtn").onclick = () => {
   S.pinned = !S.pinned;
   $("#pinBtn").setAttribute("aria-pressed", S.pinned);
@@ -317,7 +311,28 @@ function md(src) {
 }
 
 /* ───────── 对话 ───────── */
-function needsSetup() { return !!S.cfg && !S.cfg.has_key && !S.cfg.allow_no_key; }
+function needsSetup() { return !!S.cfg && !S.cfg.ready; }
+// 设置是单独的窗口。小球窗口这时会失去焦点而收起，正好不挡着设置窗口。
+function openSettings() { invoke("open_settings").catch(toastErr); }
+// 小球大小、眼睛颜色、卡片透明度
+function applyLook() {
+  const c = S.cfg, root = document.documentElement.style;
+  if (!c) return;
+  const orbPx = c.orb_size || 72, small = orbPx + PAD * 2;
+  root.setProperty("--orb", orbPx + "px");
+  root.setProperty("--k", String(orbPx / 72));
+  const eye = c.eye || "#FFF1DC", warm = eye.toUpperCase() === "#FFF1DC";
+  root.setProperty("--eye", eye);
+  // 眼睛周围的光晕：默认的暖白用样式表里调好的暖色，换了颜色就跟着眼睛的颜色
+  if (warm) { root.removeProperty("--eye-near"); root.removeProperty("--eye-glow"); }
+  else { root.setProperty("--eye-near", eye); root.setProperty("--eye-glow", eye + "BF"); }
+  root.setProperty("--tint", String(1 - (c.glass == null ? 25 : c.glass) / 100));
+  if (small !== SMALL) {
+    SMALL = small;
+    // 收起着的时候窗口就是小球那么大，跟着改
+    if (!S.open) appWin.setSize(new LogicalSize(SMALL, SMALL)).catch(() => {});
+  }
+}
 const msgsEl = $("#msgs");
 function updateEmpty() {
   $("#empty").hidden = msgsEl.children.length > 0;
@@ -360,7 +375,7 @@ function setMeta(el, text, opts = {}) {
     meta.appendChild(b);
   }
   if (opts.retry) { const b = document.createElement("button"); b.textContent = "重试"; b.onclick = opts.retry; meta.appendChild(b); }
-  if (opts.settings) { const b = document.createElement("button"); b.textContent = "去设置"; b.onclick = () => showView("set"); meta.appendChild(b); }
+  if (opts.settings) { const b = document.createElement("button"); b.textContent = "去设置"; b.onclick = openSettings; meta.appendChild(b); }
   if (text) { const s = document.createElement("span"); s.textContent = text; meta.appendChild(s); }
 }
 
@@ -456,7 +471,7 @@ function autosize() { ask.style.height = "auto"; ask.style.height = Math.min(40,
 ask.addEventListener("input", () => { autosize(); S.lastActive = Date.now(); });
 ask.addEventListener("focus", () => { if (!S.busy) mood("listen"); });
 ask.addEventListener("blur", () => { if (!S.busy && orb.className.includes("s-listen")) mood("idle"); });
-$("#setupBtn").onclick = () => showView("set");
+$("#setupBtn").onclick = openSettings;
 document.querySelectorAll("#empty .chips button").forEach((b) => (b.onclick = () => { ask.value = b.dataset.q; autosize(); ask.focus(); }));
 
 /* ───────── 附件：截图、拖进来的文件 ───────── */
@@ -558,65 +573,13 @@ $("#clearHist").onclick = async () => {
   await invoke("history_clear"); newChat(); loadHistory();
 };
 
-/* ───────── 设置 ───────── */
-async function loadSettings() {
-  const c = (S.cfg = await invoke("get_config"));
-  $("#fBase").value = c.base_url;
-  $("#fModel").value = c.model;
-  $("#fKey").value = "";
-  $("#fKey").placeholder = c.has_key ? "已保存（留空不改，填新的会替换）" : "sk-…";
-  $("#fNoKey").checked = c.allow_no_key;
-  $("#fVision").checked = c.vision;
-  $("#fSys").value = c.system_prompt;
-  $("#fKeyMain").value = c.shortcut;
-  $("#fKeyCap").value = c.capture_shortcut;
-  $("#fAuto").checked = c.autostart;
-  setMsg("");
-}
-function setMsg(t, kind) { const m = $("#setMsg"); m.textContent = t; m.className = "msg" + (kind ? " " + kind : ""); }
-document.querySelectorAll("#presets button").forEach((b) => (b.onclick = () => {
-  $("#fBase").value = b.dataset.b; $("#fModel").value = b.dataset.m;
-  $("#fNoKey").checked = b.dataset.k === "1";
-  $("#fVision").checked = b.dataset.v !== "0";
-  setMsg("已填入，记得填 Key 后保存");
-}));
-function formCfg() {
-  return {
-    base_url: $("#fBase").value.trim(),
-    model: $("#fModel").value.trim(),
-    vision: $("#fVision").checked,
-    system_prompt: $("#fSys").value,
-    shortcut: $("#fKeyMain").value.trim(),
-    capture_shortcut: $("#fKeyCap").value.trim(),
-    allow_no_key: $("#fNoKey").checked,
-    position: null,
-  };
-}
-$("#testBtn").onclick = async () => {
-  setMsg("连接中…");
-  try {
-    const r = await invoke("test_connection", { baseUrl: $("#fBase").value.trim(), model: $("#fModel").value.trim(), apiKey: $("#fKey").value.trim() || null });
-    setMsg(r, "ok"); mood("done", 1500);
-  } catch (e) { setMsg(String(e), "bad"); mood("error", 2500); }
-};
-$("#saveBtn").onclick = async () => {
-  const cfg = formCfg();
-  if (!/^https?:\/\//.test(cfg.base_url)) return setMsg("接口地址要以 http:// 或 https:// 开头", "bad");
-  if (!cfg.model) return setMsg("模型名不能为空", "bad");
-  const key = $("#fKey").value.trim();
-  try {
-    const busy = await invoke("save_config", { cfg, apiKey: key ? key : null });
-    const want = $("#fAuto").checked;
-    if (want !== S.cfg.autostart) await invoke("set_autostart", { on: want });
-    S.cfg = await invoke("get_config");
-    $("#fKey").value = "";
-    $("#fKey").placeholder = S.cfg.has_key ? "已保存（留空不改，填新的会替换）" : "sk-…";
-    if (busy) { setMsg("其余设置已保存。" + busy + "，换一个快捷键才能用", "bad"); mood("error", 2500); }
-    else { setMsg("已保存", "ok"); mood("done", 1500); }
-  } catch (e) { setMsg(String(e), "bad"); }
-};
-
 /* ───────── 菜单、快捷键 ───────── */
+// 设置窗口里改了东西
+listen("config", async () => {
+  try { S.cfg = await invoke("get_config"); } catch (_) { return; }
+  applyLook();
+  updateEmpty();
+});
 listen("menu", async ({ payload }) => {
   switch (payload) {
     case "toggle": toggle(); break;
@@ -624,13 +587,13 @@ listen("menu", async ({ payload }) => {
     case "new_chat": newChat(); expand("chat"); break;
     case "capture": captureAsk(); break;
     case "history": expand("hist"); break;
-    case "settings": expand("set"); break;
   }
 });
 
 /* ───────── 启动 ───────── */
 (async () => {
   try { S.cfg = await invoke("get_config"); } catch (_) {}
+  applyLook();
   updateEmpty();
   mood("idle");
   // 还没设置模型：小球露出好奇的表情提醒一下，不自动展开，免得挡住屏幕

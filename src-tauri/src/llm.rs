@@ -238,6 +238,35 @@ async fn pump(resp: reqwest::Response, mut emit: impl FnMut(ChatEvent)) {
     emit(ChatEvent::Done);
 }
 
+/// 设置页「获取模型列表」：GET {接口地址}/models
+pub async fn list_models(base: &str, api_key: Option<&str>) -> Result<Vec<String>, String> {
+    let url = format!("{base}/models");
+    let mut req = client(&url).get(&url).timeout(Duration::from_secs(20));
+    if let Some(k) = api_key {
+        req = req.bearer_auth(k);
+    }
+    let r = req.send().await.map_err(|e| format!("连不上：{e}"))?;
+    let code = r.status().as_u16();
+    let text = r.text().await.unwrap_or_default();
+    if !(200..300).contains(&code) {
+        return Err(friendly_status(code, &text));
+    }
+    parse_model_list(&text)
+}
+
+/// OpenAI 兼容接口返回 {"data":[{"id":…}]}；个别服务用 {"models":[{"name":…}]}
+fn parse_model_list(text: &str) -> Result<Vec<String>, String> {
+    let v: Value = serde_json::from_str(text).map_err(|_| "读不懂接口返回的内容".to_string())?;
+    let list = v.get("data").or_else(|| v.get("models")).and_then(Value::as_array).ok_or("接口返回的内容里没有模型列表")?;
+    let mut ids: Vec<String> = list
+        .iter()
+        .filter_map(|m| m.get("id").or_else(|| m.get("name")).and_then(Value::as_str).map(str::to_string))
+        .collect();
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
 /// 设置页「测试连接」：发一句极短的非流式请求
 pub async fn test_connection(endpoint: &str, api_key: Option<&str>, model: &str) -> Result<String, String> {
     let body = json!({"model": model, "messages": [{"role":"user","content":"ping"}], "max_tokens": 5, "stream": false});
@@ -259,6 +288,15 @@ pub async fn test_connection(endpoint: &str, api_key: Option<&str>, model: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_model_lists() {
+        let ids = parse_model_list(r#"{"object":"list","data":[{"id":"gpt-4o"},{"id":"deepseek-chat"},{"id":"gpt-4o"},{"object":"x"}]}"#).unwrap();
+        assert_eq!(ids, vec!["deepseek-chat", "gpt-4o"]);
+        assert_eq!(parse_model_list(r#"{"models":[{"name":"qwen2.5:7b"}]}"#).unwrap(), vec!["qwen2.5:7b"]);
+        assert!(parse_model_list("<html>").is_err());
+        assert!(parse_model_list(r#"{"error":"x"}"#).is_err());
+    }
 
     #[test]
     fn parses_split_chunks_and_utf8() {
