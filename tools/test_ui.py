@@ -40,12 +40,27 @@ async def main():
                 desk.convert("RGB").save(f"{OUT}/{name}_desk.jpg", quality=85)
             return m
 
-        # 1 首次启动：没 Key 自动打开设置
+        # 1 首次启动：没 Key 也只显示小球，不自动弹出设置挡住屏幕
         await pg.wait_for_timeout(900)
-        m = await shot("01_first_run_settings")
-        check(m["size"] == {"w": 420, "h": 600}, f"首次启动自动展开 {m['size']}")
-        check(await pg.is_visible("#vSet"), "首次启动显示设置")
-        check("先填好" in await pg.inner_text("#setMsg"), "设置页提示先填接口")
+        m = await shot("01_first_run_orb")
+        check(m["size"] == {"w": 96, "h": 96}, f"首次启动只显示小球，不自动展开 {m['size']}")
+        await pg.click("#orb"); await pg.wait_for_timeout(500)
+        check(await pg.is_visible("#setupBtn") and not await pg.is_visible("#empty .chips"), "没设置模型时点开小球，提示先去设置")
+        await shot("01b_first_run_tip")
+        await pg.click("#setupBtn"); await pg.wait_for_timeout(200)
+        m = await shot("01c_first_run_settings")
+        check(await pg.is_visible("#vSet"), "点「去设置」打开设置")
+
+        # 1b 设置填到一半点了别处：收起成小球，再点开还在设置页，填的内容没丢
+        await pg.fill("#fModel", "half-typed")
+        await pg.evaluate("document.hasFocus = () => false; __mock.focus[0]({ payload: false })")
+        await pg.wait_for_timeout(600)
+        check((await pg.evaluate("__mock"))["size"] == {"w": 96, "h": 96}, "设置页点别处会收起，不再一直挡着")
+        await pg.evaluate("delete document.hasFocus")
+        await pg.click("#orb"); await pg.wait_for_timeout(500)
+        check(await pg.is_visible("#vSet") and await pg.input_value("#fModel") == "half-typed", "再点开接着填，内容没丢")
+        check(await pg.evaluate("getComputedStyle(document.querySelector('#ask'), '::-webkit-scrollbar').display") == "none", "输入框不显示滚动条箭头")
+        m = await pg.evaluate("__mock")
         bodycls = await pg.get_attribute("body", "class")
         check("flip-x" in bodycls, f"小球在右侧时卡片向左展开 ({bodycls})")
         check(m["pos"]["x"] + 420 <= 1440, f"展开后不超出屏幕右边 x={m['pos']['x']}")
