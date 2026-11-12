@@ -30,10 +30,11 @@ body.flip-y #app { flex-direction: column-reverse; }
 body.collapsed #bar { width: var(--orb); transition-duration: 0.32s; }
 body.flip-x #bar { align-self: flex-end; flex-direction: row-reverse; }
 body.resizing #app { visibility: hidden; }
-.cap { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.15s 0.3s; }
+/* 裁成胶囊形：缩回小球的途中，玻璃边两头不能再缩，会比底宽出一截，不裁就露出一个空心的圈 */
+.cap { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 99px; opacity: 0; transition: opacity 0.15s 0.3s; }
 body:not(.collapsed) .cap { opacity: 1; transition: opacity 0.1s; }
 .cap-body { position: absolute; inset: calc(var(--orb) * 0.05); border-radius: 99px;
-  background: linear-gradient(180deg, rgba(40, 35, 72, 0.9), rgba(23, 20, 42, 0.92)); box-shadow: 0 3px 9px rgba(8, 6, 20, 0.3); }
+  background: linear-gradient(180deg, rgba(40, 35, 72, 0.9), rgba(23, 20, 42, 0.92)); }
 /* 玻璃边：素材里自带输入框那一圈轮廓。两头（左边含眼睛的位置和输入框的左端）不变形，只拉伸中间的直线段。 */
 .cap-glass { position: absolute; inset: 0; border: solid transparent; border-width: 0 calc(var(--orb) * 0.595) 0 calc(var(--orb) * 0.982);
   border-image: url(assets/capsule.png) 0 100 0 165 fill / 0 calc(var(--orb) * 0.595) 0 calc(var(--orb) * 0.982) stretch; }
