@@ -177,6 +177,35 @@ async def main():
         await pg.evaluate("__mock.monitorFails = false")
         errs[:] = [e for e in errs if "currentMonitor" not in e]
 
+        # 11a 任务页签：刚才那次提问在列表里，状态是完成
+        await pg.click("#orb"); await pg.wait_for_timeout(900)
+        await pg.click("#tabTask"); await pg.wait_for_timeout(150)
+        tk = await pg.evaluate("[...document.querySelectorAll('#tasks .tk')].map(d => [d.dataset.st, d.innerText.replace(/\\s+/g, ' ')])")
+        check(len(tk) >= 1 and tk[0][0] == "done" and "完成" in tk[0][1], f"任务页列出这次打开以来的提问 {tk[:2]}")
+        check(await pg.is_hidden("#vChat") and await pg.get_attribute("#tabTask", "aria-selected") == "true", "切到任务页")
+        await shot("11a_tasks")
+        await pg.click("#tasks .tk"); await pg.wait_for_timeout(150)
+        check(await pg.is_visible("#vChat"), "点完成的任务回到对话")
+        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+
+        # 11a2 卡片收起时回复完成：小球旁冒气泡，小球留在原地；点气泡打开对话
+        before = await pg.evaluate("__mock.pos")
+        await pg.evaluate("showPeek('这是一段比较长的回复，用来看气泡会不会截断')"); await pg.wait_for_timeout(700)
+        pk = await pg.evaluate("""() => { const o = document.querySelector('#orb').getBoundingClientRect(); return {
+            on: document.querySelector('#peek').classList.contains('on'), text: document.querySelector('#peek').textContent,
+            size: __mock.size, pos: __mock.pos, orb: [o.left, o.top] }; }""")
+        check(pk["on"] and pk["text"].endswith("…") and len(pk["text"]) == 21, f"回复完成时冒气泡，只显示开头 {pk['text']}")
+        ox, oy = pk["pos"]["x"] + pk["orb"][0] - 12, pk["pos"]["y"] + pk["orb"][1] - 12
+        check(pk["size"]["w"] > 96 and abs(ox - before["x"]) < 1 and abs(oy - before["y"]) < 1, f"冒泡时窗口临时变大，小球留在原地 {pk} {before}")
+        await shot("11a2_peek")
+        await pg.click("#peek"); await pg.wait_for_timeout(1000)
+        check((await pg.evaluate("__mock"))["size"]["w"] == 420 and await pg.is_visible("#vChat"), "点气泡打开对话")
+        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+        await pg.evaluate("showPeek('好了')"); await pg.wait_for_timeout(600)
+        await pg.evaluate("hidePeek()"); await pg.wait_for_timeout(700)
+        m = await pg.evaluate("__mock")
+        check(m["size"] == {"w": 96, "h": 96} and m["pos"] == before, f"气泡消失后窗口缩回原样 {m['size']} {m['pos']}")
+
         # 11b 小球折射：收起时截下小球正后面那一块，按球面透镜画出来；拿不到截图就用原来的玻璃图
         lens_ok = await pg.evaluate("""async (b64) => {
             const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();

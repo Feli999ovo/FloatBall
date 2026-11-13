@@ -32,6 +32,7 @@ const S = {
   anchor: null,        // 收起时小球窗口左上角（逻辑坐标）
   cfg: null,
   lastActive: Date.now(),
+  tasks: [],           // 这次打开以来发出的请求 {title, st: run|done|err|stop, t0, t1}
 };
 
 /* ───────── 小球表情 ───────── */
@@ -111,6 +112,7 @@ function grabBackdrop(r, a) {
   return Promise.race([shot, new Promise((res) => setTimeout(() => res(null), 250))]);
 }
 async function expand(view) {
+  if (peekBox) await hidePeek();
   if (morphing) return;
   if (S.open) { showView(view || "chat"); focusAsk(); return; }
   morphing = true;
@@ -301,12 +303,107 @@ async function refreshLens() {
 /* ───────── 视图 ───────── */
 function showView(v) {
   $("#vChat").hidden = v !== "chat";
+  $("#vTask").hidden = v !== "task";
+  $("#tabChat").setAttribute("aria-selected", v !== "task"); $("#tabTask").setAttribute("aria-selected", v === "task");
+  $("#tabChat").tabIndex = v === "task" ? -1 : 0; $("#tabTask").tabIndex = v === "task" ? 0 : -1;
+  $("#title").hidden = v === "task";
   $("#vHist").hidden = v !== "hist";
   $("#histBtn").setAttribute("aria-pressed", v === "hist");
   if (v === "hist") loadHistory();
+  if (v === "task") renderTasks();
   if (v === "chat") updateEmpty();
 }
 $("#closeBtn").onclick = collapse;
+$("#tabChat").onclick = () => { showView("chat"); focusAsk(); };
+$("#tabTask").onclick = () => showView("task");
+$(".seg").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  e.preventDefault();
+  const toTask = $("#vTask").hidden;
+  showView(toTask ? "task" : "chat");
+  $(toTask ? "#tabTask" : "#tabChat").focus();
+});
+
+/* ───────── 任务：这次打开以来发出的请求，正在回答的可以停（取自参考版本） ───────── */
+function renderTasks() {
+  const run = S.tasks.filter((t) => t.st === "run").length;
+  $("#tBadge").hidden = !run; $("#tBadge").textContent = run;
+  if ($("#vTask").hidden) return;
+  const box = $("#tasks");
+  box.textContent = "";
+  if (!S.tasks.length) { const p = document.createElement("p"); p.className = "none"; p.textContent = "还没有任务"; box.appendChild(p); return; }
+  for (const t of S.tasks.slice(0, 30)) {
+    const d = document.createElement("div"); d.className = "tk"; d.dataset.st = t.st === "run" ? "run" : "done";
+    const row = document.createElement("div"); row.className = "row";
+    const name = document.createElement("span"); name.className = "name"; name.textContent = t.title;
+    const when = document.createElement("span"); when.className = "when";
+    const sec = Math.round(((t.t1 || Date.now()) - t.t0) / 1000);
+    if (t.st === "done") { const ok = document.createElement("span"); ok.className = "ok"; ok.textContent = "✓ "; when.appendChild(ok); }
+    when.appendChild(document.createTextNode({ run: "回答中", done: "完成", err: "出错", stop: "已停止" }[t.st] + " · " + sec + " 秒"));
+    row.append(name, when);
+    d.appendChild(row);
+    if (t.st === "run") {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = "停止"; b.onclick = stop; row.appendChild(b);
+      const bar = document.createElement("div"); bar.className = "bar"; bar.appendChild(document.createElement("i")); d.appendChild(bar);
+    } else d.onclick = () => { showView("chat"); focusAsk(); };
+    box.appendChild(d);
+  }
+}
+setInterval(() => { if (S.busy && !$("#vTask").hidden) renderTasks(); }, 1000);
+
+/* ───────── 气泡：卡片收起时回复完成，在小球旁冒一句（取自参考版本） ─────────
+   收起时窗口只有小球那么大，放不下气泡：冒泡时临时把窗口扩大，小球留在原地，消失后再缩回。 */
+const PEEK_W = 260, PEEK_H = 60;
+let peekTimer = 0, peekBox = null;
+async function showPeek(text) {
+  const t = String(text).replace(/\s+/g, " ").trim();
+  if (!t || S.open || morphing || peekBox) return;
+  morphing = true;
+  try {
+    const p = await winPos(), a = await monitorArea();
+    const toL = p.x + SMALL / 2 > a.x + a.w / 2, below = p.y - PEEK_H < a.y + 8;
+    const w = SMALL + PEEK_W, h = SMALL + PEEK_H;
+    const x = toL ? p.x - PEEK_W : p.x, y = below ? p.y : p.y - PEEK_H;
+    peekBox = { p, toL, below };
+    const el = $("#peek");
+    el.textContent = t.length <= 20 ? t : t.slice(0, 20) + "…";
+    await reshape(w, h, x, y, toL || !below, () => {
+      // 小球留在原来的位置：窗口往哪边长，小球就靠哪边
+      body.classList.add("peeking");
+      $("#app").style.padding = `${below ? PAD : PAD + PEEK_H}px ${toL ? PAD : PAD + PEEK_W}px ${below ? PAD + PEEK_H : PAD}px ${toL ? PAD + PEEK_W : PAD}px`;
+      el.style.left = toL ? "auto" : SMALL - 4 + "px"; el.style.right = toL ? SMALL - 4 + "px" : "auto";
+      el.style.top = below ? SMALL - 4 + "px" : "auto"; el.style.bottom = below ? "auto" : SMALL - 4 + "px";
+      el.style.borderRadius = below ? (toL ? "14px 4px 14px 14px" : "4px 14px 14px 14px") : (toL ? "14px 14px 4px 14px" : "14px 14px 14px 4px");
+      el.style.transformOrigin = (toL ? "100% " : "0 ") + (below ? "0" : "100%");
+    });
+    el.classList.add("on");
+  } finally { morphing = false; }
+  clearTimeout(peekTimer);
+  peekTimer = setTimeout(hidePeek, 6000);
+}
+async function hidePeek() {
+  clearTimeout(peekTimer);
+  const box = peekBox;
+  if (!box) return;
+  $("#peek").classList.remove("on");
+  await new Promise((r) => setTimeout(r, 220));
+  if (S.open || morphing) { peekBox = null; return; } // 已经点开了：展开会自己排版
+  morphing = true;
+  try {
+    await reshape(SMALL, SMALL, box.p.x, box.p.y, box.toL || !box.below, () => { body.classList.remove("peeking"); $("#app").style.padding = ""; });
+  } finally { morphing = false; peekBox = null; }
+}
+$("#peek").onclick = async () => {
+  const box = peekBox;
+  clearTimeout(peekTimer);
+  $("#peek").classList.remove("on");
+  if (box) {
+    morphing = true;
+    try { await reshape(SMALL, SMALL, box.p.x, box.p.y, false, () => { body.classList.remove("peeking"); $("#app").style.padding = ""; }); }
+    finally { morphing = false; peekBox = null; }
+  }
+  expand("chat");
+};
 $("#newBtn").onclick = () => { newChat(); showView("chat"); focusAsk(); };
 $("#histBtn").onclick = () => showView($("#vHist").hidden ? "hist" : "chat");
 $("#setBtn").onclick = openSettings;
@@ -468,6 +565,8 @@ function run() {
   $("#sendBtn").disabled = true;
   $("#stopRow").hidden = false;
   mood("think");
+  const task = { title: (S.msgs[S.msgs.length - 1] && historyText(lastText(), [])) || "提问", st: "run", t0: Date.now() };
+  S.tasks.unshift(task); renderTasks();
   const el = addAiBubble();
   const txt = el.querySelector(".txt"), think = el.querySelector(".think");
   let out = "", reasoning = "", usage = null, raf = 0;
@@ -491,9 +590,9 @@ function run() {
       invoke("history_append", { convId: S.convId, role: "assistant", content: out }).catch(() => {});
       setMeta(el, usage ? `${S.cfg?.model || ""} · ${usage.prompt + usage.completion} tokens` : S.cfg?.model || "", { copy: out });
       mood("done", 1800);
-      if (!S.open) poke();
+      if (!S.open) { poke(); showPeek(out || "回复好了"); }
     } else if (ev.type === "error") {
-      finish();
+      finish("err");
       txt.classList.remove("cursor");
       el.classList.add("err");
       txt.textContent = ev.message;
@@ -502,10 +601,14 @@ function run() {
       mood("error", 4000);
     }
   };
-  function finish() { if (S.busy === id) S.busy = null; $("#sendBtn").disabled = false; $("#stopRow").hidden = true; }
+  function finish(st = "done") {
+    if (S.busy === id) S.busy = null;
+    $("#sendBtn").disabled = false; $("#stopRow").hidden = true;
+    if (task.st === "run") { task.st = st; task.t1 = Date.now(); renderTasks(); }
+  }
   el._stop = () => {
     invoke("cancel_chat", { id }).catch(() => {});
-    finish(); txt.classList.remove("cursor");
+    finish("stop"); txt.classList.remove("cursor");
     if (out) { txt.innerHTML = md(out); S.msgs.push({ role: "assistant", content: out }); invoke("history_append", { convId: S.convId, role: "assistant", content: out + "\n\n（已停止）" }).catch(() => {}); }
     else txt.textContent = "（已停止）";
     setMeta(el, "已停止", out ? { copy: out } : {});
@@ -515,6 +618,12 @@ function run() {
   invoke("chat", { id, messages: S.msgs, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 function stop() { if (S.busy && S.stopFn) S.stopFn(); }
+// 最近一次提问的文字（任务列表里显示）
+function lastText() {
+  const c = S.msgs[S.msgs.length - 1].content;
+  const s = typeof c === "string" ? c : (c.find((p) => p.type === "text") || {}).text || "截图提问";
+  return s.replace(/^文件「[^」]*」的内容：[\s\S]*?```\n\n/, "").slice(0, 40) || "提问";
+}
 $("#stopBtn").onclick = stop;
 
 $("#capsule").addEventListener("submit", (e) => { e.preventDefault(); send(); });

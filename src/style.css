@@ -153,10 +153,36 @@ body:not(.collapsed) #card { opacity: 1; transform: none; }
 body.collapsed #capsule, body.collapsed #card { pointer-events: none; visibility: hidden; }
 body.collapsed #app { padding: var(--pad); }
 #card header { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
-#card .title { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#card .title { flex: 1; padding-left: 8px; min-width: 0; font-weight: 600; font-size: 13px; color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #card header .ib { width: 32px; height: 32px; border-radius: 10px; }
 #card header .ib svg { width: 16px; height: 16px; }
 .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 对话 | 任务 页签（取自参考版本） */
+.seg { flex: none; display: inline-flex; padding: 2px; gap: 2px; border-radius: 10px; background: rgba(0, 0, 0, 0.25); }
+.seg button { position: relative; border: 0; background: none; padding: 4px 11px; border-radius: 8px; font-size: 12.5px; color: var(--mut); }
+.seg button[aria-selected="true"] { background: rgba(255, 255, 255, 0.14); color: var(--txt); font-weight: 600; }
+.seg .badge { margin-left: 4px; padding: 0 5px; border-radius: 99px; background: var(--eye); color: var(--ink); font-size: 10.5px; font-weight: 700; }
+#tasks { flex: 1; overflow-y: auto; padding: 8px 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+#tasks .none { margin: auto; padding-bottom: 30px; font-size: 13px; color: var(--mut); }
+.tk { padding: 7px 10px 9px; border-radius: 12px; font-size: 13px; }
+.tk:hover { background: rgba(255, 255, 255, 0.06); }
+.tk[data-st="done"] { cursor: pointer; }
+.tk .row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.tk .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk[data-st="done"] .name { opacity: 0.75; }
+.tk .when { flex: none; font-size: 12px; color: var(--mut); font-variant-numeric: tabular-nums; }
+.tk .ok { color: var(--ok); }
+.tk button { flex: none; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 2px 10px; font-size: 12px; }
+.tk .bar { position: relative; height: 3px; margin-top: 4px; border-radius: 99px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.tk .bar i { position: absolute; inset: 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, transparent, var(--eye), transparent); animation: tkrun 1.3s ease-in-out infinite; }
+@keyframes tkrun { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+/* 回复完成的气泡（取自参考版本） */
+#peek { position: fixed; z-index: 7; max-width: 240px; margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 14px;
+  background: linear-gradient(180deg, rgba(40, 35, 72, 0.96), rgba(23, 20, 42, 0.96)); color: var(--txt); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 3px 9px rgba(8, 6, 20, 0.3); opacity: 0; pointer-events: none; transform: translateY(6px) scale(0.94); transition: opacity 0.2s, transform 0.25s var(--spring); }
+#peek.on { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
+body:not(.collapsed) #peek { display: none; }
+@media (prefers-reduced-motion: reduce) { .tk .bar i { animation: none; } }
 .view[hidden] { display: none; }
 
 #msgs { flex: 1; overflow-y: auto; padding: 14px 16px 8px; display: flex; flex-direction: column; gap: 12px; user-select: text; -webkit-user-select: text; }
