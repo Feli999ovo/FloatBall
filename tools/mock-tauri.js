@@ -31,6 +31,7 @@
       case "set_autostart": st.cfg.autostart = a.on; return a.on;
       case "save_position": st.cfg.position = [a.x, a.y]; return null;
       case "test_connection": st.testArgs = a; return "连接成功，用时 412 毫秒";
+      case "lens": st.lensArgs = a; return st.lens || null;
       case "backdrop": st.backdropArgs = a; return st.backdrop || null;
       case "show_context_menu": st.menuShown = true; return null;
       case "capture_screen": return "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
@@ -65,6 +66,7 @@
     throw new Error("mock: unknown command " + cmd);
   }
   const win = {
+    close: async () => { st.closed = (st.closed || 0) + 1; },
     _mon: async () => ({ scaleFactor: 2, position: { x: 0, y: 0 }, size: { width: st.mon.w * 2, height: st.mon.h * 2 }, workArea: { position: { x: 0, y: 50 }, size: { width: st.mon.w * 2, height: (st.mon.h - 25) * 2 } } }),
     outerPosition: async () => ({ x: st.pos.x * 2, y: st.pos.y * 2 }),
     outerSize: async () => ({ width: st.size.w * 2, height: st.size.h * 2 }),

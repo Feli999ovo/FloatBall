@@ -177,6 +177,57 @@ async def main():
         await pg.evaluate("__mock.monitorFails = false")
         errs[:] = [e for e in errs if "currentMonitor" not in e]
 
+        # 11a 任务页签：刚才那次提问在列表里，状态是完成
+        await pg.click("#orb"); await pg.wait_for_timeout(900)
+        await pg.click("#tabTask"); await pg.wait_for_timeout(150)
+        tk = await pg.evaluate("[...document.querySelectorAll('#tasks .tk')].map(d => [d.dataset.st, d.innerText.replace(/\\s+/g, ' ')])")
+        check(len(tk) >= 1 and tk[0][0] == "done" and "完成" in tk[0][1], f"任务页列出这次打开以来的提问 {tk[:2]}")
+        check(await pg.is_hidden("#vChat") and await pg.get_attribute("#tabTask", "aria-selected") == "true", "切到任务页")
+        await shot("11a_tasks")
+        await pg.click("#tasks .tk"); await pg.wait_for_timeout(150)
+        check(await pg.is_visible("#vChat"), "点完成的任务回到对话")
+        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+
+        # 11a2 卡片收起时回复完成：小球旁冒气泡，小球留在原地；点气泡打开对话
+        before = await pg.evaluate("__mock.pos")
+        await pg.evaluate("showPeek('这是一段比较长的回复，用来看气泡会不会截断')"); await pg.wait_for_timeout(700)
+        pk = await pg.evaluate("""() => { const o = document.querySelector('#orb').getBoundingClientRect(); return {
+            on: document.querySelector('#peek').classList.contains('on'), text: document.querySelector('#peek').textContent,
+            size: __mock.size, pos: __mock.pos, orb: [o.left, o.top] }; }""")
+        check(pk["on"] and pk["text"].endswith("…") and len(pk["text"]) == 21, f"回复完成时冒气泡，只显示开头 {pk['text']}")
+        ox, oy = pk["pos"]["x"] + pk["orb"][0] - 12, pk["pos"]["y"] + pk["orb"][1] - 12
+        check(pk["size"]["w"] > 96 and abs(ox - before["x"]) < 1 and abs(oy - before["y"]) < 1, f"冒泡时窗口临时变大，小球留在原地 {pk} {before}")
+        await shot("11a2_peek")
+        await pg.click("#peek"); await pg.wait_for_timeout(1000)
+        check((await pg.evaluate("__mock"))["size"]["w"] == 420 and await pg.is_visible("#vChat"), "点气泡打开对话")
+        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+        await pg.evaluate("showPeek('好了')"); await pg.wait_for_timeout(600)
+        await pg.evaluate("hidePeek()"); await pg.wait_for_timeout(700)
+        m = await pg.evaluate("__mock")
+        check(m["size"] == {"w": 96, "h": 96} and m["pos"] == before, f"气泡消失后窗口缩回原样 {m['size']} {m['pos']}")
+
+        # 11b 小球折射：收起时截下小球正后面那一块，按球面透镜画出来；拿不到截图就用原来的玻璃图
+        lens_ok = await pg.evaluate("""async (b64) => {
+            const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();
+            const c = document.createElement("canvas"); c.width = c.height = 96;
+            // 和真实桌面一样：壁纸先铺满 1440×900 的屏幕，再截小球后面那 96×96
+            const k = im.naturalWidth / 1440;
+            c.getContext("2d").drawImage(im, 1300 * k, 400 * k, 96 * k, 96 * k, 0, 0, 96, 96);
+            __mock.lens = c.toDataURL("image/png");
+            await refreshLens();
+            const d = document.querySelector("#lens").getContext("2d").getImageData(0, 0, 72, 72).data;
+            const at = (x, y) => [...d.slice((y * 72 + x) * 4, (y * 72 + x) * 4 + 4)];
+            return { lensed: document.querySelector("#orb").classList.contains("lensed"), args: __mock.lensArgs, center: at(36, 36), corner: at(0, 0) };
+        }""", base64.b64encode(open(os.path.join(ROOT, "design-reference", "wallpaper.jpg"), "rb").read()).decode())
+        check(lens_ok["lensed"] and lens_ok["center"][3] == 255 and lens_ok["corner"][3] == 0, f"小球显示折射画面，圆以外透明 {lens_ok['center']} {lens_ok['corner']}")
+        a = lens_ok["args"]
+        sc = await pg.evaluate("__TAURI__.window.getCurrentWindow().scaleFactor()")
+        check(a["w"] == a["h"] == round(96 * sc), f"只截小球窗口这么大的一块（物理像素，缩放 {sc}） {a}")
+        await shot("11b_lens")
+        await pg.evaluate("__mock.lens = null")
+        await pg.evaluate("refreshLens()"); await pg.wait_for_timeout(100)
+        check(not await pg.evaluate("document.querySelector('#orb').classList.contains('lensed')"), "拿不到截图时用原来的玻璃图")
+
         # 11c 小球拉长成胶囊；上方放得下时卡片在胶囊上方；有底图时卡片是毛玻璃
         check(await pg.evaluate("document.querySelector('#bar').offsetWidth") == 72, "收起时胶囊缩成小球大小")
         check(await pg.evaluate("getComputedStyle(document.querySelector('.cap')).overflow") == "hidden", "胶囊的玻璃边不会露到小球外面")
@@ -253,6 +304,9 @@ async def main():
         await s.goto("file://" + os.path.join(ROOT, "src", "settings.html"))
         await s.wait_for_timeout(400)
         mock = lambda: s.evaluate("__mock")
+
+        check(await s.is_visible("#top") and await s.get_attribute("#top", "data-tauri-drag-region") is not None, "去掉系统标题栏后自己画了一条可拖动的标题栏")
+        check((await s.evaluate("getComputedStyle(document.body).backgroundImage")).startswith("linear-gradient"), "底色是半透明的，让系统毛玻璃透出来")
 
         # S1 模型库是空的：直接打开「添加模型」
         check(await s.is_visible("#formView") and await s.inner_text("#formTitle") == "添加模型", "模型库是空的时直接打开添加模型")
@@ -332,7 +386,7 @@ async def main():
         await s.click("#fKeyCap"); await s.keyboard.press("Control+Shift+KeyK"); await s.wait_for_timeout(150)
         check("不能一样" in await s.inner_text("#keysMsg") and (await mock())["cfg"]["capture_shortcut"] == "Alt+Shift+S", "两个快捷键不能一样")
         await s.keyboard.press("Escape")
-        check(await s.inner_text("#fKeyCap") == "Alt+Shift+S", "Esc 取消录入")
+        check(await s.inner_text("#fKeyCap") == "Alt+Shift+S" and not (await mock()).get("closed"), "录快捷键时 Esc 只取消录入，不关窗口")
         await s.evaluate("__mock.shortcutBusy = true")
         await s.click("#fKeyMain"); await s.keyboard.press("Alt+KeyJ"); await s.wait_for_timeout(150)
         msg = await s.inner_text("#keysMsg")
@@ -349,6 +403,10 @@ async def main():
         c = (await mock())["cfg"]
         check(c["autostart"] and c["system_prompt"] == "只用中文回答", "开机启动和系统提示词")
         await s.screenshot(path=f"{OUT}/24_settings_general.png")
+        await s.click("#fSys"); await s.keyboard.press("Escape"); await s.wait_for_timeout(100)
+        check((await mock()).get("closed") == 1, "Esc 关闭设置窗口")
+        await s.click("#closeBtn")
+        check((await mock()).get("closed") == 2, "标题栏的 × 关闭设置窗口")
         check(not errs2, "设置窗口无 JS 错误 " + "; ".join(errs2))
         await b.close()
     print("\n%d 项失败" % len(fails) if fails else "\n全部通过")

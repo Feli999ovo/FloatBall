@@ -13,18 +13,28 @@
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { display: flex; background: var(--ink); color: var(--txt); font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif; user-select: none; }
+/* 窗口背后是系统自带的毛玻璃（Windows 亚克力、macOS 系统材质，Rust 里加的），这里只铺一层半透明墨色。
+   没有系统毛玻璃时（Linux，或者还没读到设置）是不透明的底。 */
+body { display: grid; grid-template: "top top" 0 "nav main" 1fr / 168px 1fr; background: var(--ink); color: var(--txt); font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif; user-select: none; }
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+body.fx { grid-template-rows: 40px 1fr; background: linear-gradient(160deg, rgba(40, 35, 72, 0.72), rgba(23, 20, 42, 0.8) 60%); }
+body.fx nav { background: rgba(0, 0, 0, 0.14); }
+/* 系统标题栏去掉了，自己画一条：拖这里移动窗口 */
+#top { grid-area: top; display: none; align-items: center; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line); }
+body.fx #top { display: flex; }
+#top span { flex: 1; font-size: 13px; color: var(--mut); }
+#closeBtn { width: 30px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: none; font-size: 18px; line-height: 1; color: var(--mut); }
+#closeBtn:hover { background: rgba(255, 143, 163, 0.25); color: var(--txt); }
 
-nav { flex: none; width: 168px; padding: 20px 10px; display: flex; flex-direction: column; gap: 2px; background: rgba(0, 0, 0, 0.22); border-right: 1px solid var(--line); }
+nav { grid-area: nav; padding: 20px 10px; display: flex; flex-direction: column; gap: 2px; background: rgba(0, 0, 0, 0.22); border-right: 1px solid var(--line); }
 nav button { text-align: left; padding: 8px 12px; border: 0; border-radius: 9px; background: none; color: var(--mut); }
 nav button:hover { background: rgba(255, 255, 255, 0.06); color: var(--txt); }
 nav button[aria-selected="true"] { background: rgba(255, 255, 255, 0.1); color: var(--txt); font-weight: 600; }
 
-main { flex: 1; min-width: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; } /* 系统默认的滚动条是浅色的，和深色界面不搭 */
+main { grid-area: main; min-width: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; } /* 系统默认的滚动条是浅色的，和深色界面不搭 */
 section { max-width: 620px; padding: 22px 28px 28px; display: flex; flex-direction: column; gap: 14px; }
 #libView, #formView { display: flex; flex-direction: column; gap: 14px; }
 header { display: flex; align-items: center; gap: 12px; min-height: 34px; }

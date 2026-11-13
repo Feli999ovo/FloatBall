@@ -192,12 +192,22 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
             let _ = w.set_focus();
             return;
         }
-        let built = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
+        // 去掉系统标题栏（界面里自己画），窗口透明，后面铺系统自带的毛玻璃：Windows 用亚克力，macOS 用系统材质。
+        // Linux 没有这个效果，保留系统标题栏和不透明的底。
+        use tauri::utils::config::WindowEffectsConfig;
+        use tauri::window::Effect;
+        let b = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
             .title("悬浮球设置")
             .inner_size(760.0, 560.0)
             .min_inner_size(640.0, 440.0)
-            .center()
-            .build();
+            .center();
+        #[cfg(any(windows, target_os = "macos"))]
+        let b = b.decorations(false).transparent(true).shadow(true).effects(WindowEffectsConfig {
+            effects: vec![Effect::Acrylic, Effect::HudWindow],
+            radius: Some(12.0),
+            ..Default::default()
+        });
+        let built = b.build();
         if let Err(e) = built {
             log::error!("settings window: {e}");
         }
@@ -309,6 +319,23 @@ async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<St
     #[cfg(windows)]
     {
         tauri::async_runtime::spawn_blocking(move || capture::backdrop_at(px, py, x, y, w, h))
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (px, py, x, y, w, h);
+        None
+    }
+}
+
+/// 小球折射的底图（见 capture::lens_at）。拿不到就返回空，小球用原来的玻璃图。
+#[tauri::command]
+async fn lens(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || capture::lens_at(px, py, x, y, w, h))
             .await
             .ok()
             .and_then(|r| r.ok())
@@ -570,6 +597,7 @@ pub fn run() {
             history_clear,
             capture_screen,
             backdrop,
+            lens,
             read_text_file,
             show_context_menu,
             hide_ball,

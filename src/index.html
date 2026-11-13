@@ -14,6 +14,7 @@
     <div id="orb" class="s-idle" role="button" tabindex="0" aria-label="悬浮球：点一下打开，拖动换位置，右键更多">
       <div class="float"><div class="breath">
         <div class="body"></div>
+        <canvas class="lens" id="lens" width="72" height="72"></canvas>
         <img class="glass" src="assets/orb.png" alt="" draggable="false" />
         <div class="face" id="face">
           <i class="eye l"></i><i class="eye r"></i>
@@ -38,6 +39,10 @@
   <!-- 卡片 -->
   <section id="card" aria-live="polite">
     <header>
+      <div class="seg" role="tablist" aria-label="对话与任务">
+        <button role="tab" id="tabChat" aria-selected="true" aria-controls="vChat">对话</button>
+        <button role="tab" id="tabTask" aria-selected="false" aria-controls="vTask" tabindex="-1">任务<span class="badge" id="tBadge" hidden></span></button>
+      </div>
       <div class="title" id="title">新对话</div>
       <button class="ib" id="newBtn" title="新对话" aria-label="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
       <button class="ib" id="histBtn" title="历史记录" aria-label="历史记录"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></button>
@@ -67,6 +72,9 @@
     </div>
 
     <!-- 历史 -->
+    <!-- 任务：这次打开以来发出的请求 -->
+    <div class="view" id="vTask" role="tabpanel" aria-labelledby="tabTask" hidden><div id="tasks"></div></div>
+
     <div class="view" id="vHist" hidden>
       <div class="vh"><b>历史记录</b><span class="grow"></span><button class="txt danger" id="clearHist">全部删除</button></div>
       <ul id="histList"></ul>
@@ -75,6 +83,8 @@
 
   </section>
   <div id="toast" role="status"></div>
+  <!-- 卡片收起时回复完成：在小球旁冒一句 -->
+  <button type="button" id="peek" aria-live="polite" tabindex="-1"></button>
 </div>
 <script src="app.js"></script>
 </body>
