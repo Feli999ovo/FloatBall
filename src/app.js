@@ -162,6 +162,7 @@ async function collapse() {
     await reshape(SMALL, SMALL, p.x, p.y, flipped, () => body.classList.remove("flip-x", "flip-y"));
     if (!S.busy) mood("idle");
   } finally { morphing = false; }
+  setTimeout(refreshLens, 120);
 }
 function toggle() { S.open ? collapse() : expand(); }
 function focusAsk() { if (!$("#vChat").hidden) setTimeout(() => ask.focus(), 30); }
@@ -197,6 +198,7 @@ appWin.onMoved(() => {
   if (morphing) return;
   orb.classList.remove("dragging");
   if (S.open) $("#card").classList.remove("glassy"); // 窗口挪了，底图对不上了
+  else orb.classList.remove("lensed");
   clearTimeout(moveTimer);
   moveTimer = setTimeout(settle, 350);
 });
@@ -228,6 +230,7 @@ async function settle() {
     setTimeout(() => (morphing = false), 60);
   }
   invoke("save_position", { x, y }).catch(() => {});
+  setTimeout(refreshLens, 120); // 等贴边吸附挪完再截
 }
 
 // 点别处：没在生成、没固定、输入框是空的 → 收起
@@ -243,6 +246,57 @@ document.addEventListener("keydown", (e) => {
     else showView("chat");
   }
 });
+
+/* ───────── 小球的折射 ─────────
+   设计稿里小球是一颗实心玻璃球，会把后面的东西倒过来、放大。网页看不到窗口后面的桌面，
+   所以在小球停下的时候（启动、拖完、收起）让程序截下小球正后面那一块，按球面透镜画出来。
+   只在 Windows 上有；拿不到时就是原来的玻璃图。图只在内存里，不保存、不外传。
+   算法取自参考版本（逐像素球透镜，折射率约 1.5），去掉了模拟窗户高光的那一段。
+   shortcut: 只在小球停下时截一次，后面的东西变了不会跟着变；要实时的话得定时截屏，更耗电。 */
+const lensCv = $("#lens"), lensCtx = lensCv.getContext("2d", { willReadFrequently: true });
+let lensSeq = 0;
+// 球面透镜：中心几乎不偏，越往边上取得越远（倒像、放大），中心带一点墨色
+function paintLens(src) {
+  const W = lensCv.width, H = lensCv.height, out = lensCtx.createImageData(W, H), p = out.data, s = src.data, sw = src.width, sh = src.height;
+  for (let j = 0; j < H; j++) {
+    const ny = ((j + 0.5) / H) * 2 - 1;
+    for (let i = 0; i < W; i++) {
+      const nx = ((i + 0.5) / W) * 2 - 1, r = Math.hypot(nx, ny), o = (j * W + i) * 4;
+      if (r > 1) { p[o + 3] = 0; continue; }
+      const k = 0.55 + 1.6 * r ** 4;                     // 取样半径：中心 0.55 倍，边上到 2 倍以上
+      const sx = Math.min(sw - 1, Math.max(0, ((-nx * k + 1) / 2) * (sw - 1)));
+      const sy = Math.min(sh - 1, Math.max(0, ((-ny * k + 1) / 2) * (sh - 1)));
+      const a = ((sy | 0) * sw + (sx | 0)) * 4;
+      const dk = 1 - 0.372 * (1 - r * r);                  // 和参考版本一样：中心暗一些，像透过厚玻璃
+      const tn = 0.15 * (1 - r);                          // 中心带一点墨色
+      p[o] = (s[a] * dk) * (1 - tn) + 14 * tn;
+      p[o + 1] = (s[a + 1] * dk) * (1 - tn) + 16 * tn;
+      p[o + 2] = (s[a + 2] * dk) * (1 - tn) + 48 * tn;
+      p[o + 3] = 255 * Math.min(1, (1 - r) * W / 2 + 0.5); // 边缘抗锯齿
+    }
+  }
+  lensCtx.putImageData(out, 0, 0);
+}
+async function refreshLens() {
+  const seq = ++lensSeq;
+  if (S.open || morphing) return;
+  try {
+    const m = await T.window.currentMonitor(), p = await appWin.outerPosition(), sc = await appWin.scaleFactor();
+    if (!m) return;
+    // 只截小球窗口这么大的一块（物理像素，相对这块屏幕的左上角）
+    const size = Math.round(SMALL * sc);
+    const url = await invoke("lens", { px: p.x + (size >> 1), py: p.y + (size >> 1), x: p.x - m.position.x, y: p.y - m.position.y, w: size, h: size }).catch(() => null);
+    if (seq !== lensSeq || S.open) return;
+    if (!url) { orb.classList.remove("lensed"); return; }
+    const img = new Image(); img.src = url; await img.decode();
+    // 截图是整个小球窗口，透镜只画小球那一圈：取窗口中间去掉留白的部分
+    const c = document.createElement("canvas"), cut = Math.round(size * (PAD / SMALL));
+    c.width = c.height = 72;
+    const g = c.getContext("2d"); g.drawImage(img, cut, cut, size - cut * 2, size - cut * 2, 0, 0, 72, 72);
+    paintLens(g.getImageData(0, 0, 72, 72));
+    orb.classList.add("lensed");
+  } catch (e) { jslog("lens " + (e && e.message ? e.message : e)); }
+}
 
 /* ───────── 视图 ───────── */
 function showView(v) {
@@ -595,6 +649,7 @@ listen("menu", async ({ payload }) => {
   try { S.cfg = await invoke("get_config"); } catch (_) {}
   applyLook();
   updateEmpty();
+  setTimeout(refreshLens, 600); // 等窗口出现在屏幕上再截
   mood("idle");
   // 还没设置模型：小球露出好奇的表情提醒一下，不自动展开，免得挡住屏幕
   if (needsSetup()) mood("curious", 4000);

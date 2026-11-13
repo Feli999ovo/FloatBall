@@ -330,6 +330,23 @@ async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<St
     }
 }
 
+/// 小球折射的底图（见 capture::lens_at）。拿不到就返回空，小球用原来的玻璃图。
+#[tauri::command]
+async fn lens(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || capture::lens_at(px, py, x, y, w, h))
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (px, py, x, y, w, h);
+        None
+    }
+}
+
 #[tauri::command]
 async fn capture_screen(app: AppHandle) -> Result<String, String> {
     let win = main_window(&app).ok_or("no window")?;
@@ -580,6 +597,7 @@ pub fn run() {
             history_clear,
             capture_screen,
             backdrop,
+            lens,
             read_text_file,
             show_context_menu,
             hide_ball,

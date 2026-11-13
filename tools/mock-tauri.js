@@ -31,6 +31,7 @@
       case "set_autostart": st.cfg.autostart = a.on; return a.on;
       case "save_position": st.cfg.position = [a.x, a.y]; return null;
       case "test_connection": st.testArgs = a; return "连接成功，用时 412 毫秒";
+      case "lens": st.lensArgs = a; return st.lens || null;
       case "backdrop": st.backdropArgs = a; return st.backdrop || null;
       case "show_context_menu": st.menuShown = true; return null;
       case "capture_screen": return "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
