@@ -254,6 +254,9 @@ async def main():
         await s.wait_for_timeout(400)
         mock = lambda: s.evaluate("__mock")
 
+        check(await s.is_visible("#top") and await s.get_attribute("#top", "data-tauri-drag-region") is not None, "去掉系统标题栏后自己画了一条可拖动的标题栏")
+        check((await s.evaluate("getComputedStyle(document.body).backgroundImage")).startswith("linear-gradient"), "底色是半透明的，让系统毛玻璃透出来")
+
         # S1 模型库是空的：直接打开「添加模型」
         check(await s.is_visible("#formView") and await s.inner_text("#formTitle") == "添加模型", "模型库是空的时直接打开添加模型")
         await s.click("#presets button:has-text('DeepSeek')")
@@ -332,7 +335,7 @@ async def main():
         await s.click("#fKeyCap"); await s.keyboard.press("Control+Shift+KeyK"); await s.wait_for_timeout(150)
         check("不能一样" in await s.inner_text("#keysMsg") and (await mock())["cfg"]["capture_shortcut"] == "Alt+Shift+S", "两个快捷键不能一样")
         await s.keyboard.press("Escape")
-        check(await s.inner_text("#fKeyCap") == "Alt+Shift+S", "Esc 取消录入")
+        check(await s.inner_text("#fKeyCap") == "Alt+Shift+S" and not (await mock()).get("closed"), "录快捷键时 Esc 只取消录入，不关窗口")
         await s.evaluate("__mock.shortcutBusy = true")
         await s.click("#fKeyMain"); await s.keyboard.press("Alt+KeyJ"); await s.wait_for_timeout(150)
         msg = await s.inner_text("#keysMsg")
@@ -349,6 +352,10 @@ async def main():
         c = (await mock())["cfg"]
         check(c["autostart"] and c["system_prompt"] == "只用中文回答", "开机启动和系统提示词")
         await s.screenshot(path=f"{OUT}/24_settings_general.png")
+        await s.click("#fSys"); await s.keyboard.press("Escape"); await s.wait_for_timeout(100)
+        check((await mock()).get("closed") == 1, "Esc 关闭设置窗口")
+        await s.click("#closeBtn")
+        check((await mock()).get("closed") == 2, "标题栏的 × 关闭设置窗口")
         check(not errs2, "设置窗口无 JS 错误 " + "; ".join(errs2))
         await b.close()
     print("\n%d 项失败" % len(fails) if fails else "\n全部通过")

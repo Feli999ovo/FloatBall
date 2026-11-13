@@ -65,6 +65,7 @@
     throw new Error("mock: unknown command " + cmd);
   }
   const win = {
+    close: async () => { st.closed = (st.closed || 0) + 1; },
     _mon: async () => ({ scaleFactor: 2, position: { x: 0, y: 0 }, size: { width: st.mon.w * 2, height: st.mon.h * 2 }, workArea: { position: { x: 0, y: 50 }, size: { width: st.mon.w * 2, height: (st.mon.h - 25) * 2 } } }),
     outerPosition: async () => ({ x: st.pos.x * 2, y: st.pos.y * 2 }),
     outerSize: async () => ({ width: st.size.w * 2, height: st.size.h * 2 }),

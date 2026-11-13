@@ -2,6 +2,7 @@
 "use strict";
 
 const { invoke } = window.__TAURI__.core;
+const thisWin = window.__TAURI__.window.getCurrentWindow();
 const $ = (s) => document.querySelector(s);
 let cfg = null;      // get_config 的结果
 let editing = 0;     // 正在编辑的模型编号；0 = 新增
@@ -210,9 +211,16 @@ document.querySelectorAll(".keycap").forEach((b) => {
   };
 });
 
+/* ───────── 关闭 ───────── */
+$("#closeBtn").onclick = () => thisWin.close();
+// Esc 关窗口；录快捷键时 Esc 是取消录入（那边先拦下了）
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.defaultPrevented) thisWin.close(); });
+
 /* ───────── 启动 ───────── */
 (async () => {
   await reload();
+  // 有系统毛玻璃的平台：半透明底 + 自己画的标题栏（Rust 那边按同样的平台去掉了系统标题栏）
+  document.body.classList.toggle("fx", cfg.platform === "windows" || cfg.platform === "macos");
   renderModels();
   radio($("#fSize"), cfg.orb_size);
   radio($("#fEye"), cfg.eye);
