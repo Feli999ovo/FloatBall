@@ -492,7 +492,7 @@ $("awaySw").addEventListener("click", async () => { if (await savePerm(cfg.alway
 function prefs() {
   const on = (g) => { const b = $(g).querySelector('[aria-checked="true"]'); return b && b.dataset.v; };
   return {
-    shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut,
+    shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut, new_shortcut: keyVal.new_shortcut, tasks_shortcut: keyVal.tasks_shortcut,
     orb_size: +(on("lkSize") || cfg.orb_size), glass: +$("lkGlass").value, eye: on("lkEye") || cfg.eye,
     idle_ms: +$("lkIdle").value, follow_system: sw("lkSys"), auto_dock: sw("lkDock"), calm: sw("lkCalm"),
     hover: { on: sw("hvOn"), delay: +(on("hvSpd") || 350), order: hvOrder },
@@ -566,7 +566,9 @@ function hvRender(focusId, focusSel) {
 }
 
 // 快捷键：原型的「录制」。写进配置用 Tauri 的写法（Alt+Space），显示用原型的写法（⌥ Space）
-const keyVal = { shortcut: "", capture_shortcut: "" };
+// 原型的 KEY_DEF（程序里已有的四个动作），默认值同原型
+const KEY_DEF = [["shortcut", "唤起/收起", "Alt+Space"], ["new_shortcut", "新对话", "Alt+N"], ["capture_shortcut", "截屏提问", "Alt+S"], ["tasks_shortcut", "打开任务", "Alt+T"]];
+const keyVal = Object.fromEntries(KEY_DEF.map(([k]) => [k, ""]));
 let keyRec = null;
 const isMac = /Mac/.test(navigator.platform);
 const SYM = { Control: "⌃", Alt: "⌥", Shift: "⇧", Super: "⌘", CommandOrControl: isMac ? "⌘" : "⌃" };
@@ -585,14 +587,18 @@ function showCombo(v) {
   return mods.concat(SHOWN[key] || key).join(isMac ? " " : "+");
 }
 function renderKeys() {
-  $("keyList").querySelectorAll("li").forEach((li) => {
-    const k = li.dataset.k, on = keyRec === k, other = k === "shortcut" ? "capture_shortcut" : "shortcut";
+  const ul = $("keyList");
+  if (!ul.children.length) KEY_DEF.forEach(([k, label]) => {
+    const li = document.createElement("li"); li.dataset.k = k;
+    li.innerHTML = `<b></b><kbd class="x-kc" aria-live="polite"></kbd><button type="button" class="x-sb"></button><p class="x-kw"></p>`;
+    li.children[0].textContent = label; ul.appendChild(li);
+  });
+  ul.querySelectorAll("li").forEach((li) => {
+    const k = li.dataset.k, on = keyRec === k;
     li.classList.toggle("rec", on);
     li.querySelector(".x-kc").textContent = on ? "按下新的组合键…" : showCombo(keyVal[k]);
     const b = li.querySelector(".x-sb"); b.textContent = on ? "取消" : "录制";
     b.setAttribute("aria-label", (on ? "取消录制：" : "录制：") + li.querySelector("b").textContent);
-    const dup = keyVal[k] && keyVal[k] === keyVal[other];
-    li.classList.toggle("bad", !!dup);
   });
 }
 function stopRec() { keyRec = null; renderKeys(); }
@@ -610,17 +616,22 @@ document.addEventListener("keydown", async (e) => {
   const key = keyName(e), mods = [e.ctrlKey && "Control", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean);
   if (!key) return warn(k, "这个键不能用作快捷键");
   if (!mods.length) return warn(k, "至少带一个 Ctrl、Alt 或 Shift");
-  const combo = mods.concat(key).join("+"), other = k === "shortcut" ? "capture_shortcut" : "shortcut";
-  if (combo === keyVal[other]) return warn(k, "与另一个快捷键相同，换一个");
+  const combo = mods.concat(key).join("+"), same = KEY_DEF.find(([o]) => o !== k && keyVal[o] === combo);
+  if (same) return warn(k, `与「${same[1]}」相同，换一个`);
   keyVal[k] = combo; keyRec = null; warn(k); renderKeys();
   if (!(await savePrefs())) { warn(k, "被别的程序占用了，换一个"); }
+  const b = $("keyList").querySelector(`[data-k="${k}"] .x-sb`); if (b) b.focus({ preventScroll: true });
 }, true);
+$("keyReset").addEventListener("click", async () => {
+  keyRec = null; KEY_DEF.forEach(([k, , d]) => { keyVal[k] = d; warn(k); }); renderKeys();
+  if (await savePrefs()) toast("已恢复默认快捷键");
+});
 
 /* ───────── 读配置 ───────── */
 async function reload() {
   cfg = await invoke("get_config");
   ["bTok", "bStep", "bPar"].forEach((id, i) => { $(id).value = String(cfg.limits[["tokens", "steps", "parallel"][i]]); });
-  keyVal.shortcut = cfg.shortcut; keyVal.capture_shortcut = cfg.capture_shortcut; if (!keyRec) renderKeys();
+  KEY_DEF.forEach(([k]) => (keyVal[k] = cfg[k] || "")); if (!keyRec) renderKeys();
   radio("lkSize", cfg.orb_size); radio("lkEye", cfg.eye); $("lkGlass").value = cfg.glass; showGlass();
   $("lkIdle").value = String(cfg.idle_ms ?? 600000);
   if ($("lkIdle").selectedIndex < 0) $("lkIdle").value = "600000";

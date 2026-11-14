@@ -143,6 +143,10 @@ pub struct Config {
     pub shortcut: String,
     /// 截屏提问
     pub capture_shortcut: String,
+    /// 新对话
+    pub new_shortcut: String,
+    /// 打开任务
+    pub tasks_shortcut: String,
     /// 小球位置（逻辑像素），首次启动为空
     pub position: Option<(f64, f64)>,
     /// 小球直径（逻辑像素）
@@ -222,7 +226,9 @@ impl Default for Config {
             always_allow: vec![],
             pause_away: true,
             shortcut: "Alt+Space".into(),
-            capture_shortcut: "Alt+Shift+S".into(),
+            capture_shortcut: "Alt+S".into(),
+            new_shortcut: "Alt+N".into(),
+            tasks_shortcut: "Alt+T".into(),
             position: None,
             orb_size: 72,
             glass: 25,
@@ -451,7 +457,7 @@ mod tests {
         .unwrap();
         let c = Config::load(d.path());
         assert_eq!(c.shortcut, "Alt+K");
-        assert_eq!(c.capture_shortcut, "Alt+Shift+S");
+        assert_eq!((c.capture_shortcut.as_str(), c.new_shortcut.as_str(), c.tasks_shortcut.as_str()), ("Alt+S", "Alt+N", "Alt+T"));
         assert_eq!(c.position, Some((3.0, 4.0)));
         let m = c.current().unwrap();
         assert_eq!((m.id, m.model.as_str(), m.base_url.as_str(), m.no_key, m.vision), (1, "x", "http://localhost:11434/v1", true, true));

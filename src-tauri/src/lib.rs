@@ -36,7 +36,8 @@ pub struct AppState {
     store: Mutex<Option<store::Store>>,
     chats: Mutex<HashMap<String, JoinHandle<()>>>,
     asks: Arc<agent::Asks>,
-    shortcuts: Mutex<(Option<Shortcut>, Option<Shortcut>)>,
+    /// 已注册的全局快捷键和它触发的动作（发给小球窗口的 menu 事件名）
+    shortcuts: Mutex<Vec<(Shortcut, &'static str)>>,
 }
 
 fn main_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
@@ -195,6 +196,10 @@ fn today() -> String {
 struct Prefs {
     shortcut: String,
     capture_shortcut: String,
+    #[serde(default)]
+    new_shortcut: Option<String>,
+    #[serde(default)]
+    tasks_shortcut: Option<String>,
     orb_size: u32,
     glass: u8,
     eye: String,
@@ -235,6 +240,8 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     let mut next = state.cfg.lock().unwrap().clone();
     next.shortcut = prefs.shortcut.trim().to_string();
     next.capture_shortcut = prefs.capture_shortcut.trim().to_string();
+    if let Some(v) = prefs.new_shortcut { next.new_shortcut = v.trim().to_string(); }
+    if let Some(v) = prefs.tasks_shortcut { next.tasks_shortcut = v.trim().to_string(); }
     next.orb_size = prefs.orb_size.clamp(56, 88);
     next.glass = prefs.glass.min(60);
     if prefs.eye.len() == 7 && prefs.eye.starts_with('#') && prefs.eye[1..].chars().all(|c| c.is_ascii_hexdigit()) {
@@ -620,20 +627,25 @@ fn register_shortcuts<R: Runtime>(app: &AppHandle<R>, state: &AppState, cfg: &Co
         }
         Shortcut::from_str(s).map(Some).map_err(|e| format!("快捷键「{s}」写法不对：{e}"))
     };
-    let main = parse(&cfg.shortcut)?;
-    let cap = parse(&cfg.capture_shortcut)?;
-    if main.is_some() && main == cap {
-        return Err("两个快捷键不能一样".into());
+    // 原型的快捷键页：唤起/收起、新对话、截屏提问、打开任务
+    let mut list: Vec<(Shortcut, &'static str)> = vec![];
+    for (v, act) in [(&cfg.shortcut, "toggle"), (&cfg.new_shortcut, "new_chat"), (&cfg.capture_shortcut, "capture"), (&cfg.tasks_shortcut, "tasks")] {
+        if let Some(sc) = parse(v)? {
+            if list.iter().any(|(o, _)| *o == sc) {
+                return Err(format!("快捷键「{v}」重复了，每个只能用一次"));
+            }
+            list.push((sc, act));
+        }
     }
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
     let mut errs = vec![];
-    for s in [&main, &cap].into_iter().flatten() {
+    for (s, _) in &list {
         if let Err(e) = gs.register(*s) {
             errs.push(format!("{s} 被别的程序占用了（{e}）"));
         }
     }
-    *state.shortcuts.lock().unwrap() = (main, cap);
+    *state.shortcuts.lock().unwrap() = list;
     Ok(if errs.is_empty() { None } else { Some(errs.join("；")) })
 }
 
@@ -679,13 +691,10 @@ pub fn run() {
                         return;
                     }
                     let st = app.state::<AppState>();
-                    let (main, cap) = st.shortcuts.lock().unwrap().clone();
-                    if main.as_ref() == Some(sc) {
+                    let act = st.shortcuts.lock().unwrap().iter().find(|(s, _)| s == sc).map(|(_, a)| *a);
+                    if let Some(act) = act {
                         show_ball(app);
-                        let _ = app.emit_to("main", "menu", "toggle".to_string());
-                    } else if cap.as_ref() == Some(sc) {
-                        show_ball(app);
-                        let _ = app.emit_to("main", "menu", "capture".to_string());
+                        let _ = app.emit_to("main", "menu", act.to_string());
                     }
                 })
                 .build(),
@@ -707,7 +716,7 @@ pub fn run() {
                 store: Mutex::new(store),
                 chats: Mutex::new(HashMap::new()),
                 asks: Arc::new(agent::Asks::default()),
-                shortcuts: Mutex::new((None, None)),
+                shortcuts: Mutex::new(vec![]),
             });
             let handle = app.handle().clone();
             refresh_catalog(&handle, false);

@@ -149,11 +149,8 @@
     </div>
     <!-- 快捷键：列表和「录制」照原型；现在程序里只有这两项。恢复默认、其余几项下一步照原型做 -->
     <div class="x-pane" id="paneKeys" hidden>
-      <ul class="x-keys" id="keyList" aria-label="快捷键">
-        <li data-k="shortcut"><b>唤起/收起</b><kbd class="x-kc" aria-live="polite"></kbd><button type="button" class="x-sb">录制</button><p class="x-kw"></p></li>
-        <li data-k="capture_shortcut"><b>截屏提问</b><kbd class="x-kc" aria-live="polite"></kbd><button type="button" class="x-sb">录制</button><p class="x-kw"></p></li>
-      </ul>
-      <p class="x-note">至少带一个 Ctrl、Alt 或 Shift。录制时按 Esc 取消。</p>
+      <ul class="x-keys" id="keyList" aria-label="快捷键"></ul>
+      <div class="x-wf"><p class="x-note" style="margin:0">至少带一个修饰键，录制时按 Esc 取消</p><button type="button" class="x-sb" id="keyReset" style="margin-left:auto">恢复默认</button></div>
     </div>
     <div class="x-pane" id="paneSel" hidden><p class="x-soon">划词页下一步照原型做</p></div>
     <div class="x-pane" id="paneVoice" hidden><p class="x-soon">语音页下一步照原型做</p></div>

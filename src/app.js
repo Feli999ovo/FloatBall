@@ -958,6 +958,7 @@ listen("menu", async ({ payload }) => {
     case "new_chat": newChat(); expand("chat"); break;
     case "capture": captureAsk(); break;
     case "history": expand("hist"); break;
+    case "tasks": expand("task"); break;
   }
 });
 

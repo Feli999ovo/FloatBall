@@ -273,6 +273,9 @@ async def main():
         await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
 
         # 12 菜单事件与快捷键事件
+        await pg.evaluate("__emit('menu','tasks')"); await pg.wait_for_timeout(900)
+        check(not await pg.is_hidden("#vTask") and (await pg.evaluate("__mock"))["size"]["w"] == 420, "快捷键「打开任务」")
+        await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(1000)
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(900)
         check((await pg.evaluate("__mock"))["size"]["w"] == 420, "快捷键呼出")
         await pg.click("#setBtn"); await pg.wait_for_timeout(200)
@@ -617,6 +620,8 @@ async def main():
             await sp.click(".x-tabs button:has-text('快捷键')")
             kc = lambda k: txt(f"#keyList [data-k={k}] .x-kc")
             check(await kc("shortcut") == ("⌥ Space" if False else "Alt+Space"), P + f"显示当前快捷键 {await kc('shortcut')}")
+            rows = await sp.eval_on_selector_all("#keyList li", "x => x.map(l => l.dataset.k + ':' + l.querySelector('b').textContent + ':' + l.querySelector('.x-kc').textContent)")
+            check(rows == ["shortcut:唤起/收起:Alt+Space", "new_shortcut:新对话:Alt+N", "capture_shortcut:截屏提问:Alt+Shift+S", "tasks_shortcut:打开任务:Alt+T"], P + f"四个快捷键，顺序同原型 {rows}")
             await sp.click("#keyList [data-k=shortcut] .x-sb")
             check("按下新的组合键" in await kc("shortcut"), P + "点录制进入录入")
             await sp.keyboard.press("KeyK")
@@ -635,6 +640,13 @@ async def main():
             await sp.evaluate("__mock.shortcutBusy = false")
             await sp.click("#keyList [data-k=shortcut] .x-sb"); await sp.keyboard.press("Alt+Space"); await sp.wait_for_timeout(150)
             check(await txt("#keyList [data-k=shortcut] .x-kw") == "" and (await mock())["cfg"]["shortcut"] == "Alt+Space", P + "快捷键没被占用时不再提示")
+            await sp.click("#keyList [data-k=tasks_shortcut] .x-sb"); await sp.keyboard.press("Alt+KeyN"); await sp.wait_for_timeout(150)
+            check("新对话" in await txt("#keyList [data-k=tasks_shortcut] .x-kw") and (await mock())["cfg"]["tasks_shortcut"] == "Alt+T", P + "和别的快捷键重复：说出是哪个")
+            await sp.keyboard.press("Alt+KeyY"); await sp.wait_for_timeout(150)
+            check((await mock())["cfg"]["tasks_shortcut"] == "Alt+Y" and await kc("tasks_shortcut") == "Alt+Y", P + "录入「打开任务」")
+            await sp.click("#keyReset"); await sp.wait_for_timeout(200)
+            c = (await mock())["cfg"]
+            check([c["shortcut"], c["new_shortcut"], c["capture_shortcut"], c["tasks_shortcut"]] == ["Alt+Space", "Alt+N", "Alt+S", "Alt+T"] and "恢复默认" in await txt("#toast"), P + "恢复默认（同原型）")
             await sp.keyboard.press("Escape")
             check((await mock()).get("closed") == 2, P + "Esc 关闭设置窗口")
             await sp.click("#setClose")
