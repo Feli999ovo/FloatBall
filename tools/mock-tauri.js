@@ -1,7 +1,7 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["搜索网页", "读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
+    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["搜索网页", "读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, sel: { on: true, mode: "instant", tr: "auto", apps: ["1Password", "KeePass", "Bitwarden"], order: ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"].map((id, i) => ({ id, show: i < 6 })) }, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
@@ -15,6 +15,15 @@
     st.calls.push(cmd);
     switch (cmd) {
       case "get_config": return view();
+      // 划词
+      case "sel_status": return { supported: st.cfg.platform !== "linux", trusted: !st.untrusted, recent: ["微信", "Microsoft Edge"] };
+      case "sel_place": st.selPlace = a; st.selShown = true; return null;
+      case "sel_resize": st.selResize = a; return null;
+      case "sel_hide": st.selShown = false; return null;
+      case "sel_act": st.selShown = false; (st.selActs ||= []).push(a); return null;
+      case "sel_copy": st.copied = a.text; return null;
+      case "open_url": st.opened = a.url; st.selShown = false; return null;
+      case "sel_open_privacy": st.privacy = (st.privacy || 0) + 1; return null;
       case "screens": return { cursor: st.cursor || null, list: [{ x: 0, y: 0, w: st.mon.w * 2, h: st.mon.h * 2, scale: 2, primary: true }, ...(st.screens || [])] };
       case "save_model": {
         const m = { ...a.model };

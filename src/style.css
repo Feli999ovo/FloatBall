@@ -403,3 +403,8 @@ html.calm .float, html.calm .breath { animation: none !important; }
 .x-hvtip.on { visibility: visible; opacity: 1; transition: opacity .12s ease-out; }
 @media (prefers-reduced-motion: reduce) { .x-hvb, .x-hvq.on .x-hvb { transition: opacity .12s linear, visibility 0s linear; } }
 html.calm .x-hvb, html.calm .x-hvq.on .x-hvb { transition: opacity .12s linear, visibility 0s linear; }
+
+/* 划词发来的消息：引用块 + 动作名（原型 .x-sel-q / .x-sel-qa） */
+.x-sel-q{display:block;margin:0 0 6px;padding:2px 0 2px 8px;border-left:2px solid rgba(255,241,220,.6);color:rgba(255,255,255,.78);white-space:pre-line;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.x-sel-qa{display:block}

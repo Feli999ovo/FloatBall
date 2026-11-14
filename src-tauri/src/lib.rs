@@ -7,6 +7,7 @@ mod capture;
 mod catalog;
 mod config;
 mod llm;
+mod selection;
 mod store;
 
 use catalog::Catalog;
@@ -38,6 +39,22 @@ pub struct AppState {
     asks: Arc<agent::Asks>,
     /// 已注册的全局快捷键和它触发的动作（发给小球窗口的 menu 事件名）
     shortcuts: Mutex<Vec<(Shortcut, &'static str)>>,
+    /// 最近出现过划词的应用（设置页「添加应用」时给候选）
+    sel_recent: Mutex<Vec<String>>,
+}
+
+impl AppState {
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+    pub(crate) fn note_app(&self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let mut r = self.sel_recent.lock().unwrap();
+        r.retain(|a| a != name);
+        r.insert(0, name.to_string());
+        r.truncate(8);
+    }
 }
 
 fn main_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
@@ -217,6 +234,8 @@ struct Prefs {
     screen: Option<String>,
     #[serde(default)]
     screen_slide: Option<bool>,
+    #[serde(default)]
+    sel: Option<config::Sel>,
 }
 
 /// 多显示器：鼠标位置和所有屏幕（都是物理像素），给小球判断该待在哪块屏幕
@@ -252,6 +271,7 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     if let Some(v) = prefs.auto_dock { next.auto_dock = v; }
     if let Some(v) = prefs.calm { next.calm = v; }
     if let Some(v) = prefs.hover { next.hover = v.normalized(); }
+    if let Some(v) = prefs.sel { next.sel = v.normalized(); }
     if let Some(v) = prefs.screen { if matches!(v.as_str(), "mouse" | "main" | "last") { next.screen = v; } }
     if let Some(v) = prefs.screen_slide { next.screen_slide = v; }
     let busy = register_shortcuts(&app, &state, &next)?;
@@ -346,6 +366,102 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
             log::error!("settings window: {e}");
         }
     });
+}
+
+// ───────── 划词工具栏 ─────────
+
+#[derive(Serialize)]
+struct SelStatus { supported: bool, trusted: bool, recent: Vec<String> }
+
+#[tauri::command]
+fn sel_status(state: State<'_, AppState>) -> SelStatus {
+    SelStatus { supported: selection::SUPPORTED, trusted: selection::trusted(false), recent: state.sel_recent.lock().unwrap().clone() }
+}
+
+/// 工具栏量好自己的大小后调用：放到松开点旁边并显示（不抢焦点，原应用的选区保持不变）
+#[tauri::command]
+fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) {
+    if let Some(win) = app.get_webview_window("selbar") {
+        selection::place(&win, x, y, w, h);
+        let _ = win.show();
+    }
+}
+
+/// 展开或收起「⋯」时只改大小，左上角不动（底部超出屏幕时往上挪）
+#[tauri::command]
+fn sel_resize(app: AppHandle, w: f64, h: f64) {
+    let Some(win) = app.get_webview_window("selbar") else { return };
+    let sf = win.scale_factor().unwrap_or(1.0);
+    let (wp, hp) = ((w * sf).round() as u32, (h * sf).round() as u32);
+    if let (Ok(pos), Ok(Some(m))) = (win.outer_position(), win.current_monitor()) {
+        let bottom = m.position().y + m.size().height as i32 - 8;
+        let y = if pos.y + hp as i32 > bottom { (bottom - hp as i32).max(m.position().y) } else { pos.y };
+        let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, y));
+    }
+    let _ = win.set_size(tauri::PhysicalSize::new(wp, hp));
+}
+
+#[tauri::command]
+fn sel_hide(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("selbar") {
+        let _ = win.hide();
+    }
+}
+
+/// 工具栏上点了某个动作：交给小球（展开对话并发出去）
+#[tauri::command]
+fn sel_act(app: AppHandle, act: String, text: String) {
+    if let Some(win) = app.get_webview_window("selbar") {
+        let _ = win.hide();
+    }
+    show_ball(&app);
+    let _ = app.emit_to("main", "sel:act", serde_json::json!({ "act": act, "text": text }));
+}
+
+#[tauri::command]
+fn sel_copy(text: String) -> Result<(), String> {
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        arboard::Clipboard::new().and_then(|mut c| c.set_text(text)).map_err(|e| e.to_string())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = text;
+        Err("这个系统上还不支持".into())
+    }
+}
+
+/// 用默认浏览器打开网页（只许 http/https）
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("只能打开网页".into());
+    }
+    open_external(&url)
+}
+
+/// macOS：打开 系统设置 → 隐私与安全性 → 辅助功能
+#[tauri::command]
+fn sel_open_privacy() -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        let _ = selection::trusted(true);
+        open_external("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    } else {
+        Ok(())
+    }
+}
+
+fn open_external(target: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    let r = {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", target]).creation_flags(0x0800_0000).spawn()
+    };
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(target).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(target).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -717,9 +833,11 @@ pub fn run() {
                 chats: Mutex::new(HashMap::new()),
                 asks: Arc::new(agent::Asks::default()),
                 shortcuts: Mutex::new(vec![]),
+                sel_recent: Mutex::new(vec![]),
             });
             let handle = app.handle().clone();
             refresh_catalog(&handle, false);
+            selection::spawn(handle.clone());
             match register_shortcuts(&handle, &app.state::<AppState>(), &cfg) {
                 Ok(None) => {}
                 Ok(Some(e)) | Err(e) => eprintln!("[快捷键] {e}"),
@@ -754,7 +872,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, screens, save_agent, delete_agent, save_limits, answer_ask, save_perm,
+            save_prefs, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,

@@ -1,0 +1,27 @@
+/* 划词工具栏窗口：样式照原型 .x-selbar / .x-seldd / .x-selhint。
+   窗口本身透明、不抢焦点；桌面上拿不到 backdrop-filter，玻璃底用更实一点的墨色 */
+:root{--r-pill:999px;--type-caption:400 12px/1.4 var(--font);--type-small:400 13px/1.45 var(--font);--ease-out:cubic-bezier(.22,1,.36,1);
+  --font:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif}
+html,body{margin:0;background:transparent;overflow:hidden;font-family:var(--font)}
+#wrap{display:inline-flex;flex-direction:column;align-items:flex-start;gap:6px;width:max-content;padding:6px}
+.x-glassy{background:rgba(14,12,40,.86);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25),0 3px 8px rgba(0,0,0,.35);color:#fff}
+.x-selbar{display:flex;align-items:center;gap:1px;height:32px;padding:0 3px;box-sizing:border-box;border-radius:var(--r-pill);white-space:nowrap;user-select:none;-webkit-user-select:none;
+  animation:in .12s var(--ease-out)}
+@keyframes in{from{opacity:0;transform:translateY(4px)}}
+.x-selbar button{flex:none;height:26px;padding:0 9px;border:0;border-radius:var(--r-pill);background:none;color:rgba(255,255,255,.9);font:var(--type-caption);font-size:13px;cursor:pointer}
+.x-selbar button:hover,.x-selbar button[aria-expanded=true]{background:rgba(255,255,255,.16);color:#fff}
+.x-selbar button:focus-visible,.x-seldd button:focus-visible{outline:2px solid rgba(255,241,220,.8);outline-offset:-2px}
+.x-selbar .x-selok{color:#7fe0a5}
+.x-selbar .x-selmore{padding:0 8px;letter-spacing:1px}
+.x-selbar .x-selsep{flex:none;width:1px;height:14px;margin:0 2px;background:rgba(255,255,255,.18)}
+.x-selbar .x-selorb{width:26px;padding:0;display:grid;place-items:center}
+.x-selorb span{position:relative;display:flex;align-items:center;justify-content:center;gap:3px;width:18px;height:18px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.55),rgba(120,110,220,.55) 60%,rgba(40,30,110,.8));box-shadow:inset 0 0 0 1px rgba(255,255,255,.45)}
+.x-selorb i{width:2.5px;height:5px;border-radius:2px;background:#FFF1DC}
+.x-seldd{align-self:flex-end;width:max-content;min-width:132px;max-width:220px;padding:6px;border-radius:14px;box-sizing:border-box}
+.x-seldd[hidden],.x-selhint[hidden]{display:none}
+.x-seldd button{display:block;width:100%;min-height:30px;padding:0 10px;border:0;border-radius:8px;background:none;color:#fff;font:var(--type-small);text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.x-seldd button:hover{background:rgba(255,255,255,.14)}
+.x-selhint{margin:0;padding:5px 10px;border-radius:var(--r-pill);font:var(--type-caption);color:rgba(255,255,255,.85);white-space:nowrap}
+.x-selhint button{padding:0;border:0;background:none;color:#FFF1DC;font:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+body.hint .x-selbar{display:none}

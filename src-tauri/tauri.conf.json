@@ -28,6 +28,24 @@
         "visible": false,
         "visibleOnAllWorkspaces": true,
         "acceptFirstMouse": true
+      },
+      {
+        "label": "selbar",
+        "title": "划词工具栏",
+        "url": "selbar.html",
+        "width": 320,
+        "height": 40,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "focusable": false,
+        "visible": false,
+        "visibleOnAllWorkspaces": true,
+        "acceptFirstMouse": true
       }
     ],
     "security": {
@@ -53,7 +71,10 @@
     },
     "windows": {
       "nsis": {
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "installerIcon": "icons/icon.ico",
         "sidebarImage": "windows/installer-sidebar.bmp",
         "headerImage": "windows/installer-header.bmp"

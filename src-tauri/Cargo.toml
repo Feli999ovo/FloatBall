@@ -29,6 +29,14 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 base64 = "0.22"
 log = "0.4"
 
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+get-selected-text = "0.1"
+active-win-pos-rs = "0.8"
+arboard = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+
 [dev-dependencies]
 tempfile = "3"
 

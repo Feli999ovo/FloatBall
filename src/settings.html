@@ -152,7 +152,28 @@
       <ul class="x-keys" id="keyList" aria-label="快捷键"></ul>
       <div class="x-wf"><p class="x-note" style="margin:0">至少带一个修饰键，录制时按 Esc 取消</p><button type="button" class="x-sb" id="keyReset" style="margin-left:auto">恢复默认</button></div>
     </div>
-    <div class="x-pane" id="paneSel" hidden><p class="x-soon">划词页下一步照原型做</p></div>
+    <div class="x-pane" id="paneSel" hidden>
+      <p class="x-note" id="selNo" hidden style="margin:0 0 14px">这个系统上还不支持划词，目前只有 Windows 和 macOS 能用。</p>
+      <div class="x-ar" style="margin:0 0 14px"><span id="selOnL">启用划词工具栏<small>在其他应用里选中文字时，旁边出现快捷操作</small></span><button type="button" class="x-sw" id="selOn" role="switch" aria-checked="true" aria-labelledby="selOnL"></button></div>
+      <div class="x-field"><span id="selModeL">出现方式</span>
+        <div class="x-seg x-lkseg" id="selMode" role="radiogroup" aria-labelledby="selModeL">
+          <button type="button" role="radio" aria-checked="true" data-v="instant">选中后立即出现</button><button type="button" role="radio" aria-checked="false" data-v="alt" id="selModeAlt">按住 ⌥ 再选中</button>
+        </div>
+      </div>
+      <div class="x-field"><span id="selOrdL">工具栏按钮</span>
+        <div class="x-selordh" aria-hidden="true"><i></i><b>按钮</b><em>显示</em><i class="x-selordh-m"></i></div>
+        <ul class="x-selord" id="selOrd" aria-labelledby="selOrdL"></ul>
+        <p class="x-note" style="margin:6px 0 0">最多 6 个，其余放进「⋯」</p>
+      </div>
+      <label class="x-field"><span>翻译成</span>
+        <select class="x-in" id="selTr"><option value="auto" selected>自动（中↔英）</option><option value="en">英文</option><option value="zh">中文</option><option value="ja">日文</option></select>
+      </label>
+      <div class="x-field"><span id="selAppsL">不在这些应用里出现</span>
+        <div class="x-selapps" id="selApps" role="list" aria-labelledby="selAppsL"></div>
+      </div>
+      <p class="x-note" id="selMacNote" style="margin:0">macOS 需要在 系统设置 → 隐私与安全性 → 辅助功能 里允许本应用读取选中文字。<button type="button" class="x-sb" id="selPriv" hidden>去开启</button></p>
+      <p class="x-note" id="selWinNote" hidden style="margin:0">选中文字靠模拟一次 Ctrl+C 读取，读完会把剪贴板原来的内容放回去。终端和资源管理器里不出现。</p>
+    </div>
     <div class="x-pane" id="paneVoice" hidden><p class="x-soon">语音页下一步照原型做</p></div>
   </div>
 </div>

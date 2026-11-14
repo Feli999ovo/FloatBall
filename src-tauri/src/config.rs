@@ -165,6 +165,8 @@ pub struct Config {
     pub calm: bool,
     /// 悬停快捷入口：指针停在球上时旁边弹出的小泡
     pub hover: Hover,
+    /// 划词工具栏
+    pub sel: Sel,
     /// 多显示器：小球出现在哪块屏幕。mouse 鼠标所在 / main 固定主屏 / last 上次所在
     pub screen: String,
     /// 跟着鼠标换屏时滑过去而不是闪现
@@ -215,6 +217,61 @@ impl Hover {
     }
 }
 
+/// 划词工具栏（原型的 selCfg）。order 里勾了「显示」的前 6 个放在工具栏上，其余放进「⋯」
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Sel {
+    pub on: bool,
+    /// instant：选中后立即出现；alt：按住 Alt（⌥）再选中
+    pub mode: String,
+    pub order: Vec<HoverItem>,
+    /// 翻译成：auto（中↔英）、en、zh、ja
+    pub tr: String,
+    /// 不在这些应用里出现（按应用名或程序文件名匹配，不分大小写）
+    pub apps: Vec<String>,
+}
+
+pub const SEL_IDS: [&str; 10] = ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"];
+pub const SEL_MAX: usize = 6;
+
+impl Default for Sel {
+    fn default() -> Self {
+        let apps: &[&str] = if cfg!(target_os = "macos") { &["1Password", "钥匙串访问", "终端"] } else { &["1Password", "KeePass", "Bitwarden"] };
+        Self {
+            on: true,
+            mode: "instant".into(),
+            order: SEL_IDS.iter().enumerate().map(|(i, id)| HoverItem { id: id.to_string(), show: i < SEL_MAX }).collect(),
+            tr: "auto".into(),
+            apps: apps.iter().map(|a| a.to_string()).collect(),
+        }
+    }
+}
+
+impl Sel {
+    pub fn normalized(mut self) -> Self {
+        let mut seen = vec![];
+        self.order.retain(|o| SEL_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && { seen.push(o.id.clone()); true });
+        for id in SEL_IDS {
+            if !self.order.iter().any(|o| o.id == id) {
+                self.order.push(HoverItem { id: id.into(), show: false });
+            }
+        }
+        if self.mode != "alt" { self.mode = "instant".into(); }
+        if !["auto", "en", "zh", "ja"].contains(&self.tr.as_str()) { self.tr = "auto".into(); }
+        let mut seen: Vec<String> = vec![];
+        self.apps = self.apps.into_iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty() && !seen.contains(&a.to_lowercase()) && { seen.push(a.to_lowercase()); true }).collect();
+        self
+    }
+
+    /// 前台应用是否在排除列表里：应用名或程序文件名（不带 .exe）包含列表里的某一项
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+    pub fn excluded(&self, app_name: &str, exe: &str) -> bool {
+        let (n, e) = (app_name.to_lowercase(), exe.to_lowercase());
+        let e = e.trim_end_matches(".exe");
+        self.apps.iter().any(|a| { let a = a.to_lowercase(); n.contains(&a) || (!e.is_empty() && e.contains(&a.replace(' ', ""))) })
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -238,6 +295,7 @@ impl Default for Config {
             auto_dock: true,
             calm: false,
             hover: Hover::default(),
+            sel: Sel::default(),
             screen: "mouse".into(),
             screen_slide: true,
         }
@@ -445,6 +503,21 @@ mod tests {
         c.hover.order[1].show = false;
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
+    }
+
+    #[test]
+    fn sel_normalizes_and_matches_apps() {
+        let s = Sel { on: true, mode: "x".into(), tr: "fr".into(), apps: vec![" 1Password ".into(), "1password".into(), "".into(), "Windows Terminal".into()],
+            order: vec![HoverItem { id: "copy".into(), show: true }, HoverItem { id: "bad".into(), show: true }, HoverItem { id: "copy".into(), show: false }] }.normalized();
+        assert_eq!((s.mode.as_str(), s.tr.as_str()), ("instant", "auto"));
+        assert_eq!(s.apps, vec!["1Password", "Windows Terminal"]);
+        assert_eq!(s.order.len(), 10);
+        assert_eq!((s.order[0].id.as_str(), s.order[0].show, s.order[1].show), ("copy", true, false));
+        assert!(s.excluded("1Password 8", "1Password.exe"));
+        assert!(s.excluded("Terminal", "WindowsTerminal.exe"));
+        assert!(!s.excluded("Microsoft Edge", "msedge.exe"));
+        let d = Sel::default();
+        assert_eq!(d.order.iter().filter(|o| o.show).count(), SEL_MAX);
     }
 
     #[test]
