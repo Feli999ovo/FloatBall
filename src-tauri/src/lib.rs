@@ -191,7 +191,6 @@ fn today() -> String {
 
 #[derive(Deserialize)]
 struct Prefs {
-    system_prompt: String,
     shortcut: String,
     capture_shortcut: String,
     orb_size: u32,
@@ -203,7 +202,6 @@ struct Prefs {
 #[tauri::command]
 fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Result<Option<String>, String> {
     let mut next = state.cfg.lock().unwrap().clone();
-    next.system_prompt = prefs.system_prompt;
     next.shortcut = prefs.shortcut.trim().to_string();
     next.capture_shortcut = prefs.capture_shortcut.trim().to_string();
     next.orb_size = prefs.orb_size.clamp(56, 88);
@@ -214,6 +212,29 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     let busy = register_shortcuts(&app, &state, &next)?;
     commit(&app, &state, next)?;
     Ok(busy)
+}
+
+/// 新建或修改一个 Agent，返回它的 id
+#[tauri::command]
+fn save_agent(app: AppHandle, state: State<'_, AppState>, agent: config::Agent) -> Result<String, String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    let id = next.upsert_agent(agent)?;
+    commit(&app, &state, next)?;
+    Ok(id)
+}
+
+#[tauri::command]
+fn delete_agent(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.remove_agent(&id)?;
+    commit(&app, &state, next)
+}
+
+#[tauri::command]
+fn save_limits(app: AppHandle, state: State<'_, AppState>, limits: config::Limits) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.limits = config::Limits { tokens: limits.tokens, steps: limits.steps.clamp(1, 500), parallel: limits.parallel.clamp(1, 10) };
+    commit(&app, &state, next)
 }
 
 #[tauri::command]
@@ -314,28 +335,62 @@ fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> 
     out
 }
 
+/// 一个能用的模型：接口、Key、模型名、支不支持图片
+struct Target {
+    endpoint: String,
+    key: Option<String>,
+    model: String,
+    vision: bool,
+}
+
+fn target(m: &config::Model) -> Result<Target, String> {
+    let key = config::get_api_key(m.id);
+    if key.is_none() && !m.no_key {
+        return Err(format!("模型「{}」还没有填 API Key。右键小球 → 设置 → 模型。", if m.name.is_empty() { &m.model } else { &m.name }));
+    }
+    Ok(Target { endpoint: m.endpoint(), key, model: m.model.clone(), vision: m.vision })
+}
+
+/// 提问交给主控：用主控的指令和模型；主模型出错（还没回一个字）时换备用模型再试一次
 #[tauri::command]
 fn chat(state: State<'_, AppState>, id: String, messages: Vec<Value>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
-    let Some(m) = cfg.current().cloned() else {
+    let lead = cfg.lead().clone();
+    let Some(m) = cfg.model_for(&lead).cloned() else {
         let _ = on_event.send(ChatEvent::Error { message: "还没有设置模型。右键小球 → 设置，添加一个模型。".into() });
         return Ok(());
     };
-    let key = config::get_api_key(m.id);
-    if key.is_none() && !m.no_key {
-        let _ = on_event.send(ChatEvent::Error {
-            message: "这个模型还没有填 API Key。右键小球 → 设置 → 模型。用本地模型（如 Ollama）可勾选「不需要 Key」。".into(),
-        });
-        return Ok(());
-    }
-    let msgs = prepare_messages(&cfg.system_prompt, m.vision, messages);
-    let endpoint = m.endpoint();
-    let model = m.model.clone();
+    let first = match target(&m) {
+        Ok(t) => t,
+        Err(message) => {
+            let _ = on_event.send(ChatEvent::Error { message });
+            return Ok(());
+        }
+    };
+    let backup = cfg.models.iter().find(|x| x.id == lead.fallback && x.id != m.id).and_then(|x| target(x).ok());
     let task = tauri::async_runtime::spawn(async move {
-        llm::stream_chat(&endpoint, key.as_deref(), &model, &msgs, |ev| {
-            let _ = on_event.send(ev);
-        })
-        .await;
+        let mut tries = vec![first];
+        tries.extend(backup);
+        let n = tries.len();
+        for (i, t) in tries.into_iter().enumerate() {
+            let msgs = prepare_messages(&lead.prompt, t.vision, messages.clone());
+            let mut got = false;
+            let mut failed = None;
+            llm::stream_chat(&t.endpoint, t.key.as_deref(), &t.model, &msgs, |ev| match ev {
+                ChatEvent::Error { message } if !got && i + 1 < n => failed = Some(message),
+                ev => {
+                    if matches!(ev, ChatEvent::Delta { .. } | ChatEvent::Reasoning { .. }) {
+                        got = true;
+                    }
+                    let _ = on_event.send(ev);
+                }
+            })
+            .await;
+            match failed {
+                Some(e) => js_log(format!("主模型出错，换备用模型：{e}")),
+                None => break,
+            }
+        }
     });
     let mut chats = state.chats.lock().unwrap();
     chats.retain(|_, h| !h.inner().is_finished());
@@ -637,7 +692,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs,
+            save_prefs, save_agent, delete_agent, save_limits,
             list_models,
             model_caps,
             catalog_refresh,

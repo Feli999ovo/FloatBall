@@ -58,6 +58,61 @@ impl Model {
     }
 }
 
+/// 工具（Agent 能用哪些）。名字就是界面上显示的字。
+pub const TOOLS: [&str; 6] = ["搜索网页", "读文件", "写文件", "删除", "发邮件", "浏览器"];
+pub const MAX_AGENTS: usize = 16;
+pub const LEAD: &str = "lead";
+
+/// 一个 Agent：主控（id = lead，不能删）或用户建的小伙伴
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Agent {
+    pub id: String,
+    pub name: String,
+    /// 一句话职责，主控按它决定交给谁
+    pub role: String,
+    /// 指令（它的系统提示词）
+    pub prompt: String,
+    /// 头像颜色（#RRGGBB）和头像上的一个字或 emoji
+    pub tint: String,
+    pub emoji: String,
+    /// 能用的工具，取自 TOOLS
+    pub tools: Vec<String>,
+    /// 用哪个模型（模型编号），0 = 跟随默认
+    pub model: u32,
+    /// 备用模型：主模型出错时换它，0 = 无
+    pub fallback: u32,
+    /// 自动省钱：简单步骤换便宜 / 本地模型
+    pub auto: bool,
+}
+
+impl Default for Agent {
+    fn default() -> Self {
+        Self { id: String::new(), name: String::new(), role: String::new(), prompt: String::new(), tint: "#E6D49A".into(), emoji: String::new(), tools: vec!["读文件".into()], model: 0, fallback: 0, auto: false }
+    }
+}
+
+impl Agent {
+    pub fn lead(prompt: &str) -> Self {
+        Self { id: LEAD.into(), name: "主控".into(), role: "拆解与分派".into(), prompt: prompt.into(), tint: "#C9B8F2".into(), tools: vec!["搜索网页".into(), "读文件".into(), "写文件".into()], ..Self::default() }
+    }
+}
+
+/// 预算：单个任务最多用多少 token（0 不限）、最多多少步、最多同时几个子 Agent
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Limits {
+    pub tokens: u64,
+    pub steps: u32,
+    pub parallel: u32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self { tokens: 50_000, steps: 50, parallel: 3 }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -65,8 +120,13 @@ pub struct Config {
     pub models: Vec<Model>,
     /// 提问时用哪个模型（模型的编号）
     pub default_model: u32,
-    /// 系统提示词
+    /// 早期版本的系统提示词。现在是主控的指令（agents[0].prompt），这里只用来迁移
+    #[serde(skip_serializing)]
     pub system_prompt: String,
+    /// Agents，第一个永远是主控
+    pub agents: Vec<Agent>,
+    /// 预算
+    pub limits: Limits,
     /// 呼出 / 收起悬浮球
     pub shortcut: String,
     /// 截屏提问
@@ -86,7 +146,9 @@ impl Default for Config {
         Self {
             models: vec![],
             default_model: 0,
-            system_prompt: "你是住在用户桌面上的悬浮球助手。回答简洁、具体，默认用中文。".into(),
+            system_prompt: String::new(),
+            agents: vec![Agent::lead(DEFAULT_PROMPT)],
+            limits: Limits::default(),
             shortcut: "Alt+Space".into(),
             capture_shortcut: "Alt+Shift+S".into(),
             position: None,
@@ -96,6 +158,8 @@ impl Default for Config {
         }
     }
 }
+
+pub const DEFAULT_PROMPT: &str = "你是住在用户桌面上的悬浮球助手。回答简洁、具体，默认用中文。";
 
 impl Config {
     pub fn path(dir: &Path) -> PathBuf {
@@ -123,7 +187,71 @@ impl Config {
                 c.default_model = 1;
             }
         }
+        c.fix_agents(if v.get("agents").is_none() { v.get("system_prompt").and_then(Value::as_str) } else { None });
         c
+    }
+
+    /// 主控永远在第一个；早期版本的系统提示词搬进主控的指令；指向已删模型的 Agent 改回跟随默认
+    fn fix_agents(&mut self, old_prompt: Option<&str>) {
+        if !self.agents.iter().any(|a| a.id == LEAD) {
+            self.agents.insert(0, Agent::lead(old_prompt.unwrap_or(DEFAULT_PROMPT)));
+        }
+        if let Some(i) = self.agents.iter().position(|a| a.id == LEAD) {
+            let lead = self.agents.remove(i);
+            self.agents.insert(0, lead);
+        }
+        if let Some(p) = old_prompt {
+            self.agents[0].prompt = p.to_string();
+        }
+        self.system_prompt.clear();
+        let ids: Vec<u32> = self.models.iter().map(|m| m.id).collect();
+        for a in &mut self.agents {
+            if !ids.contains(&a.model) { a.model = 0; }
+            if !ids.contains(&a.fallback) { a.fallback = 0; }
+            a.tools.retain(|t| TOOLS.contains(&t.as_str()));
+        }
+        if !self.agents[0].tools.iter().any(|t| t == "读文件") {
+            self.agents[0].tools.push("读文件".into());
+        }
+    }
+
+    pub fn lead(&self) -> &Agent {
+        &self.agents[0]
+    }
+
+    /// 新增（id 为空或不存在）或修改一个 Agent，返回它的 id
+    pub fn upsert_agent(&mut self, mut a: Agent) -> Result<String, String> {
+        a.name = a.name.trim().chars().take(12).collect();
+        if a.name.is_empty() { a.name = "未命名".into(); }
+        a.role = a.role.trim().chars().take(40).collect();
+        a.prompt = a.prompt.trim().to_string();
+        a.emoji = a.emoji.trim().chars().last().map(String::from).unwrap_or_default();
+        let mut seen = vec![];
+        a.tools.retain(|t| TOOLS.contains(&t.as_str()) && !seen.contains(t) && { seen.push(t.clone()); true });
+        if !self.models.iter().any(|m| m.id == a.model) { a.model = 0; }
+        if !self.models.iter().any(|m| m.id == a.fallback) || a.fallback == a.model && a.model != 0 { a.fallback = 0; }
+        if let Some(old) = self.agents.iter_mut().find(|x| !a.id.is_empty() && x.id == a.id) {
+            if a.id == LEAD && !a.tools.iter().any(|t| t == "读文件") { a.tools.push("读文件".into()); }
+            *old = a.clone();
+            return Ok(a.id);
+        }
+        if self.agents.len() >= MAX_AGENTS {
+            return Err(format!("最多 {MAX_AGENTS} 个 Agent"));
+        }
+        a.id = (1..).map(|i| format!("ag{i}")).find(|id| !self.agents.iter().any(|x| &x.id == id)).unwrap();
+        self.agents.push(a.clone());
+        Ok(a.id)
+    }
+
+    pub fn remove_agent(&mut self, id: &str) -> Result<(), String> {
+        if id == LEAD { return Err("主控不能删".into()); }
+        self.agents.retain(|a| a.id != id);
+        Ok(())
+    }
+
+    /// 这个 Agent 用的模型：它自己选的，没选就用默认
+    pub fn model_for(&self, a: &Agent) -> Option<&Model> {
+        self.models.iter().find(|m| m.id == a.model).or_else(|| self.current())
     }
 
     pub fn save(&self, dir: &Path) -> Result<(), String> {
@@ -167,6 +295,10 @@ impl Config {
     /// 删掉一个模型；删的是默认模型时，默认换成剩下的第一个
     pub fn remove(&mut self, id: u32) {
         self.models.retain(|m| m.id != id);
+        for a in &mut self.agents {
+            if a.model == id { a.model = 0; }
+            if a.fallback == id { a.fallback = 0; }
+        }
         if self.default_model == id {
             self.default_model = self.models.first().map_or(0, |m| m.id);
         }
@@ -259,6 +391,36 @@ mod tests {
         assert!(c.upsert(model("more")).is_err());
         assert_eq!(key_user(1), "api_key");
         assert_eq!(key_user(MAX_MODELS), "api_key_32");
+    }
+
+    #[test]
+    fn agents_lead_migration_and_crud() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(Config::path(d.path()), r#"{"system_prompt":"只用中文","models":[]}"#).unwrap();
+        let mut c = Config::load(d.path());
+        assert_eq!((c.agents.len(), c.lead().id.as_str(), c.lead().prompt.as_str()), (1, LEAD, "只用中文"));
+        c.save(d.path()).unwrap();
+        let raw = std::fs::read_to_string(Config::path(d.path())).unwrap();
+        assert!(!raw.contains("system_prompt"));
+        assert_eq!(Config::load(d.path()), c);
+        // 新建：名字截短、工具去重去掉不认识的、emoji 只留一个字
+        let id = c.upsert_agent(Agent { name: " 审查员审查员审查员审查员审查员 ".into(), emoji: "ab".into(), tools: vec!["读文件".into(), "读文件".into(), "飞".into()], model: 9, ..Agent::default() }).unwrap();
+        let a = c.agents.iter().find(|a| a.id == id).unwrap();
+        assert_eq!((a.name.chars().count(), a.emoji.as_str(), a.tools.len(), a.model), (12, "b", 1, 0));
+        // 主控不能删，也不能去掉读文件
+        assert!(c.remove_agent(LEAD).is_err());
+        c.upsert_agent(Agent { tools: vec![], ..c.lead().clone() }).unwrap();
+        assert_eq!(c.lead().tools, vec!["读文件".to_string()]);
+        // 模型删了，用它的 Agent 改回跟随默认
+        let m = c.upsert(model("x")).unwrap().0;
+        let mut a = c.agents[1].clone();
+        a.model = m;
+        c.upsert_agent(a).unwrap();
+        assert_eq!(c.model_for(&c.agents[1]).unwrap().id, m);
+        c.remove(m);
+        assert_eq!(c.agents[1].model, 0);
+        c.remove_agent(&id).unwrap();
+        assert_eq!(c.agents.len(), 1);
     }
 
     #[test]

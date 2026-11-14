@@ -163,13 +163,14 @@ function syncProv() {
 }
 
 /* ───────── 分类（原型的 showTab） ───────── */
-const PANES = { model: "paneLib", agents: "paneAgents", perm: "panePerm", look: "paneLook", keys: "paneKeys", sel: "paneSel", voice: "paneVoice" };
+const PANES = { model: "paneLib", agents: "paneAgents", agEd: "paneAgEd", perm: "panePerm", look: "paneLook", keys: "paneKeys", sel: "paneSel", voice: "paneVoice" };
 function showTab(t) {
   const k = t === "add" ? "model" : t;
   document.querySelectorAll(".x-tabs button").forEach((o) => o.classList.toggle("on", o.dataset.tab === k));
   for (const [tab, id] of Object.entries(PANES)) $(id).hidden = tab !== k;
   $("paneModel").hidden = true; fList.hidden = true;
   if (k === "model") renderLib();
+  if (k === "agents") renderAgents();
   if (t === "add") openForm();
   if (k === "keys") stopRec();
   document.querySelectorAll(".x-setw .x-pane").forEach((p) => { p.scrollTop = 0; });
@@ -249,11 +250,227 @@ fSave.addEventListener("click", async () => {
 });
 document.addEventListener("click", (e) => { if (!e.target.closest("#fList,#fFetch")) fList.hidden = true; });
 
-/* ───────── 外观、Agents、快捷键：改了就存（save_prefs） ───────── */
+/* ───────── Agents（原型的 renderAgents / agEdit / agDraw / agSave / agDelete） ─────────
+   数据是真的：存在配置里（Rust：save_agent / delete_agent / save_limits），主控的指令和模型就是提问时用的。
+   原型里的技能库、独立记忆程序里还没有，这两栏显示原型自己的空状态。 */
+const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const TOOLS = [["搜索网页", false], ["读文件", false], ["写文件", false], ["删除", true], ["发邮件", true], ["浏览器", true]];
+const AG_TINTS = ["#C9B8F2", "#A9BEDB", "#AECDB6", "#DCC0A8", "#F2B8C6", "#E6D49A"];
+const AG_TPL = [
+  { k: "审查员", d: "检查事实、错别字和逻辑漏洞，只读", a: { name: "审查员", role: "检查事实、错别字和逻辑漏洞，只读", tint: "#F2B8C6", tools: ["读文件"], prompt: "你是一名严谨的审查员。逐段检查事实、数字、错别字和逻辑漏洞；只列出问题和修改建议，不直接改原文。" } },
+  { k: "翻译", d: "中英互译，保留格式和术语", a: { name: "翻译", role: "中英互译，保留原文格式和术语", tint: "#A9BEDB", tools: ["读文件", "写文件"], prompt: "你是一名专业译者。忠实原意，保留原文的格式、数字和专有名词；拿不准的术语在括号里附原文。" } },
+  { k: "空白", d: "从零写名字、职责和指令", a: { name: "", role: "", tint: "#E6D49A", tools: ["读文件"], prompt: "" } },
+];
+const CONCEPTS = [
+  [/搜索|阅读|资料|调研|研究|查找/, /调研|研究|搜索|搜集|查一?下|资料|评测|竞品|了解/],
+  [/文件|表格|整理|归类|归档/, /整理|表格|归类|归档|文件夹|清单|参数/],
+  [/起草|润色|写作|撰写|文案|写/, /写|起草|文案|润色|周报|稿/],
+  [/审查|检查|校对|事实|错别字|逻辑/, /检查|审查|校对|错别字|核对|事实|挑错|漏洞/],
+  [/翻译|英文|外语|中英/, /翻译|英文|英语|日语|译成|translate/i],
+  [/拆解|分派|统筹/, /拆|计划|安排|分工/],
+];
+function matchRole(role, text) {
+  if (!role || !text) return null;
+  for (const [rr, qr] of CONCEPTS) { const r = role.match(rr), q = text.match(qr); if (r && q) return { r: r[0], q: q[0], at: r.index }; }
+  for (let i = 0; i < role.length - 1; i++) { const w = role.slice(i, i + 2); if (/^[\u4e00-\u9fa5A-Za-z]{2}$/.test(w) && text.includes(w)) return { r: w, q: w, at: i }; }
+  return null;
+}
+const reqWord = (text) => { for (const [, qr] of CONCEPTS) { const q = text.match(qr); if (q) return q[0]; } return ""; };
+const TRY_RE = { 搜索网页: /搜索|搜集|调研|查一?下|资料|评测|网上|竞品/, 读文件: /读|文件|PDF|报告|文档|检查|审查|校对|总结|这份|这篇/i, 写文件: /写|起草|生成|保存|整理成|改成|译成|翻译/, 删除: /删除|清理|删掉/, 发邮件: /邮件|发给|发送/, 浏览器: /打开网站|浏览器|登录|下单|网页上/ };
+const agents = () => (cfg && cfg.agents) || [];
+const modelOf = (id) => models().find((m) => m.id === id);
+const mName = (m) => m.name || m.model;
+function agentModelName(a) { const m = modelOf(a.model), d = modelOf(cfg.default_model); return m ? mName(m) : d ? mName(d) + "（默认）" : "未设置"; }
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const avHTML = (a, big) => `<span class="x-av${big ? " x-avl" : ""}${a.emoji ? " x-ave" : ""}" style="--t:${esc(a.tint)}" aria-hidden="true">${a.emoji ? esc(a.emoji) : ""}</span>`;
+let agEd = null;
+
+function renderAgents() {
+  $("paneAgEd").hidden = true; $("paneAgents").hidden = false;
+  const ul = $("agList"); ul.innerHTML = "";
+  agents().forEach((a) => {
+    const li = mk("li", "x-agc");
+    li.innerHTML = avHTML(a, true) + '<div><b></b><p></p><div class="x-caps"><span class="x-cap"></span><span class="x-cap"></span><span class="x-cap"></span></div></div><button type="button" class="x-sb">编辑</button>';
+    li.querySelector("b").textContent = a.name; li.querySelector("p").textContent = a.role || "还没写职责";
+    const [c1, c2, c3] = li.querySelectorAll(".x-cap");
+    c1.textContent = agentModelName(a); c2.textContent = `工具 ${a.tools.length}`; c3.textContent = "技能 0";
+    const b = li.querySelector("button"); b.dataset.ag = a.id; b.setAttribute("aria-label", "编辑 " + a.name);
+    b.addEventListener("click", () => agEdit(a));
+    ul.appendChild(li);
+  });
+  $("agTpl").hidden = true; $("agAdd").setAttribute("aria-expanded", "false");
+}
+[["bTok", "tokens"], ["bStep", "steps"], ["bPar", "parallel"]].forEach(([id]) => {
+  $(id).addEventListener("change", async () => {
+    try {
+      await invoke("save_limits", { limits: { tokens: +$("bTok").value, steps: +$("bStep").value, parallel: +$("bPar").value } });
+      await reload(); toast("已保存");
+    } catch (e) { toast(String(e)); }
+  });
+});
+$("agAdd").addEventListener("click", () => {
+  const box = $("agTpl"), on = box.hidden; box.hidden = !on; $("agAdd").setAttribute("aria-expanded", on);
+  if (!on) return;
+  box.innerHTML = "<p>从模板开始</p>";
+  AG_TPL.forEach((t) => {
+    const b = mk("button", "x-agtb"); b.type = "button"; b.innerHTML = "<b></b><small></small>";
+    b.firstChild.textContent = t.k; b.lastChild.textContent = t.d;
+    b.addEventListener("click", () => agEdit(null, t.a)); box.appendChild(b);
+  });
+  box.querySelector("button").focus({ preventScroll: true });
+});
+function agEdit(a, tpl) {
+  const src = a || { id: "", emoji: "", model: 0, fallback: 0, auto: false, ...tpl };
+  const d = { ...src, tools: src.tools.slice() };
+  agEd = { a, d, del: false, tryText: "" };
+  $("paneAgents").hidden = true; $("paneAgEd").hidden = false; agDraw(); $("paneAgEd").scrollTop = 0;
+  setTimeout(() => { const el = agEd && $("aeName"); if (el) el.focus({ preventScroll: true }); }, 60);
+}
+function agBack(id) {
+  agEd = null; renderAgents();
+  const b = id && $("agList").querySelector(`[data-ag="${id}"]`);
+  (b || $("agAdd")).focus({ preventScroll: true });
+}
+function fillSel(sel, first, val) {
+  sel.innerHTML = ""; sel.add(new Option(first, "0"));
+  models().forEach((m) => { const o = new Option(mName(m) + (m.tools === false ? "（不支持工具调用）" : ""), m.id); o.disabled = m.tools === false; sel.add(o); });
+  const m = modelOf(val); sel.value = m && m.tools !== false ? String(val) : "0";
+}
+function agDraw() {
+  const { a, d } = agEd, p = $("paneAgEd"), lead = d.id === "lead", fresh = !a;
+  p.innerHTML = "";
+  const fld = (label, id, ...kids) => {
+    const f = mk("div", "x-field"), l = mk(id ? "label" : "span", "", label); if (id) l.htmlFor = id;
+    f.appendChild(l); kids.forEach((k) => k && f.appendChild(k)); return f;
+  };
+  const inp = (id, key, ph, max) => { const i = mk("input", "x-in"); i.id = id; i.value = d[key]; i.placeholder = ph; i.spellcheck = false; if (max) i.maxLength = max; i.addEventListener("input", () => { d[key] = i.value; tryRun(); }); return i; };
+  const h = mk("div", "x-fh"), back = mk("button", "x-sb", "‹ Agents"); back.type = "button";
+  back.addEventListener("click", () => agBack(a && a.id));
+  h.appendChild(back); h.appendChild(mk("p", "", fresh ? "新建 Agent" : "编辑 Agent")); p.appendChild(h);
+  // 头像：6 个柔和色点 + 可选 1 个 emoji 或字
+  const row = mk("div", "x-aeav"), pvw = mk("span", "x-aepvw"), pv = mk("span", "x-av x-aepv"); pv.setAttribute("aria-hidden", "true");
+  const fbCh = () => Array.from((d.name || "").trim())[0] || "";
+  let emo = null;
+  const drawPv = () => {
+    const ch = d.emoji || fbCh();
+    pv.style.setProperty("--t", d.tint); pv.textContent = ch; pv.classList.toggle("has-ch", !!ch);
+    if (emo) emo.placeholder = fbCh() || "字";
+  };
+  pvw.appendChild(pv); row.appendChild(pvw);
+  const dots = mk("div", "x-dots"); dots.setAttribute("role", "radiogroup"); dots.setAttribute("aria-label", "头像颜色");
+  AG_TINTS.forEach((c, i) => {
+    const b = mk("button", "x-dot"); b.type = "button"; b.setAttribute("role", "radio"); b.setAttribute("aria-checked", d.tint === c); b.setAttribute("aria-label", `颜色 ${i + 1}`); b.style.setProperty("--t", c);
+    b.addEventListener("click", () => { d.tint = c; dots.querySelectorAll(".x-dot").forEach((x) => x.setAttribute("aria-checked", x === b)); drawPv(); });
+    dots.appendChild(b);
+  });
+  row.appendChild(dots);
+  emo = mk("input", "x-in x-emo"); emo.value = d.emoji; emo.spellcheck = false; emo.setAttribute("aria-label", "头像上的 emoji 或一个字，可不填");
+  const takeEmo = () => { const ch = Array.from(emo.value.trim()).pop() || ""; d.emoji = ch; emo.value = ch; drawPv(); };
+  emo.addEventListener("input", (e) => { if (!e.isComposing) takeEmo(); });
+  emo.addEventListener("compositionend", takeEmo);
+  row.appendChild(emo); drawPv();
+  p.appendChild(fld("头像", null, row));
+  const nameIn = inp("aeName", "name", "比如：小白", 12); nameIn.addEventListener("input", drawPv);
+  p.appendChild(fld("名字", "aeName", nameIn));
+  p.appendChild(fld("职责", "aeRole", inp("aeRole", "role", "一句话，比如：检查事实、错别字和逻辑漏洞", 40), mk("small", "x-lbhint", "主控根据这句话决定把什么交给它")));
+  // 指令（可折叠）
+  const det = mk("details", "x-aed"); det.open = !!d.prompt;
+  const sum = mk("summary", "", "指令 "); sum.appendChild(mk("small", "", d.prompt ? "已写" : "选填 · 它的系统提示")); det.appendChild(sum);
+  const ta = mk("textarea", "x-in"); ta.id = "aePrompt"; ta.rows = 4; ta.value = d.prompt; ta.spellcheck = false; ta.setAttribute("aria-label", "指令");
+  ta.placeholder = "比如：你是一名严谨的审查员。逐段检查事实、数字和错别字；只列出问题和修改建议，不直接改原文。";
+  ta.addEventListener("input", () => (d.prompt = ta.value)); det.appendChild(ta); p.appendChild(det);
+  // 能用的工具
+  const tl = mk("div", "x-lbcs"); tl.setAttribute("role", "group"); tl.setAttribute("aria-label", "能用的工具");
+  TOOLS.forEach(([n, ap]) => {
+    const b = mk("button", "x-lbtl"); b.type = "button"; b.dataset.tool = n; const lock = lead && n === "读文件";
+    b.setAttribute("aria-pressed", d.tools.includes(n)); if (lock) { b.setAttribute("aria-disabled", "true"); b.title = "主控至少要能读文件"; }
+    b.innerHTML = `<span>${n}</span>` + (ap ? '<span class="x-lbcf">需确认</span>' : "");
+    b.addEventListener("click", () => {
+      if (lock) return toast("主控至少要能读文件");
+      const i = d.tools.indexOf(n); if (i < 0) d.tools.push(n); else d.tools.splice(i, 1);
+      b.setAttribute("aria-pressed", i < 0); tryRun();
+    });
+    tl.appendChild(b);
+  });
+  p.appendChild(fld("能用的工具", null, tl, mk("small", "x-lbhint", lead ? "需确认的工具每次用前先问你 · 主控至少保留「读文件」" : "需确认的工具每次用前先问你")));
+  // 会的技能：程序里还没有技能库，显示原型的空状态
+  const sk = mk("div", "x-lbcs"); sk.setAttribute("role", "group"); sk.setAttribute("aria-label", "会的技能");
+  sk.appendChild(mk("span", "x-aelk", "技能库里还没有技能"));
+  p.appendChild(fld("会的技能", null, sk));
+  // 模型 · 备用模型 · 自动省钱
+  const g2 = mk("div", "x-g2");
+  g2.innerHTML = `<label class="x-field"><span>模型</span><select class="x-in" id="aeModel"></select></label><label class="x-field"><span>备用模型</span><select class="x-in" id="aeFallback"></select></label>`;
+  const [sm, sf] = g2.querySelectorAll("select");
+  fillSel(sm, "跟随默认", d.model); fillSel(sf, "无", d.fallback);
+  sm.addEventListener("change", () => (d.model = +sm.value)); sf.addEventListener("change", () => (d.fallback = +sf.value));
+  p.appendChild(g2);
+  const ar = mk("div", "x-ar"); ar.style.margin = "6px 0 12px";
+  ar.innerHTML = '<span id="aeAutoL">自动省钱<small>简单步骤自动换便宜/本地模型</small></span><button type="button" class="x-sw" id="aeAuto" role="switch" aria-labelledby="aeAutoL"></button>';
+  const sw = ar.lastChild; sw.setAttribute("aria-checked", d.auto);
+  sw.addEventListener("click", () => { d.auto = !d.auto; sw.setAttribute("aria-checked", d.auto); });
+  p.appendChild(ar);
+  // 记忆：程序里还没有独立记忆，显示原型的空状态
+  const mem = mk("div", "x-mem"), vb = mk("button", "x-sb", "查看"), cb = mk("button", "x-sb", "清空");
+  vb.type = cb.type = "button"; vb.disabled = cb.disabled = true; vb.setAttribute("aria-expanded", "false");
+  mem.append(mk("span", "", "还没有记忆"), vb, cb);
+  p.appendChild(fld("记忆", null, mem));
+  // 试一试
+  const ti = mk("input", "x-in"); ti.id = "aeTry"; ti.spellcheck = false; ti.placeholder = "输入一句请求，比如：帮我检查这份报告的错别字"; ti.value = agEd.tryText || "";
+  const tr = mk("div", "x-tryr"); tr.id = "aeTryR"; tr.setAttribute("aria-live", "polite"); tr.hidden = true;
+  ti.addEventListener("input", (e) => { if (e.isComposing) return; agEd.tryText = ti.value; tryRun(); });
+  ti.addEventListener("compositionend", () => { agEd.tryText = ti.value; tryRun(); });
+  p.appendChild(fld("试一试", "aeTry", ti, tr));
+  function tryRun() {
+    const text = (agEd.tryText || "").trim(); tr.hidden = !text; if (!text) return;
+    const name = d.name.trim() || "它", m = matchRole(d.role, text);
+    const need = TOOLS.map(([t]) => t).filter((t) => TRY_RE[t].test(text)), use = need.filter((t) => d.tools.includes(t)), miss = need.filter((t) => !d.tools.includes(t));
+    tr.className = "x-tryr" + (m ? "" : " no"); tr.innerHTML = "<span></span><small></small>";
+    if (m) {
+      const snip = d.role.slice(m.at, m.at + 8) + (d.role.length > m.at + 8 ? "…" : "");
+      tr.firstChild.textContent = `主控会交给：${name}（匹配职责：${snip}）`;
+      tr.lastChild.textContent = (use.length ? "会用 " + use.join("、") : "不需要工具") + (miss.length ? ` · 缺少 ${miss.join("、")}，这部分它做不了` : "");
+    } else {
+      const kw = reqWord(text) || text.slice(0, 8);
+      tr.firstChild.textContent = d.role.trim() ? `不会交给它：职责里没有「${kw}」相关的事` : "不会交给它：还没写职责";
+      const o = agents().find((x) => x.id !== d.id && matchRole(x.role, text));
+      tr.lastChild.textContent = (o ? `主控会交给 ${o.name}` : "主控会自己处理") + (need.length ? ` · 要用 ${need.join("、")}` : "");
+    }
+  }
+  tryRun();
+  // 底部：保存 / 删除 Agent（主控不能删）
+  const f = mk("div", "x-aef"), btn = (t, cls, fn) => { const b = mk("button", "x-sb" + (cls ? " " + cls : ""), t); b.type = "button"; b.addEventListener("click", fn); f.appendChild(b); return b; };
+  if (agEd.del) {
+    f.appendChild(mk("p", "", `删除「${a.name}」？`));
+    btn("取消", "x-lbq", () => { agEd.del = false; agRedraw(".x-aef .x-lbq"); });
+    btn("删除", "x-lbx", agDelete).focus({ preventScroll: true });
+  } else {
+    if (a && !lead) btn("删除 Agent", "x-lbq", () => { agEd.del = true; agRedraw(".x-aef .x-lbx"); });
+    btn("取消", "x-lbq x-sp", () => agBack(a && a.id));
+    btn(fresh ? "创建" : "保存", "x-pri", agSave);
+  }
+  p.appendChild(f);
+}
+function agRedraw(sel) {
+  const w = $("paneAgEd"), y = w.scrollTop; agDraw(); w.scrollTop = y;
+  const el = sel && $("paneAgEd").querySelector(sel); if (el) el.focus({ preventScroll: true });
+}
+async function agSave() {
+  const { a, d } = agEd, name = d.name.trim() || "未命名", old = a && a.name;
+  try {
+    const id = await invoke("save_agent", { agent: { id: d.id || "", name, role: d.role, prompt: d.prompt, tint: d.tint, emoji: d.emoji, tools: d.tools, model: d.model || 0, fallback: d.fallback || 0, auto: !!d.auto } });
+    await reload(); agBack(id);
+    toast(!a ? `已新建 Agent：${name}` : old !== name ? `已改名：${old} → ${name}` : "已保存");
+  } catch (e) { toast(String(e)); }
+}
+async function agDelete() {
+  const a = agEd.a; if (!a || a.id === "lead") return;
+  try { await invoke("delete_agent", { id: a.id }); await reload(); agBack(); toast(`已删除 Agent：${a.name}`); } catch (e) { toast(String(e)); }
+}
+
+/* ───────── 外观、快捷键：改了就存（save_prefs） ───────── */
 function prefs() {
   const on = (g) => { const b = $(g).querySelector('[aria-checked="true"]'); return b && b.dataset.v; };
   return {
-    system_prompt: $("fSys").value,
     shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut,
     orb_size: +(on("lkSize") || cfg.orb_size), glass: +$("lkGlass").value, eye: on("lkEye") || cfg.eye,
   };
@@ -266,7 +483,6 @@ async function savePrefs() {
     return !busy;
   } catch (e) { toast(String(e)); return false; }
 }
-$("fSys").addEventListener("change", savePrefs);
 
 // 外观（原型的 lkSize / lkGlass / lkEye）
 const radio = (g, v) => $(g).querySelectorAll("[role=radio]").forEach((b) => {
@@ -343,10 +559,11 @@ document.addEventListener("keydown", async (e) => {
 /* ───────── 读配置 ───────── */
 async function reload() {
   cfg = await invoke("get_config");
-  $("fSys").value = cfg.system_prompt;
+  ["bTok", "bStep", "bPar"].forEach((id, i) => { $(id).value = String(cfg.limits[["tokens", "steps", "parallel"][i]]); });
   keyVal.shortcut = cfg.shortcut; keyVal.capture_shortcut = cfg.capture_shortcut; if (!keyRec) renderKeys();
   radio("lkSize", cfg.orb_size); radio("lkEye", cfg.eye); $("lkGlass").value = cfg.glass; showGlass();
   if (!$("paneLib").hidden) renderLib();
+  if (!$("paneAgents").hidden) renderAgents();
 }
 T.event.listen("catalog-updated", async () => { await reload(); if (!$("paneModel").hidden && (!detected || detected.src !== "manual")) lookupCaps(0); });
 
@@ -354,6 +571,7 @@ $("setClose").addEventListener("click", () => win.close());
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || e.defaultPrevented) return;
   if (!fList.hidden) { fList.hidden = true; return; }
+  if (agEd) { agBack(agEd.a && agEd.a.id); return; }
   win.close();
 });
 

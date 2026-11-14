@@ -51,13 +51,22 @@
       </div>
     </div>
 
-    <!-- Agents（下一步照原型做；现在先放主控的指令） -->
+    <!-- Agents：卡片列表 + 预算（原型的 paneAgents），编辑器（原型的 paneAgEd） -->
     <div class="x-pane" id="paneAgents" hidden>
-      <div class="x-lh"><p>Agents</p></div>
-      <label class="x-field"><span>主控 · 指令（系统提示词）</span><textarea class="x-in" id="fSys" rows="5"></textarea></label>
-      <p class="x-note">每次提问都会带上这段话，用来告诉模型怎么回答。</p>
-      <p class="x-note x-tmp">这一页下一步照原型做（Agent 卡片、模型、预算）。</p>
+      <div class="x-lh"><p>Agents</p><button class="x-sb" id="agAdd" aria-expanded="false" aria-controls="agTpl">+ 新建 Agent</button></div>
+      <div class="x-agtpl" id="agTpl" hidden></div>
+      <ul class="x-agcs" id="agList" aria-label="Agents"></ul>
+      <div class="x-bud">
+        <p class="x-bh">预算</p>
+        <label class="x-field" style="margin:0"><span>单个任务上限</span>
+          <select class="x-in" id="bTok"><option value="20000">2万 tokens</option><option value="50000">5万 tokens</option><option value="100000">10万 tokens</option><option value="0">不限</option></select></label>
+        <div class="x-g2">
+          <label class="x-field"><span>最多步数</span><select class="x-in" id="bStep"><option>20</option><option>50</option><option>100</option></select></label>
+          <label class="x-field"><span>最多同时子 Agent</span><select class="x-in" id="bPar"><option>1</option><option>3</option><option>5</option></select></label>
+        </div>
+      </div>
     </div>
+    <div class="x-pane x-ae" id="paneAgEd" hidden></div>
     <div class="x-pane" id="panePerm" hidden><p class="x-soon">权限页下一步照原型做</p></div>
     <!-- 外观：先放原来就能用的三项，结构和样式照原型；其余几项（睡眠、深浅色、贴边、悬停入口、多显示器）下一步照原型做 -->
     <div class="x-pane" id="paneLook" hidden>

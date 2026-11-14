@@ -1,7 +1,7 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, system_prompt: "你是住在用户桌面上的悬浮球助手。", shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", autostart: false, platform: "windows", catalog_date: "2026-11-14" },
+    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["搜索网页", "读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
@@ -23,8 +23,19 @@
         if (a.apiKey !== null && a.apiKey !== undefined) old.has_key = a.apiKey !== "";
         st.lastKey = a.apiKey; changed(); return old.id;
       }
-      case "delete_model": st.cfg.models = st.cfg.models.filter((x) => x.id !== a.id); if (st.cfg.default_model === a.id) st.cfg.default_model = st.cfg.models.length ? st.cfg.models[0].id : 0; changed(); return null;
+      case "delete_model": st.cfg.agents.forEach((g) => { if (g.model === a.id) g.model = 0; if (g.fallback === a.id) g.fallback = 0; }); st.cfg.models = st.cfg.models.filter((x) => x.id !== a.id); if (st.cfg.default_model === a.id) st.cfg.default_model = st.cfg.models.length ? st.cfg.models[0].id : 0; changed(); return null;
       case "set_default_model": st.cfg.default_model = a.id; changed(); return null;
+      case "save_agent": {
+        const g = { ...a.agent, tools: [...new Set(a.agent.tools)] };
+        if (!st.cfg.models.some((m) => m.id === g.model)) g.model = 0;
+        if (!st.cfg.models.some((m) => m.id === g.fallback) || g.fallback === g.model) g.fallback = 0;
+        if (g.id === "lead" && !g.tools.includes("读文件")) g.tools.push("读文件");
+        const i = st.cfg.agents.findIndex((x) => g.id && x.id === g.id);
+        if (i >= 0) st.cfg.agents[i] = g; else { let n = 1; while (st.cfg.agents.some((x) => x.id === "ag" + n)) n++; g.id = "ag" + n; st.cfg.agents.push(g); }
+        (st.savedAgents ||= []).push(g); changed(); return g.id;
+      }
+      case "delete_agent": if (a.id === "lead") throw "主控不能删"; st.cfg.agents = st.cfg.agents.filter((x) => x.id !== a.id); changed(); return null;
+      case "save_limits": st.cfg.limits = { ...a.limits }; changed(); return null;
       case "save_prefs": Object.assign(st.cfg, a.prefs); changed(); return st.shortcutBusy ? a.prefs.shortcut + " 被别的程序占用了" : null;
       // 能力资料：真实程序查内置的 models.dev 快照，这里只放测试用到的几个
       case "model_caps": {
