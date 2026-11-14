@@ -67,7 +67,22 @@
       </div>
     </div>
     <div class="x-pane x-ae" id="paneAgEd" hidden></div>
-    <div class="x-pane" id="panePerm" hidden><p class="x-soon">权限页下一步照原型做</p></div>
+    <!-- 权限（原型的 panePerm）：三档说明、已总是允许（可撤销）、离开电脑时暂停敏感操作 -->
+    <div class="x-pane" id="panePerm" hidden>
+      <ul class="x-pt" aria-label="权限分级">
+        <li><b>只读</b><span>搜索、读文件</span><em>自动允许</em></li>
+        <li><b>写入与联网</b><span>改文件、打开网页</span><em>首次询问</em></li>
+        <li><b>发送、删除</b><span>每次询问<small>可设总是允许</small></span><em>每次询问</em></li>
+      </ul>
+      <div class="x-bud">
+        <p class="x-bh">已总是允许</p>
+        <ul class="x-al" id="alList" aria-label="已总是允许"></ul>
+        <p class="x-pe" id="alEmpty">还没有总是允许的操作</p>
+      </div>
+      <div class="x-bud" style="margin-top:12px">
+        <div class="x-ar" style="margin:0"><span id="awayL">离开电脑时暂停敏感操作<small>回来后再继续等待确认；关掉后 5 分钟没确认就跳过</small></span><button type="button" class="x-sw" id="awaySw" role="switch" aria-checked="true" aria-labelledby="awayL"></button></div>
+      </div>
+    </div>
     <!-- 外观：先放原来就能用的三项，结构和样式照原型；其余几项（睡眠、深浅色、贴边、悬停入口、多显示器）下一步照原型做 -->
     <div class="x-pane" id="paneLook" hidden>
       <div class="x-field"><span id="lkSizeL">球的大小</span>

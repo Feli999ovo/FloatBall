@@ -171,6 +171,7 @@ function showTab(t) {
   $("paneModel").hidden = true; fList.hidden = true;
   if (k === "model") renderLib();
   if (k === "agents") renderAgents();
+  if (k === "perm") renderPerm();
   if (t === "add") openForm();
   if (k === "keys") stopRec();
   document.querySelectorAll(".x-setw .x-pane").forEach((p) => { p.scrollTop = 0; });
@@ -467,6 +468,26 @@ async function agDelete() {
   try { await invoke("delete_agent", { id: a.id }); await reload(); agBack(); toast(`已删除 Agent：${a.name}`); } catch (e) { toast(String(e)); }
 }
 
+/* ───────── 权限（原型的 renderPerm）：撤销总是允许、离开电脑时暂停 ───────── */
+async function savePerm(list, away) {
+  try { await invoke("save_perm", { alwaysAllow: list, pauseAway: away }); await reload(); return true; } catch (e) { toast(String(e)); return false; }
+}
+function renderPerm() {
+  const ul = $("alList"), list = cfg.always_allow || []; ul.innerHTML = "";
+  $("alEmpty").hidden = list.length > 0;
+  list.forEach((v, i) => {
+    const li = mk("li"); li.innerHTML = '<span><b></b><small></small></span><button type="button" class="x-sb">撤销</button>';
+    li.querySelector("b").textContent = v.kind; li.querySelector("small").textContent = "范围：" + (v.scope || "全部");
+    const b = li.querySelector("button"); b.setAttribute("aria-label", `撤销 ${v.kind} · ${v.scope}`);
+    b.addEventListener("click", async () => {
+      if (await savePerm(list.filter((_, j) => j !== i), cfg.pause_away)) { toast(`已撤销：${v.kind} · ${v.scope}`); $("awaySw").focus({ preventScroll: true }); }
+    });
+    ul.appendChild(li);
+  });
+  $("awaySw").setAttribute("aria-checked", !!cfg.pause_away);
+}
+$("awaySw").addEventListener("click", async () => { if (await savePerm(cfg.always_allow || [], !cfg.pause_away)) toast("已保存"); });
+
 /* ───────── 外观、快捷键：改了就存（save_prefs） ───────── */
 function prefs() {
   const on = (g) => { const b = $(g).querySelector('[aria-checked="true"]'); return b && b.dataset.v; };
@@ -564,7 +585,10 @@ async function reload() {
   radio("lkSize", cfg.orb_size); radio("lkEye", cfg.eye); $("lkGlass").value = cfg.glass; showGlass();
   if (!$("paneLib").hidden) renderLib();
   if (!$("paneAgents").hidden) renderAgents();
+  if (!$("panePerm").hidden) renderPerm();
 }
+// 对话里点了「总是允许」，设置窗口开着时跟着刷新
+T.event.listen("config", () => reload());
 T.event.listen("catalog-updated", async () => { await reload(); if (!$("paneModel").hidden && (!detected || detected.src !== "manual")) lookupCaps(0); });
 
 $("setClose").addEventListener("click", () => win.close());
