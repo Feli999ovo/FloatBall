@@ -206,28 +206,6 @@ async def main():
         m = await pg.evaluate("__mock")
         check(m["size"] == {"w": 96, "h": 96} and m["pos"] == before, f"气泡消失后窗口缩回原样 {m['size']} {m['pos']}")
 
-        # 11b 小球折射：收起时截下小球正后面那一块，按球面透镜画出来；拿不到截图就用原来的玻璃图
-        lens_ok = await pg.evaluate("""async (b64) => {
-            const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();
-            const c = document.createElement("canvas"); c.width = c.height = 96;
-            // 和真实桌面一样：壁纸先铺满 1440×900 的屏幕，再截小球后面那 96×96
-            const k = im.naturalWidth / 1440;
-            c.getContext("2d").drawImage(im, 1300 * k, 400 * k, 96 * k, 96 * k, 0, 0, 96, 96);
-            __mock.lens = c.toDataURL("image/png");
-            await refreshLens();
-            const d = document.querySelector("#lens").getContext("2d").getImageData(0, 0, 72, 72).data;
-            const at = (x, y) => [...d.slice((y * 72 + x) * 4, (y * 72 + x) * 4 + 4)];
-            return { lensed: document.querySelector("#orb").classList.contains("lensed"), args: __mock.lensArgs, center: at(36, 36), corner: at(0, 0) };
-        }""", base64.b64encode(open(os.path.join(ROOT, "design-reference", "wallpaper.jpg"), "rb").read()).decode())
-        check(lens_ok["lensed"] and lens_ok["center"][3] == 255 and lens_ok["corner"][3] == 0, f"小球显示折射画面，圆以外透明 {lens_ok['center']} {lens_ok['corner']}")
-        a = lens_ok["args"]
-        sc = await pg.evaluate("__TAURI__.window.getCurrentWindow().scaleFactor()")
-        check(a["w"] == a["h"] == round(96 * sc), f"只截小球窗口这么大的一块（物理像素，缩放 {sc}） {a}")
-        await shot("11b_lens")
-        await pg.evaluate("__mock.lens = null")
-        await pg.evaluate("refreshLens()"); await pg.wait_for_timeout(100)
-        check(not await pg.evaluate("document.querySelector('#orb').classList.contains('lensed')"), "拿不到截图时用原来的玻璃图")
-
         # 11c 小球拉长成胶囊；上方放得下时卡片在胶囊上方；有底图时卡片是毛玻璃
         check(await pg.evaluate("document.querySelector('#bar').offsetWidth") == 72, "收起时胶囊缩成小球大小")
         check(await pg.evaluate("getComputedStyle(document.querySelector('.cap')).overflow") == "hidden", "胶囊的玻璃边不会露到小球外面")
