@@ -33,30 +33,17 @@ pub fn backdrop_at(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Result<S
     blur_region(DynamicImage::ImageRgba8(img), x, y, w, h)
 }
 
-/// 小球折射用的底图：小球正后面那一块，不模糊（折射要看得出后面的东西）。只截小球窗口这么大，不多截。
-#[cfg(windows)]
-pub fn lens_at(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
-    let monitor = xcap::Monitor::from_point(px, py).map_err(|e| e.to_string())?;
-    let img = monitor.capture_image().map_err(|e| e.to_string())?;
-    crop_region(DynamicImage::ImageRgba8(img), x, y, w, h).and_then(encode)
-}
-
-/// 取出一块；超出这块屏幕就拒绝
+/// 取出一块、缩到八分之一再模糊：图很小，又快又省内存，放大回去正好是毛玻璃的糊。
 #[cfg(any(windows, test))]
-pub fn crop_region(img: DynamicImage, x: i32, y: i32, w: u32, h: u32) -> Result<DynamicImage, String> {
+pub fn blur_region(img: DynamicImage, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
     let inside = x >= 0 && y >= 0 && w >= 8 && h >= 8
         && (x as u32).checked_add(w).is_some_and(|r| r <= img.width())
         && (y as u32).checked_add(h).is_some_and(|b| b <= img.height());
     if !inside {
         return Err("窗口不完全在这块屏幕里".into());
     }
-    Ok(img.crop_imm(x as u32, y as u32, w, h))
-}
-
-/// 取出一块、缩到八分之一再模糊：图很小，又快又省内存，放大回去正好是毛玻璃的糊。
-#[cfg(any(windows, test))]
-pub fn blur_region(img: DynamicImage, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
-    let small = crop_region(img, x, y, w, h)?
+    let small = img
+        .crop_imm(x as u32, y as u32, w, h)
         .resize_exact(w / 8, h / 8, FilterType::Triangle)
         .blur(2.5);
     encode(small)
@@ -122,9 +109,7 @@ mod tests {
         assert_eq!((back.width(), back.height()), (20, 10));
         assert!(blur_region(img.clone(), 300, 40, 160, 80).is_err());
         assert!(blur_region(img.clone(), -1, 0, 160, 80).is_err());
-        assert!(blur_region(img.clone(), 0, 0, 4, 4).is_err());
-        assert_eq!(crop_region(img.clone(), 10, 20, 96, 96).map(|c| (c.width(), c.height())), Ok((96, 96)));
-        assert!(crop_region(img, 350, 20, 96, 96).is_err());
+        assert!(blur_region(img, 0, 0, 4, 4).is_err());
     }
 
     #[test]

@@ -53,10 +53,7 @@ body.flip-x .cap { transform: scaleX(-1); }
   box-shadow: 0 6px 18px rgba(10, 8, 24, 0.35); transition: background 0.5s, opacity 0.15s 0.22s; }
 .glass { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; transition: opacity 0.15s 0.22s; }
 /* 展开后小球自己的底和玻璃让位给胶囊的 */
-/* 折射透镜：垫在玻璃图下面、深色底上面。有底图时才显示（app.js 的 paintLens） */
-.lens { position: absolute; inset: 5%; width: 90%; height: 90%; border-radius: 50%; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
-#orb.lensed .lens { opacity: 1; }
-body:not(.collapsed) #orb .body, body:not(.collapsed) #orb .glass, body:not(.collapsed) #orb .lens { opacity: 0; transition: opacity 0.15s 0.1s; }
+body:not(.collapsed) #orb .body, body:not(.collapsed) #orb .glass { opacity: 0; transition: opacity 0.15s 0.1s; }
 body:not(.collapsed) #orb .float, body:not(.collapsed) #orb .breath { animation: none; }
 .face { position: absolute; left: 0; top: 0; width: 72px; height: 72px; transform-origin: 0 0; transform: scale(var(--k, 1)); pointer-events: none; --c: var(--eye); }
 .face > * { position: absolute; transition: all 0.42s var(--spring); }
