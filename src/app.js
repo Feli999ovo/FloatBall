@@ -5,7 +5,7 @@ const T = window.__TAURI__;
 const { invoke, Channel } = T.core;
 const { listen } = T.event;
 const appWin = T.window.getCurrentWindow();
-const { LogicalSize, LogicalPosition } = T.dpi;
+const { LogicalSize, LogicalPosition, PhysicalPosition } = T.dpi;
 
 // 前端出错时打到终端
 const jslog = (m) => invoke("js_log", { msg: String(m) }).catch(() => {});
@@ -74,7 +74,7 @@ function setDock(side) {
 // 从贴边位置换算出完整露出来的位置（展开、指针移上来时用）
 const tuckShift = () => (SMALL - PAD * 2) * 0.1 + 2;
 async function peel(out) {
-  if (!docked || S.open || morphing || peekBox) return;
+  if (!docked || S.open || morphing || peekBox || hv.shown) return;
   const p = await winPos();
   morphing = true;
   orb.classList.toggle("peel", out);
@@ -132,7 +132,10 @@ function grabBackdrop(r, a) {
   return Promise.race([shot, new Promise((res) => setTimeout(() => res(null), 250))]);
 }
 async function expand(view) {
+  if (hv.shown) await hvHide();
   if (peekBox) await hidePeek();
+  // 贴边的球刚滑出来（或别的短动画）时点下去：等它停稳再展开，不要吞掉这次点击
+  for (let i = 0; morphing && i < 20; i++) await new Promise((r) => setTimeout(r, 25));
   if (morphing) return;
   if (S.open) { showView(view || "chat"); focusAsk(); return; }
   morphing = true;
@@ -223,14 +226,14 @@ orb.addEventListener("contextmenu", (e) => { e.preventDefault(); invoke("show_co
 // 拖完停下 350ms 后：贴边吸附 + 记住位置
 let moveTimer = 0;
 appWin.onMoved(() => {
-  if (morphing || orb.classList.contains("peel")) return; // 贴边滑出来露脸不算拖动
+  if (morphing || hv.shown || orb.classList.contains("peel")) return; // 贴边滑出来露脸、弹出小泡不算拖动
   orb.classList.remove("dragging");
   if (S.open) $("#card").classList.remove("glassy"); // 窗口挪了，底图对不上了
   clearTimeout(moveTimer);
   moveTimer = setTimeout(settle, 350);
 });
 async function settle() {
-  if (morphing) return;
+  if (morphing || hv.shown) return;
   const p = await winPos();
   if (S.open) {
     // 只有用户在展开状态下亲手拖动时才更新收起位置；展开时程序自己挪窗口（贴着屏幕边缩回来）不算
@@ -327,13 +330,97 @@ function renderTasks() {
 }
 setInterval(() => { if (S.busy && !$("#vTask").hidden) renderTasks(); }, 1000);
 
+/* ───────── 悬停快捷入口（原型的 hoverEntries）：指针停在球上，旁边沿弧线弹出几个小泡 ─────────
+   收起时窗口只有小球那么大，放不下小泡：弹出时把窗口扩成以小球为中心的方块，小球留在原地；收起时缩回。 */
+const HV_ACT = {
+  shot: ["截屏提问", '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/>', () => captureAsk()],
+  new: ["新对话", '<path d="M5 4.5h14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-7l-4.5 3.5V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z"/><path d="M12 8v5.5M9.25 10.75h5.5"/>', () => { newChat(); expand("chat"); }],
+  hist: ["历史记录", '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', () => expand("hist")],
+  tasks: ["任务列表", '<path d="M10 6.5h10M10 12h10M10 17.5h10M3.8 6.5l1.2 1.2 2.2-2.4M3.8 12l1.2 1.2 2.2-2.4M3.8 17.5l1.2 1.2 2.2-2.4"/>', () => expand("task")],
+};
+const hv = { shown: false, t: 0, hideT: 0, box: null };
+const hvQ = $("#hvq"), hvTip = $("#hvTip");
+const hvIds = () => { const h = S.cfg && S.cfg.hover; return h && h.on ? h.order.filter((o) => o.show && HV_ACT[o.id]).slice(0, 4).map((o) => o.id) : []; };
+const hvOk = () => hvIds().length && !S.open && !morphing && !peekBox && !press && !orb.className.includes("s-sleep");
+orb.addEventListener("pointerenter", () => {
+  clearTimeout(hv.hideT);
+  if (hv.shown || hv.t || !hvOk()) return;
+  hv.t = setTimeout(() => { hv.t = 0; if (hvOk() && orb.matches(":hover")) hvShow(); }, (S.cfg.hover.delay || 350) + (docked ? 120 : 0));
+});
+orb.addEventListener("pointerleave", () => { clearTimeout(hv.t); hv.t = 0; });
+orb.addEventListener("pointerdown", () => { clearTimeout(hv.t); hv.t = 0; if (hv.shown) hvHide(); }, true);
+// 指针离开窗口（小球和小泡以外的地方都在窗口外）就收起
+document.documentElement.addEventListener("pointerleave", () => { if (hv.shown) { clearTimeout(hv.hideT); hv.hideT = setTimeout(hvHide, 400); } });
+document.documentElement.addEventListener("pointerenter", () => clearTimeout(hv.hideT));
+addEventListener("keydown", (e) => { if (e.key === "Escape" && hv.shown) hvHide(); });
+async function hvShow() {
+  const ids = hvIds();
+  morphing = true;
+  try {
+    const p = await winPos(), a = await monitorArea();
+    const ORB = SMALL - PAD * 2, BS = 34, ring = ORB / 2 + 12 + BS / 2, E = Math.ceil(ring + BS / 2 + 6);
+    const side = E * 2, cxs = p.x + SMALL / 2, cys = p.y + SMALL / 2; // 小球中心（屏幕坐标）
+    hv.box = { p };
+    // 弧线朝屏幕中间；上下放不下就转一点
+    const right = cxs < a.x + a.w / 2, base = right ? 0 : Math.PI, sg = right ? 1 : -1, n = ids.length;
+    const step = 2 * Math.asin(Math.min(1, (BS + 8) / 2 / ring));
+    const tilts = [0]; for (let k = 1; k <= 7; k++) { const t = k * 0.18; tilts.push(cys < a.y + a.h / 2 ? t : -t, cys < a.y + a.h / 2 ? -t : t); }
+    let pts;
+    for (const t of tilts) {
+      pts = []; let fit = true;
+      for (let i = 0; i < n; i++) {
+        const ang = base + sg * (t + (i - (n - 1) / 2) * step), bx = Math.cos(ang) * ring, by = Math.sin(ang) * ring;
+        if (cys + by < a.y + 20 || cys + by > a.y + a.h - 20 || cxs + bx < a.x + 20 || cxs + bx > a.x + a.w - 20) fit = false;
+        pts.push({ x: bx, y: by });
+      }
+      if (fit) break;
+    }
+    await reshape(side, side, cxs - E, cys - E, true, () => {
+      body.classList.add("hovering");
+      $("#app").style.padding = `${E - ORB / 2}px 0 0 ${E - ORB / 2}px`;
+      hvQ.innerHTML = "";
+      ids.forEach((id, i) => {
+        const [label, path, run] = HV_ACT[id], b = document.createElement("button");
+        b.type = "button"; b.className = "x-hvb"; b.dataset.id = id; b.setAttribute("aria-label", label);
+        b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+        b.style.left = E + "px"; b.style.top = E + "px";
+        b.style.setProperty("--dx", pts[i].x.toFixed(1) + "px"); b.style.setProperty("--dy", pts[i].y.toFixed(1) + "px"); b.style.setProperty("--dl", i * 40 + "ms");
+        b.addEventListener("click", async () => { await hvHide(); run(); });
+        const tip = () => {
+          hvTip.textContent = label; const left = pts[i].x < 0, tw = hvTip.offsetWidth, th = hvTip.offsetHeight;
+          hvTip.style.left = Math.max(2, Math.min(side - tw - 2, left ? E + pts[i].x - 23 - tw : E + pts[i].x + 23)) + "px";
+          hvTip.style.top = Math.max(2, Math.min(side - th - 2, E + pts[i].y - th / 2)) + "px"; hvTip.classList.add("on");
+        };
+        b.addEventListener("pointerenter", tip); b.addEventListener("focus", tip);
+        b.addEventListener("pointerleave", () => hvTip.classList.remove("on")); b.addEventListener("blur", () => hvTip.classList.remove("on"));
+        hvQ.appendChild(b);
+      });
+    });
+    void hvQ.offsetWidth;
+    hvQ.classList.add("on"); hvQ.setAttribute("aria-hidden", "false");
+    hv.shown = true;
+  } finally { morphing = false; }
+}
+async function hvHide() {
+  if (!hv.shown) return;
+  hv.shown = false; clearTimeout(hv.hideT);
+  hvQ.classList.remove("on"); hvQ.setAttribute("aria-hidden", "true"); hvTip.classList.remove("on");
+  await new Promise((r) => setTimeout(r, 200));
+  morphing = true;
+  try {
+    await reshape(SMALL, SMALL, hv.box.p.x, hv.box.p.y, true, () => { body.classList.remove("hovering"); $("#app").style.padding = ""; hvQ.innerHTML = ""; });
+  } finally { morphing = false; }
+  // 贴边时露出来的球：指针已经不在球上就贴回去
+  if (docked && orb.classList.contains("peel") && !orb.matches(":hover")) peel(false);
+}
+
 /* ───────── 气泡：卡片收起时回复完成，在小球旁冒一句（取自参考版本） ─────────
    收起时窗口只有小球那么大，放不下气泡：冒泡时临时把窗口扩大，小球留在原地，消失后再缩回。 */
 const PEEK_W = 260, PEEK_H = 60;
 let peekTimer = 0, peekBox = null;
 async function showPeek(text) {
   const t = String(text).replace(/\s+/g, " ").trim();
-  if (!t || S.open || morphing || peekBox) return;
+  if (!t || S.open || morphing || peekBox || hv.shown) return;
   morphing = true;
   try {
     const p = await winPos(), a = await monitorArea();
@@ -818,6 +905,43 @@ $("#clearHist").onclick = async () => {
 // 设置窗口里改了东西
 // 设置窗口里「测试连接」成功时，小球开心一下（原型里的行为）
 listen("ball-state", ({ payload }) => mood(String(payload), 1800));
+/* ───────── 多显示器（原型的 mdsSet）─────────
+   mouse：小球跟着鼠标去它所在的屏幕；main：固定在主屏；last：待在上次的位置（拖到哪就是哪）。
+   换屏时按小球在原屏幕上的相对位置放到新屏幕，开了「滑过去」就几帧滑过去，减少动态时直接跳。全程用物理像素，免得两块屏缩放不同时算错。 */
+const inScr = (m, x, y) => x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + m.h;
+let scrBusy = false;
+async function screenCheck() {
+  const mode = S.cfg && S.cfg.screen;
+  if (!mode || mode === "last" || scrBusy || S.open || morphing || hv.shown || peekBox || press || orb.classList.contains("dragging") || orb.classList.contains("peel")) return;
+  scrBusy = true;
+  try {
+    const sc = await invoke("screens");
+    if (!sc || !sc.list || sc.list.length < 2) return;
+    const p = await appWin.outerPosition(), z = await appWin.outerSize();
+    const cx = p.x + z.width / 2, cy = p.y + z.height / 2;
+    const from = sc.list.find((m) => inScr(m, cx, cy)) || sc.list.find((m) => m.primary) || sc.list[0];
+    const to = mode === "main" ? sc.list.find((m) => m.primary) : sc.cursor && sc.list.find((m) => inScr(m, sc.cursor[0], sc.cursor[1]));
+    if (!to || (to.x === from.x && to.y === from.y)) return;
+    // 在原屏的相对位置 → 新屏；窗口在新屏上的物理尺寸按新屏的缩放算
+    const fx = (cx - from.x) / from.w, fy = (cy - from.y) / from.h, half = (SMALL * to.scale) / 2;
+    const tx = Math.round(Math.max(to.x, Math.min(to.x + fx * to.w - half, to.x + to.w - half * 2)));
+    const ty = Math.round(Math.max(to.y, Math.min(to.y + fy * to.h - half, to.y + to.h - half * 2)));
+    morphing = true; orb.classList.remove("peel"); setDock(0);
+    try {
+      const slide = S.cfg.screen_slide && !S.cfg.calm && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const n = slide ? 8 : 1;
+      for (let i = 1; i <= n; i++) {
+        const k = n === 1 ? 1 : 1 - Math.pow(1 - i / n, 3); // 缓出
+        await appWin.setPosition(new PhysicalPosition(Math.round(p.x + (tx - p.x) * k), Math.round(p.y + (ty - p.y) * k)));
+        if (i < n) await new Promise((r) => setTimeout(r, 30));
+      }
+    } finally { morphing = false; }
+    await settle(); // 新屏上照常吸边/贴边，并记住位置
+  } catch (e) { jslog("换屏失败：" + (e && e.message ? e.message : e)); }
+  finally { scrBusy = false; }
+}
+setInterval(() => { if (S.cfg && S.cfg.screen === "mouse") screenCheck(); }, 700);
+
 listen("config", async () => {
   const was = S.cfg ? S.cfg.auto_dock + "|" + S.cfg.orb_size : "";
   try { S.cfg = await invoke("get_config"); } catch (_) { return; }
@@ -825,6 +949,7 @@ listen("config", async () => {
   updateEmpty();
   // 改了贴边开关或小球大小：重新贴一次
   if (was !== S.cfg.auto_dock + "|" + S.cfg.orb_size && !S.open) setTimeout(settle, 60);
+  if (S.cfg.screen === "main") setTimeout(() => screenCheck(), 120);
 });
 listen("menu", async ({ payload }) => {
   switch (payload) {
@@ -843,6 +968,7 @@ listen("menu", async ({ payload }) => {
   updateEmpty();
   mood("idle");
   settle(); // 上次贴着边：重新压平
+  if (S.cfg && S.cfg.screen === "main") setTimeout(screenCheck, 300); // 固定在主屏：上次在副屏也挪回来
   // 还没设置模型：小球露出好奇的表情提醒一下，不自动展开，免得挡住屏幕
   if (needsSetup()) mood("curious", 4000);
 })();

@@ -206,6 +206,27 @@ struct Prefs {
     auto_dock: Option<bool>,
     #[serde(default)]
     calm: Option<bool>,
+    #[serde(default)]
+    hover: Option<config::Hover>,
+    #[serde(default)]
+    screen: Option<String>,
+    #[serde(default)]
+    screen_slide: Option<bool>,
+}
+
+/// 多显示器：鼠标位置和所有屏幕（都是物理像素），给小球判断该待在哪块屏幕
+#[derive(Serialize)]
+struct Screen { x: i32, y: i32, w: u32, h: u32, scale: f64, primary: bool }
+#[derive(Serialize)]
+struct Screens { cursor: Option<(f64, f64)>, list: Vec<Screen> }
+#[tauri::command]
+fn screens(app: AppHandle) -> Screens {
+    let prim = app.primary_monitor().ok().flatten().map(|m| *m.position());
+    let list = app.available_monitors().unwrap_or_default().iter().map(|m| {
+        let (p, z) = (m.position(), m.size());
+        Screen { x: p.x, y: p.y, w: z.width, h: z.height, scale: m.scale_factor(), primary: prim == Some(*p) }
+    }).collect();
+    Screens { cursor: app.cursor_position().ok().map(|c| (c.x, c.y)), list }
 }
 
 /// 模型以外的设置。返回 Some(提示)：已经保存，但有快捷键被别的程序占用了
@@ -223,6 +244,9 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     if let Some(v) = prefs.follow_system { next.follow_system = v; }
     if let Some(v) = prefs.auto_dock { next.auto_dock = v; }
     if let Some(v) = prefs.calm { next.calm = v; }
+    if let Some(v) = prefs.hover { next.hover = v.normalized(); }
+    if let Some(v) = prefs.screen { if matches!(v.as_str(), "mouse" | "main" | "last") { next.screen = v; } }
+    if let Some(v) = prefs.screen_slide { next.screen_slide = v; }
     let busy = register_shortcuts(&app, &state, &next)?;
     commit(&app, &state, next)?;
     Ok(busy)
@@ -721,7 +745,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, save_agent, delete_agent, save_limits, answer_ask, save_perm,
+            save_prefs, screens, save_agent, delete_agent, save_limits, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,

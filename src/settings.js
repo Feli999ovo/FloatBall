@@ -495,6 +495,8 @@ function prefs() {
     shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut,
     orb_size: +(on("lkSize") || cfg.orb_size), glass: +$("lkGlass").value, eye: on("lkEye") || cfg.eye,
     idle_ms: +$("lkIdle").value, follow_system: sw("lkSys"), auto_dock: sw("lkDock"), calm: sw("lkCalm"),
+    hover: { on: sw("hvOn"), delay: +(on("hvSpd") || 350), order: hvOrder },
+    screen: on("mdsWhere") || "mouse", screen_slide: sw("mdsSlide"),
   };
 }
 async function savePrefs() {
@@ -510,8 +512,8 @@ async function savePrefs() {
 const radio = (g, v) => $(g).querySelectorAll("[role=radio]").forEach((b) => {
   const on = b.dataset.v.toLowerCase() === String(v).toLowerCase(); b.setAttribute("aria-checked", on); b.tabIndex = on ? 0 : -1;
 });
-["lkSize", "lkEye"].forEach((g) => {
-  $(g).addEventListener("click", (e) => { const b = e.target.closest("[role=radio]"); if (!b) return; radio(g, b.dataset.v); savePrefs(); });
+["lkSize", "lkEye", "hvSpd", "mdsWhere"].forEach((g) => {
+  $(g).addEventListener("click", (e) => { const b = e.target.closest("[role=radio]"); if (!b) return; radio(g, b.dataset.v); if (g === "mdsWhere") mdsFig(true); savePrefs(); });
   $(g).addEventListener("keydown", (e) => {
     const bs = [...$(g).querySelectorAll("[role=radio]")], i = bs.indexOf(document.activeElement);
     const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
@@ -526,9 +528,42 @@ const radio = (g, v) => $(g).querySelectorAll("[role=radio]").forEach((b) => {
 const showGlass = () => { const v = +$("lkGlass").value; $("lkGlassV").textContent = v ? "通透 " + v + "%" : "不透明"; };
 const sw = (id) => $(id).getAttribute("aria-checked") === "true";
 $("lkIdle").addEventListener("change", savePrefs);
-["lkSys", "lkDock", "lkCalm"].forEach((id) => $(id).addEventListener("click", () => { $(id).setAttribute("aria-checked", !sw(id)); savePrefs(); }));
+// 多显示器的示意图（原型原样）：小球点跟着所选的方式挪；没开「滑过去」时闪一下表示跳过去
+const MDS_POS = { mouse: [270, 60], main: [150, 46], last: [40, 78] };
+const MDS_CAP = { mouse: "鼠标在副屏，小球跟到副屏", main: "不管鼠标在哪，小球都留在主屏", last: "回到上次待过的屏幕（这里是主屏左下角）" };
+function mdsFig(anim) {
+  const b = $("mdsWhere").querySelector('[aria-checked="true"]'), v = (b && b.dataset.v) || "mouse", [px, py] = MDS_POS[v], fig = $("mdsFig");
+  if (anim && !sw("mdsSlide")) { fig.classList.remove("x-mdsjump"); void fig.offsetWidth; fig.classList.add("x-mdsjump"); clearTimeout(mdsFig.t); mdsFig.t = setTimeout(() => fig.classList.remove("x-mdsjump"), 340); }
+  $("mdsOrb").style.transform = `translate(${px}px,${py}px)`;
+  $("mdsCur").style.opacity = v === "mouse" ? 1 : 0.45;
+  $("mdsCap").textContent = MDS_CAP[v];
+}
+["lkSys", "lkDock", "lkCalm", "hvOn", "mdsSlide"].forEach((id) => $(id).addEventListener("click", () => { $(id).setAttribute("aria-checked", !sw(id)); savePrefs(); }));
 $("lkGlass").addEventListener("input", showGlass);
 $("lkGlass").addEventListener("change", savePrefs);
+
+// 悬停快捷入口的列表（原型的 hvRenderList）：勾选、上移、下移，最多 4 个
+const HV_NAME = { shot: "截屏提问", new: "新对话", hist: "历史记录", tasks: "任务列表" };
+let hvOrder = [];
+function hvRender(focusId, focusSel) {
+  const ul = $("hvList"); ul.innerHTML = "";
+  const full = hvOrder.filter((o) => o.show).length >= 4;
+  hvOrder.forEach((o, i) => {
+    const name = HV_NAME[o.id] || o.id, li = mk("li"); li.dataset.id = o.id;
+    const lb = mk("label"), cb = mk("input"); cb.type = "checkbox"; cb.checked = o.show; cb.disabled = !o.show && full;
+    lb.append(cb, document.createTextNode(name)); if (cb.disabled) lb.className = "x-hvoff";
+    cb.addEventListener("change", () => { o.show = cb.checked; hvRender(o.id, "input"); savePrefs(); });
+    const up = mk("button", "x-hvmv", "↑"), dn = mk("button", "x-hvmv", "↓");
+    up.type = dn.type = "button"; up.dataset.d = "up"; dn.dataset.d = "dn";
+    up.setAttribute("aria-label", `上移 ${name}`); dn.setAttribute("aria-label", `下移 ${name}`);
+    up.disabled = i === 0; dn.disabled = i === hvOrder.length - 1;
+    const mv = (j, sel) => { const [it] = hvOrder.splice(i, 1); hvOrder.splice(j, 0, it); hvRender(it.id, sel); savePrefs(); };
+    up.addEventListener("click", () => mv(i - 1, "[data-d=up]")); dn.addEventListener("click", () => mv(i + 1, "[data-d=dn]"));
+    li.append(lb, up, dn); ul.appendChild(li);
+  });
+  $("hvSet").classList.toggle("x-hvdis", !sw("hvOn"));
+  if (focusId) { const li = ul.querySelector(`[data-id="${focusId}"]`), f = li && (li.querySelector(focusSel + ":not(:disabled)") || li.querySelector("input")); if (f) f.focus({ preventScroll: true }); }
+}
 
 // 快捷键：原型的「录制」。写进配置用 Tauri 的写法（Alt+Space），显示用原型的写法（⌥ Space）
 const keyVal = { shortcut: "", capture_shortcut: "" };
@@ -589,6 +624,11 @@ async function reload() {
   radio("lkSize", cfg.orb_size); radio("lkEye", cfg.eye); $("lkGlass").value = cfg.glass; showGlass();
   $("lkIdle").value = String(cfg.idle_ms ?? 600000);
   if ($("lkIdle").selectedIndex < 0) $("lkIdle").value = "600000";
+  const hv = cfg.hover || { on: true, delay: 350, order: [] };
+  hvOrder = hv.order.map((o) => ({ ...o })); $("hvOn").setAttribute("aria-checked", hv.on !== false); radio("hvSpd", hv.delay || 350);
+  { const a = document.activeElement, li = a && a.closest && a.closest("#hvList li"); // 重新渲染时焦点留在原来那一项
+    hvRender(li && li.dataset.id, a && a.dataset && a.dataset.d ? `[data-d=${a.dataset.d}]` : "input"); }
+  radio("mdsWhere", cfg.screen || "mouse"); $("mdsSlide").setAttribute("aria-checked", cfg.screen_slide !== false); mdsFig(false);
   $("lkSys").setAttribute("aria-checked", !!cfg.follow_system); $("lkDock").setAttribute("aria-checked", cfg.auto_dock !== false); $("lkCalm").setAttribute("aria-checked", !!cfg.calm);
   if (!$("paneLib").hidden) renderLib();
   if (!$("paneAgents").hidden) renderAgents();

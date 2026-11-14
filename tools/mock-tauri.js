@@ -1,7 +1,7 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["搜索网页", "读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
+    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["搜索网页", "读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
@@ -15,6 +15,7 @@
     st.calls.push(cmd);
     switch (cmd) {
       case "get_config": return view();
+      case "screens": return { cursor: st.cursor || null, list: [{ x: 0, y: 0, w: st.mon.w * 2, h: st.mon.h * 2, scale: 2, primary: true }, ...(st.screens || [])] };
       case "save_model": {
         const m = { ...a.model };
         let old = st.cfg.models.find((x) => m.id && x.id === m.id);
@@ -114,12 +115,18 @@
   }
   const win = {
     close: async () => { st.closed = (st.closed || 0) + 1; },
-    _mon: async () => ({ scaleFactor: 2, position: { x: 0, y: 0 }, size: { width: st.mon.w * 2, height: st.mon.h * 2 }, workArea: { position: { x: 0, y: 50 }, size: { width: st.mon.w * 2, height: (st.mon.h - 25) * 2 } } }),
+    // 多显示器：st.screens 里第二块屏（物理像素，缩放都按 2）。没有就只有主屏
+    _mon: async () => {
+      const cx = (st.pos.x + st.size.w / 2) * 2, cy = (st.pos.y + st.size.h / 2) * 2;
+      const o = (st.screens || []).find((m) => !m.primary && cx >= m.x && cx < m.x + m.w && cy >= m.y && cy < m.y + m.h);
+      if (o) return { scaleFactor: 2, position: { x: o.x, y: o.y }, size: { width: o.w, height: o.h }, workArea: { position: { x: o.x, y: o.y }, size: { width: o.w, height: o.h } } };
+      return { scaleFactor: 2, position: { x: 0, y: 0 }, size: { width: st.mon.w * 2, height: st.mon.h * 2 }, workArea: { position: { x: 0, y: 50 }, size: { width: st.mon.w * 2, height: (st.mon.h - 25) * 2 } } };
+    },
     outerPosition: async () => ({ x: st.pos.x * 2, y: st.pos.y * 2 }),
     outerSize: async () => ({ width: st.size.w * 2, height: st.size.h * 2 }),
     scaleFactor: async () => 2,
     setSize: async (s) => { st.size = { w: s.width, h: s.height }; if (window.__resize) await window.__resize(s.width, s.height); },
-    setPosition: async (p) => { st.pos = { x: p.x, y: p.y }; },
+    setPosition: async (p) => { st.pos = p.phys ? { x: p.x / 2, y: p.y / 2 } : { x: p.x, y: p.y }; (st.posLog ||= []).push(st.pos); },
     setFocus: async () => { st.focused = true; },
     startDragging: async () => { st.dragStarted = true; },
     onMoved: (f) => st.moved.push(f),
@@ -131,7 +138,7 @@
     // 与真实 @tauri-apps/api 一致：currentMonitor 是 window 模块的函数，不是窗口对象的方法
     window: { getCurrentWindow: () => win, currentMonitor: () => (st.monitorFails ? Promise.reject(new Error("no monitor")) : win._mon()) },
     webview: { getCurrentWebview: () => ({ onDragDropEvent: (f) => (st.drop = f) }) },
-    dpi: { LogicalSize: class { constructor(w, h) { this.width = w; this.height = h; } }, LogicalPosition: class { constructor(x, y) { this.x = x; this.y = y; } } },
+    dpi: { LogicalSize: class { constructor(w, h) { this.width = w; this.height = h; } }, LogicalPosition: class { constructor(x, y) { this.x = x; this.y = y; } }, PhysicalPosition: class { constructor(x, y) { this.x = x; this.y = y; this.phys = true; } } },
   };
   window.__emit = (n, p) => (st.listeners[n] || []).forEach((f) => f({ payload: p }));
 })();

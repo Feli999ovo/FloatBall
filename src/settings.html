@@ -105,6 +105,46 @@
         <div class="x-ar"><span id="lkDockL">贴边时自动收起<small>拖到屏幕边缘时贴住并压平</small></span><button type="button" class="x-sw" id="lkDock" role="switch" aria-checked="true" aria-labelledby="lkDockL"></button></div>
         <div class="x-ar"><span id="lkCalmL">减少动态效果<small>关掉漂浮和呼吸</small></span><button type="button" class="x-sw" id="lkCalm" role="switch" aria-checked="false" aria-labelledby="lkCalmL"></button></div>
       </div>
+      <!-- 悬停快捷入口（原型的 hvSet）。程序里有的入口：截屏提问、新对话、历史记录、任务列表 -->
+      <div class="x-hvset" id="hvSet">
+        <h3>悬停快捷入口</h3>
+        <div class="x-ar" style="margin:0 0 12px"><span id="hvOnL">启用<small>指针停在球上时，旁边弹出几个快捷小泡</small></span><button type="button" class="x-sw" id="hvOn" role="switch" aria-checked="true" aria-labelledby="hvOnL"></button></div>
+        <div class="x-field"><span id="hvSpdL">出现速度</span>
+          <div class="x-seg x-lkseg" id="hvSpd" role="radiogroup" aria-labelledby="hvSpdL">
+            <button type="button" role="radio" aria-checked="false" data-v="200">快</button><button type="button" role="radio" aria-checked="true" data-v="350">中</button><button type="button" role="radio" aria-checked="false" data-v="600">慢</button>
+          </div>
+        </div>
+        <div class="x-field"><span id="hvListL">入口</span>
+          <ul class="x-hvlist" id="hvList" aria-labelledby="hvListL"></ul>
+          <p class="x-note" id="hvMax" style="margin:6px 0 0">最多 4 个，按列表顺序排开</p>
+        </div>
+      </div>
+<div class="x-mds" id="mdsSet">
+                  <h3>多显示器</h3>
+                  <div class="x-field"><span id="mdsWhereL">小球出现在</span>
+                    <div class="x-seg x-lkseg" id="mdsWhere" role="radiogroup" aria-labelledby="mdsWhereL">
+                      <button type="button" role="radio" aria-checked="true" data-v="mouse">鼠标所在的屏幕</button><button type="button" role="radio" aria-checked="false" data-v="main" tabindex="-1">固定在主屏幕</button><button type="button" role="radio" aria-checked="false" data-v="last" tabindex="-1">上次所在的屏幕</button>
+                    </div>
+                  </div>
+                  <div class="x-ar"><span id="mdsSlideL">换屏时<small>跟着鼠标跳到另一块屏幕时，滑过去而不是闪现</small></span><button type="button" class="x-sw" id="mdsSlide" role="switch" aria-checked="true" aria-labelledby="mdsSlideL"></button></div>
+                  <figure class="x-mdsfig" id="mdsFig">
+                    <svg viewBox="0 0 320 132" role="img" aria-labelledby="mdsCap">
+                      <g fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.4)" stroke-width="1.2">
+                        <rect x="6" y="8" width="176" height="104" rx="10"/>
+                        <rect x="198" y="30" width="116" height="74" rx="8"/>
+                      </g>
+                      <g fill="rgba(255,255,255,.18)"><rect x="7" y="9" width="174" height="9" rx="4"/><rect x="84" y="112" width="20" height="8"/><rect x="70" y="120" width="48" height="3" rx="1.5"/><rect x="249" y="104" width="14" height="10"/><rect x="238" y="114" width="36" height="3" rx="1.5"/></g>
+                      <g fill="rgba(255,255,255,.72)" font-size="12" font-family="inherit"><text x="16" y="104">主屏</text><text x="206" y="97">副屏</text></g>
+                      <path class="x-mdscur" id="mdsCur" d="M246 56 l0 13 l3.4 -3.2 l2.6 5.6 l2 -.9 l-2.6 -5.5 l4.6 -.2 z" fill="#fff" stroke="rgba(14,12,40,.9)" stroke-width="1" stroke-linejoin="round"/>
+                      <g class="x-mdsorb" id="mdsOrb" style="transform:translate(270px,60px)">
+                        <circle r="9" fill="rgba(255,255,255,.28)" stroke="rgba(255,255,255,.9)" stroke-width="1"/>
+                        <rect x="-3.6" y="-3" width="2.2" height="5" rx="1.1" fill="#FFF1DC"/><rect x="1.4" y="-3" width="2.2" height="5" rx="1.1" fill="#FFF1DC"/>
+                      </g>
+                    </svg>
+                    <figcaption id="mdsCap" aria-live="polite">鼠标在副屏，小球跟到副屏</figcaption>
+                  </figure>
+                  <p class="x-note" style="margin:0">只有一块屏幕时这项不起作用。</p>
+                </div>
       <p class="x-note" style="margin-top:14px">开机启动在托盘菜单和右键菜单里。</p>
     </div>
     <!-- 快捷键：列表和「录制」照原型；现在程序里只有这两项。恢复默认、其余几项下一步照原型做 -->

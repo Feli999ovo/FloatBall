@@ -159,6 +159,56 @@ pub struct Config {
     pub auto_dock: bool,
     /// 减少动态效果
     pub calm: bool,
+    /// 悬停快捷入口：指针停在球上时旁边弹出的小泡
+    pub hover: Hover,
+    /// 多显示器：小球出现在哪块屏幕。mouse 鼠标所在 / main 固定主屏 / last 上次所在
+    pub screen: String,
+    /// 跟着鼠标换屏时滑过去而不是闪现
+    pub screen_slide: bool,
+}
+
+/// 悬停快捷入口（原型的 hoverEntries）。order 里 show 的前 4 个按顺序排开
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Hover {
+    pub on: bool,
+    /// 停多久后弹出（毫秒）：快 200、中 350、慢 600
+    pub delay: u32,
+    pub order: Vec<HoverItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HoverItem {
+    pub id: String,
+    pub show: bool,
+}
+
+/// 程序里有的入口：截屏提问、新对话、历史记录、任务列表
+pub const HOVER_IDS: [&str; 4] = ["shot", "new", "hist", "tasks"];
+
+impl Default for Hover {
+    fn default() -> Self {
+        Self { on: true, delay: 350, order: HOVER_IDS.iter().map(|id| HoverItem { id: id.to_string(), show: true }).collect() }
+    }
+}
+
+impl Hover {
+    /// 去掉不认识的、重复的，补上缺的；最多显示 4 个
+    pub fn normalized(mut self) -> Self {
+        let mut seen = vec![];
+        self.order.retain(|o| HOVER_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && { seen.push(o.id.clone()); true });
+        for id in HOVER_IDS {
+            if !self.order.iter().any(|o| o.id == id) {
+                self.order.push(HoverItem { id: id.into(), show: false });
+            }
+        }
+        let mut n = 0;
+        for o in &mut self.order {
+            if o.show { n += 1; if n > 4 { o.show = false; } }
+        }
+        self.delay = self.delay.clamp(100, 1500);
+        self
+    }
 }
 
 impl Default for Config {
@@ -181,6 +231,9 @@ impl Default for Config {
             follow_system: false,
             auto_dock: true,
             calm: false,
+            hover: Hover::default(),
+            screen: "mouse".into(),
+            screen_slide: true,
         }
     }
 }
@@ -366,6 +419,14 @@ mod tests {
     }
 
     #[test]
+    fn hover_normalizes() {
+        let h = Hover { on: true, delay: 9, order: vec![HoverItem { id: "hist".into(), show: true }, HoverItem { id: "zzz".into(), show: true }, HoverItem { id: "hist".into(), show: false }] }.normalized();
+        assert_eq!(h.order.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["hist", "shot", "new", "tasks"]);
+        assert_eq!(h.order.iter().filter(|o| o.show).count(), 1);
+        assert_eq!(h.delay, 100);
+    }
+
+    #[test]
     fn roundtrip_and_defaults() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(Config::load(d.path()), Config::default());
@@ -374,6 +435,8 @@ mod tests {
         c.position = Some((10.0, 20.0));
         c.calm = true;
         c.idle_ms = 0;
+        c.hover.order.swap(0, 2);
+        c.hover.order[1].show = false;
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
     }
