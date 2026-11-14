@@ -26,11 +26,23 @@ pub struct Model {
     pub vision: bool,
     /// 不需要 API Key（本地 Ollama 等）
     pub no_key: bool,
+    /// 设置窗口里选的服务商（OpenAI / DeepSeek / 通义千问 / Kimi / OpenRouter / Ollama（本地）/ 自定义），只用来显示和查能力
+    pub provider: String,
+    /// 能力：支持工具调用、推理（思考）、上下文长度（token）。None 表示不知道
+    pub tools: Option<bool>,
+    /// false：不知道支不支持图片（vision 这时按 true 处理，截图照发）
+    pub vision_known: bool,
+    pub reasoning: Option<bool>,
+    pub ctx: Option<u64>,
+    /// 能力从哪来：exact（models.dev 里这家服务商的这个模型）、lab（同名模型）、guess（相近的名字推断）、manual（用户点过）、none
+    pub caps_src: String,
+    /// models.dev 的服务商编号，界面按它找 logo
+    pub logo: String,
 }
 
 impl Default for Model {
     fn default() -> Self {
-        Self { id: 0, name: String::new(), base_url: "https://api.openai.com/v1".into(), model: String::new(), vision: true, no_key: false }
+        Self { id: 0, name: String::new(), base_url: "https://api.openai.com/v1".into(), model: String::new(), vision: true, no_key: false, provider: String::new(), tools: None, vision_known: true, reasoning: None, ctx: None, caps_src: String::new(), logo: String::new() }
     }
 }
 
@@ -46,6 +58,69 @@ impl Model {
     }
 }
 
+/// 工具（Agent 能用哪些）。名字就是界面上显示的字。
+pub const TOOLS: [&str; 6] = ["搜索网页", "读文件", "写文件", "删除", "发邮件", "浏览器"];
+pub const MAX_AGENTS: usize = 16;
+pub const LEAD: &str = "lead";
+
+/// 一个 Agent：主控（id = lead，不能删）或用户建的小伙伴
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Agent {
+    pub id: String,
+    pub name: String,
+    /// 一句话职责，主控按它决定交给谁
+    pub role: String,
+    /// 指令（它的系统提示词）
+    pub prompt: String,
+    /// 头像颜色（#RRGGBB）和头像上的一个字或 emoji
+    pub tint: String,
+    pub emoji: String,
+    /// 能用的工具，取自 TOOLS
+    pub tools: Vec<String>,
+    /// 用哪个模型（模型编号），0 = 跟随默认
+    pub model: u32,
+    /// 备用模型：主模型出错时换它，0 = 无
+    pub fallback: u32,
+    /// 自动省钱：简单步骤换便宜 / 本地模型
+    pub auto: bool,
+}
+
+impl Default for Agent {
+    fn default() -> Self {
+        Self { id: String::new(), name: String::new(), role: String::new(), prompt: String::new(), tint: "#E6D49A".into(), emoji: String::new(), tools: vec!["读文件".into()], model: 0, fallback: 0, auto: false }
+    }
+}
+
+impl Agent {
+    pub fn lead(prompt: &str) -> Self {
+        Self { id: LEAD.into(), name: "主控".into(), role: "拆解与分派".into(), prompt: prompt.into(), tint: "#C9B8F2".into(), tools: vec!["搜索网页".into(), "读文件".into(), "写文件".into()], ..Self::default() }
+    }
+}
+
+/// 总是允许的一类操作：种类（写入 / 打开网页 / 删除 / 发送）+ 范围（文件夹名、网站、收件人）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct Allow {
+    pub kind: String,
+    pub scope: String,
+}
+
+/// 预算：单个任务最多用多少 token（0 不限）、最多多少步、最多同时几个子 Agent
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Limits {
+    pub tokens: u64,
+    pub steps: u32,
+    pub parallel: u32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self { tokens: 50_000, steps: 50, parallel: 3 }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -53,12 +128,25 @@ pub struct Config {
     pub models: Vec<Model>,
     /// 提问时用哪个模型（模型的编号）
     pub default_model: u32,
-    /// 系统提示词
+    /// 早期版本的系统提示词。现在是主控的指令（agents[0].prompt），这里只用来迁移
+    #[serde(skip_serializing)]
     pub system_prompt: String,
+    /// Agents，第一个永远是主控
+    pub agents: Vec<Agent>,
+    /// 预算
+    pub limits: Limits,
+    /// 权限：总是允许的操作
+    pub always_allow: Vec<Allow>,
+    /// 离开电脑时暂停敏感操作：确认卡片一直等；关掉则 5 分钟没确认就跳过
+    pub pause_away: bool,
     /// 呼出 / 收起悬浮球
     pub shortcut: String,
     /// 截屏提问
     pub capture_shortcut: String,
+    /// 新对话
+    pub new_shortcut: String,
+    /// 打开任务
+    pub tasks_shortcut: String,
     /// 小球位置（逻辑像素），首次启动为空
     pub position: Option<(f64, f64)>,
     /// 小球直径（逻辑像素）
@@ -67,6 +155,121 @@ pub struct Config {
     pub glass: u8,
     /// 眼睛颜色（#RRGGBB）
     pub eye: String,
+    /// 空闲多久后睡觉（毫秒），0 = 从不
+    pub idle_ms: u64,
+    /// 跟随系统深浅色：系统为深色时卡片玻璃更深
+    pub follow_system: bool,
+    /// 拖到屏幕边缘时贴住并压平
+    pub auto_dock: bool,
+    /// 减少动态效果
+    pub calm: bool,
+    /// 悬停快捷入口：指针停在球上时旁边弹出的小泡
+    pub hover: Hover,
+    /// 划词工具栏
+    pub sel: Sel,
+    /// 多显示器：小球出现在哪块屏幕。mouse 鼠标所在 / main 固定主屏 / last 上次所在
+    pub screen: String,
+    /// 跟着鼠标换屏时滑过去而不是闪现
+    pub screen_slide: bool,
+}
+
+/// 悬停快捷入口（原型的 hoverEntries）。order 里 show 的前 4 个按顺序排开
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Hover {
+    pub on: bool,
+    /// 停多久后弹出（毫秒）：快 200、中 350、慢 600
+    pub delay: u32,
+    pub order: Vec<HoverItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HoverItem {
+    pub id: String,
+    pub show: bool,
+}
+
+/// 程序里有的入口：截屏提问、新对话、历史记录、任务列表
+pub const HOVER_IDS: [&str; 4] = ["shot", "new", "hist", "tasks"];
+
+impl Default for Hover {
+    fn default() -> Self {
+        Self { on: true, delay: 350, order: HOVER_IDS.iter().map(|id| HoverItem { id: id.to_string(), show: true }).collect() }
+    }
+}
+
+impl Hover {
+    /// 去掉不认识的、重复的，补上缺的；最多显示 4 个
+    pub fn normalized(mut self) -> Self {
+        let mut seen = vec![];
+        self.order.retain(|o| HOVER_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && { seen.push(o.id.clone()); true });
+        for id in HOVER_IDS {
+            if !self.order.iter().any(|o| o.id == id) {
+                self.order.push(HoverItem { id: id.into(), show: false });
+            }
+        }
+        let mut n = 0;
+        for o in &mut self.order {
+            if o.show { n += 1; if n > 4 { o.show = false; } }
+        }
+        self.delay = self.delay.clamp(100, 1500);
+        self
+    }
+}
+
+/// 划词工具栏（原型的 selCfg）。order 里勾了「显示」的前 6 个放在工具栏上，其余放进「⋯」
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Sel {
+    pub on: bool,
+    /// instant：选中后立即出现；alt：按住 Alt（⌥）再选中
+    pub mode: String,
+    pub order: Vec<HoverItem>,
+    /// 翻译成：auto（中↔英）、en、zh、ja
+    pub tr: String,
+    /// 不在这些应用里出现（按应用名或程序文件名匹配，不分大小写）
+    pub apps: Vec<String>,
+}
+
+pub const SEL_IDS: [&str; 10] = ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"];
+pub const SEL_MAX: usize = 6;
+
+impl Default for Sel {
+    fn default() -> Self {
+        let apps: &[&str] = if cfg!(target_os = "macos") { &["1Password", "钥匙串访问", "终端"] } else { &["1Password", "KeePass", "Bitwarden"] };
+        Self {
+            on: true,
+            mode: "instant".into(),
+            order: SEL_IDS.iter().enumerate().map(|(i, id)| HoverItem { id: id.to_string(), show: i < SEL_MAX }).collect(),
+            tr: "auto".into(),
+            apps: apps.iter().map(|a| a.to_string()).collect(),
+        }
+    }
+}
+
+impl Sel {
+    pub fn normalized(mut self) -> Self {
+        let mut seen = vec![];
+        self.order.retain(|o| SEL_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && { seen.push(o.id.clone()); true });
+        for id in SEL_IDS {
+            if !self.order.iter().any(|o| o.id == id) {
+                self.order.push(HoverItem { id: id.into(), show: false });
+            }
+        }
+        if self.mode != "alt" { self.mode = "instant".into(); }
+        if !["auto", "en", "zh", "ja"].contains(&self.tr.as_str()) { self.tr = "auto".into(); }
+        let mut seen: Vec<String> = vec![];
+        self.apps = self.apps.into_iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty() && !seen.contains(&a.to_lowercase()) && { seen.push(a.to_lowercase()); true }).collect();
+        self
+    }
+
+    /// 前台应用是否在排除列表里：应用名或程序文件名（不带 .exe）包含列表里的某一项
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+    pub fn excluded(&self, app_name: &str, exe: &str) -> bool {
+        let (n, e) = (app_name.to_lowercase(), exe.to_lowercase());
+        let e = e.trim_end_matches(".exe");
+        self.apps.iter().any(|a| { let a = a.to_lowercase(); n.contains(&a) || (!e.is_empty() && e.contains(&a.replace(' ', ""))) })
+    }
 }
 
 impl Default for Config {
@@ -74,16 +277,32 @@ impl Default for Config {
         Self {
             models: vec![],
             default_model: 0,
-            system_prompt: "你是住在用户桌面上的悬浮球助手。回答简洁、具体，默认用中文。".into(),
+            system_prompt: String::new(),
+            agents: vec![Agent::lead(DEFAULT_PROMPT)],
+            limits: Limits::default(),
+            always_allow: vec![],
+            pause_away: true,
             shortcut: "Alt+Space".into(),
-            capture_shortcut: "Alt+Shift+S".into(),
+            capture_shortcut: "Alt+S".into(),
+            new_shortcut: "Alt+N".into(),
+            tasks_shortcut: "Alt+T".into(),
             position: None,
             orb_size: 72,
             glass: 25,
             eye: "#FFF1DC".into(),
+            idle_ms: 10 * 60 * 1000,
+            follow_system: false,
+            auto_dock: true,
+            calm: false,
+            hover: Hover::default(),
+            sel: Sel::default(),
+            screen: "mouse".into(),
+            screen_slide: true,
         }
     }
 }
+
+pub const DEFAULT_PROMPT: &str = "你是住在用户桌面上的悬浮球助手。回答简洁、具体，默认用中文。";
 
 impl Config {
     pub fn path(dir: &Path) -> PathBuf {
@@ -106,11 +325,76 @@ impl Config {
                     model: model.to_string(),
                     vision: v.get("vision").and_then(Value::as_bool).unwrap_or(true),
                     no_key: v.get("allow_no_key").and_then(Value::as_bool).unwrap_or(false),
+                    ..Model::default()
                 }];
                 c.default_model = 1;
             }
         }
+        c.fix_agents(if v.get("agents").is_none() { v.get("system_prompt").and_then(Value::as_str) } else { None });
         c
+    }
+
+    /// 主控永远在第一个；早期版本的系统提示词搬进主控的指令；指向已删模型的 Agent 改回跟随默认
+    fn fix_agents(&mut self, old_prompt: Option<&str>) {
+        if !self.agents.iter().any(|a| a.id == LEAD) {
+            self.agents.insert(0, Agent::lead(old_prompt.unwrap_or(DEFAULT_PROMPT)));
+        }
+        if let Some(i) = self.agents.iter().position(|a| a.id == LEAD) {
+            let lead = self.agents.remove(i);
+            self.agents.insert(0, lead);
+        }
+        if let Some(p) = old_prompt {
+            self.agents[0].prompt = p.to_string();
+        }
+        self.system_prompt.clear();
+        let ids: Vec<u32> = self.models.iter().map(|m| m.id).collect();
+        for a in &mut self.agents {
+            if !ids.contains(&a.model) { a.model = 0; }
+            if !ids.contains(&a.fallback) { a.fallback = 0; }
+            a.tools.retain(|t| TOOLS.contains(&t.as_str()));
+        }
+        if !self.agents[0].tools.iter().any(|t| t == "读文件") {
+            self.agents[0].tools.push("读文件".into());
+        }
+    }
+
+    pub fn lead(&self) -> &Agent {
+        &self.agents[0]
+    }
+
+    /// 新增（id 为空或不存在）或修改一个 Agent，返回它的 id
+    pub fn upsert_agent(&mut self, mut a: Agent) -> Result<String, String> {
+        a.name = a.name.trim().chars().take(12).collect();
+        if a.name.is_empty() { a.name = "未命名".into(); }
+        a.role = a.role.trim().chars().take(40).collect();
+        a.prompt = a.prompt.trim().to_string();
+        a.emoji = a.emoji.trim().chars().last().map(String::from).unwrap_or_default();
+        let mut seen = vec![];
+        a.tools.retain(|t| TOOLS.contains(&t.as_str()) && !seen.contains(t) && { seen.push(t.clone()); true });
+        if !self.models.iter().any(|m| m.id == a.model) { a.model = 0; }
+        if !self.models.iter().any(|m| m.id == a.fallback) || a.fallback == a.model && a.model != 0 { a.fallback = 0; }
+        if let Some(old) = self.agents.iter_mut().find(|x| !a.id.is_empty() && x.id == a.id) {
+            if a.id == LEAD && !a.tools.iter().any(|t| t == "读文件") { a.tools.push("读文件".into()); }
+            *old = a.clone();
+            return Ok(a.id);
+        }
+        if self.agents.len() >= MAX_AGENTS {
+            return Err(format!("最多 {MAX_AGENTS} 个 Agent"));
+        }
+        a.id = (1..).map(|i| format!("ag{i}")).find(|id| !self.agents.iter().any(|x| &x.id == id)).unwrap();
+        self.agents.push(a.clone());
+        Ok(a.id)
+    }
+
+    pub fn remove_agent(&mut self, id: &str) -> Result<(), String> {
+        if id == LEAD { return Err("主控不能删".into()); }
+        self.agents.retain(|a| a.id != id);
+        Ok(())
+    }
+
+    /// 这个 Agent 用的模型：它自己选的，没选就用默认
+    pub fn model_for(&self, a: &Agent) -> Option<&Model> {
+        self.models.iter().find(|m| m.id == a.model).or_else(|| self.current())
     }
 
     pub fn save(&self, dir: &Path) -> Result<(), String> {
@@ -154,6 +438,10 @@ impl Config {
     /// 删掉一个模型；删的是默认模型时，默认换成剩下的第一个
     pub fn remove(&mut self, id: u32) {
         self.models.retain(|m| m.id != id);
+        for a in &mut self.agents {
+            if a.model == id { a.model = 0; }
+            if a.fallback == id { a.fallback = 0; }
+        }
         if self.default_model == id {
             self.default_model = self.models.first().map_or(0, |m| m.id);
         }
@@ -195,14 +483,41 @@ mod tests {
     }
 
     #[test]
+    fn hover_normalizes() {
+        let h = Hover { on: true, delay: 9, order: vec![HoverItem { id: "hist".into(), show: true }, HoverItem { id: "zzz".into(), show: true }, HoverItem { id: "hist".into(), show: false }] }.normalized();
+        assert_eq!(h.order.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["hist", "shot", "new", "tasks"]);
+        assert_eq!(h.order.iter().filter(|o| o.show).count(), 1);
+        assert_eq!(h.delay, 100);
+    }
+
+    #[test]
     fn roundtrip_and_defaults() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(Config::load(d.path()), Config::default());
         let mut c = Config::default();
         c.upsert(model("deepseek-chat")).unwrap();
         c.position = Some((10.0, 20.0));
+        c.calm = true;
+        c.idle_ms = 0;
+        c.hover.order.swap(0, 2);
+        c.hover.order[1].show = false;
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
+    }
+
+    #[test]
+    fn sel_normalizes_and_matches_apps() {
+        let s = Sel { on: true, mode: "x".into(), tr: "fr".into(), apps: vec![" 1Password ".into(), "1password".into(), "".into(), "Windows Terminal".into()],
+            order: vec![HoverItem { id: "copy".into(), show: true }, HoverItem { id: "bad".into(), show: true }, HoverItem { id: "copy".into(), show: false }] }.normalized();
+        assert_eq!((s.mode.as_str(), s.tr.as_str()), ("instant", "auto"));
+        assert_eq!(s.apps, vec!["1Password", "Windows Terminal"]);
+        assert_eq!(s.order.len(), 10);
+        assert_eq!((s.order[0].id.as_str(), s.order[0].show, s.order[1].show), ("copy", true, false));
+        assert!(s.excluded("1Password 8", "1Password.exe"));
+        assert!(s.excluded("Terminal", "WindowsTerminal.exe"));
+        assert!(!s.excluded("Microsoft Edge", "msedge.exe"));
+        let d = Sel::default();
+        assert_eq!(d.order.iter().filter(|o| o.show).count(), SEL_MAX);
     }
 
     #[test]
@@ -215,7 +530,7 @@ mod tests {
         .unwrap();
         let c = Config::load(d.path());
         assert_eq!(c.shortcut, "Alt+K");
-        assert_eq!(c.capture_shortcut, "Alt+Shift+S");
+        assert_eq!((c.capture_shortcut.as_str(), c.new_shortcut.as_str(), c.tasks_shortcut.as_str()), ("Alt+S", "Alt+N", "Alt+T"));
         assert_eq!(c.position, Some((3.0, 4.0)));
         let m = c.current().unwrap();
         assert_eq!((m.id, m.model.as_str(), m.base_url.as_str(), m.no_key, m.vision), (1, "x", "http://localhost:11434/v1", true, true));
@@ -246,6 +561,36 @@ mod tests {
         assert!(c.upsert(model("more")).is_err());
         assert_eq!(key_user(1), "api_key");
         assert_eq!(key_user(MAX_MODELS), "api_key_32");
+    }
+
+    #[test]
+    fn agents_lead_migration_and_crud() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(Config::path(d.path()), r#"{"system_prompt":"只用中文","models":[]}"#).unwrap();
+        let mut c = Config::load(d.path());
+        assert_eq!((c.agents.len(), c.lead().id.as_str(), c.lead().prompt.as_str()), (1, LEAD, "只用中文"));
+        c.save(d.path()).unwrap();
+        let raw = std::fs::read_to_string(Config::path(d.path())).unwrap();
+        assert!(!raw.contains("system_prompt"));
+        assert_eq!(Config::load(d.path()), c);
+        // 新建：名字截短、工具去重去掉不认识的、emoji 只留一个字
+        let id = c.upsert_agent(Agent { name: " 审查员审查员审查员审查员审查员 ".into(), emoji: "ab".into(), tools: vec!["读文件".into(), "读文件".into(), "飞".into()], model: 9, ..Agent::default() }).unwrap();
+        let a = c.agents.iter().find(|a| a.id == id).unwrap();
+        assert_eq!((a.name.chars().count(), a.emoji.as_str(), a.tools.len(), a.model), (12, "b", 1, 0));
+        // 主控不能删，也不能去掉读文件
+        assert!(c.remove_agent(LEAD).is_err());
+        c.upsert_agent(Agent { tools: vec![], ..c.lead().clone() }).unwrap();
+        assert_eq!(c.lead().tools, vec!["读文件".to_string()]);
+        // 模型删了，用它的 Agent 改回跟随默认
+        let m = c.upsert(model("x")).unwrap().0;
+        let mut a = c.agents[1].clone();
+        a.model = m;
+        c.upsert_agent(a).unwrap();
+        assert_eq!(c.model_for(&c.agents[1]).unwrap().id, m);
+        c.remove(m);
+        assert_eq!(c.agents[1].model, 0);
+        c.remove_agent(&id).unwrap();
+        assert_eq!(c.agents.len(), 1);
     }
 
     #[test]

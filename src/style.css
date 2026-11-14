@@ -246,3 +246,165 @@ body.collapsed #toast { display: none; }
 #empty .setup-tip { display: none; flex-direction: column; }
 #empty.setup .setup-tip { display: flex; }
 #empty.setup > .hello, #empty.setup > .sub, #empty.setup > .chips { display: none; }
+
+
+/* ───────── 工具药丸与确认卡片：从原型原样抽出（.x-tw / .x-ap 及其里面的元素），不要手改 ───────── */
+.x-tw,.x-ap{--type-small:400 14px/1.3 var(--ff);--type-caption:400 12px/1.3 var(--ff);--type-label:500 14px/1.3 var(--ff);--r-pill:100px;--fill-system-green:#00a665;--weight-medium:500;--dur-quick:160ms;
+  --ff:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC",sans-serif}
+.x-in { width: 100%; box-sizing: border-box; height: 38px; padding: 0px 10px; border: 0px; border-radius: 10px; outline: none; color: rgb(255, 241, 220); caret-color: rgb(255, 241, 220); font: var(--type-label); background: rgba(10, 8, 32, 0.45); box-shadow: rgba(255, 255, 255, 0.18) 0px 0px 0px 1px inset; }
+.x-in::placeholder { color: rgba(255, 241, 220, 0.45); }
+.x-in:focus { box-shadow: rgba(255, 255, 255, 0.4) 0px 0px 0px 1px inset; }
+.x-sb { flex: 0 0 auto; min-height: 38px; padding: 0px 12px; border: 0px; border-radius: 10px; cursor: pointer; color: rgb(255, 255, 255); font: var(--type-label); white-space: nowrap; background: rgba(10, 8, 32, 0.4); box-shadow: rgba(255, 255, 255, 0.26) 0px 0px 0px 1px inset; }
+.x-sb:hover { background: rgba(60, 52, 120, 0.55); }
+.x-sb:active { transform: scale(0.97); }
+.x-pri { background: rgba(255, 255, 255, 0.92); color: rgb(23, 20, 42); box-shadow: none; }
+.x-pri:hover { background: rgb(255, 255, 255); }
+@keyframes x-spin { 
+  100% { transform: rotate(360deg); }
+}
+.x-tw { align-self: flex-start; max-width: 90%; display: flex; flex-direction: column; gap: 6px; }
+.x-tool { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; max-width: 100%; min-height: 30px; padding: 4px 11px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px); color: rgb(255, 255, 255); font: var(--type-caption); cursor: default; text-align: left; }
+.x-tl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.3s; }
+.x-tool::after { content: ""; position: absolute; inset: 0px; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%); transform: translateX(-100%); animation: 1.1s ease-in-out 0s infinite normal none running x-tshim; pointer-events: none; }
+@keyframes x-tshim { 
+  100% { transform: translateX(100%); }
+}
+.x-td { display: inline-flex; gap: 3px; }
+.x-td i { width: 3px; height: 3px; border-radius: 50%; background: currentcolor; animation: 1s ease-in-out 0s infinite normal none running x-tdot; }
+.x-td i:nth-child(2) { animation-delay: 0.15s; }
+.x-td i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes x-tdot { 
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.x-tc { display: none; color: var(--fill-system-green); }
+.x-tres { margin: 0px 0px 0px 12px; padding-left: 10px; border-left: 1px solid rgba(255, 255, 255, 0.2); font-style: ; font-variant-ligatures: ; font-variant-caps: ; font-variant-numeric: ; font-variant-east-asian: ; font-variant-alternates: ; font-variant-position: ; font-variant-emoji: ; font-weight: ; font-stretch: ; font-size: ; line-height: ; font-optical-sizing: ; font-size-adjust: ; font-kerning: ; font-feature-settings: ; font-variation-settings: ; font-language-override: ; font-family: "Geist Mono", ui-monospace, monospace; color: rgba(255, 255, 255, 0.62); white-space: pre-line; }
+.x-tres b { display: block; font-weight: var(--weight-medium); color: rgba(255, 255, 255, 0.8); }
+.x-tp { display: none; color: rgb(255, 226, 184); }
+.x-tw.wait .x-tp, .x-tw.no .x-tp { display: inline; }
+.x-tw.wait .x-tool::after, .x-tw.wait .x-td, .x-tw.no .x-tool::after, .x-tw.no .x-td { display: none; }
+.x-ap { align-self: stretch; margin-top: -4px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 190, 110, 0.08); box-shadow: rgba(255, 210, 150, 0.28) 0px 0px 0px 1px inset; backdrop-filter: blur(8px); }
+.x-ap.hi { background: rgba(255, 90, 80, 0.09); box-shadow: rgba(255, 140, 130, 0.3) 0px 0px 0px 1px inset; }
+.x-ap p { margin: 0px; }
+.x-aph { display: flex; align-items: center; gap: 6px; font: var(--type-caption); color: rgba(255, 255, 255, 0.7); }
+.x-risk { padding: 1px 8px; border-radius: var(--r-pill); background: rgba(255, 190, 110, 0.16); color: rgb(255, 226, 184); }
+.hi .x-risk { background: rgba(255, 80, 70, 0.18); color: rgb(255, 180, 173); }
+.x-apd { font-style: ; font-variant-ligatures: ; font-variant-caps: ; font-variant-numeric: ; font-variant-east-asian: ; font-variant-alternates: ; font-variant-position: ; font-variant-emoji: ; font-stretch: ; font-size: ; line-height: ; font-family: ; font-optical-sizing: ; font-size-adjust: ; font-kerning: ; font-feature-settings: ; font-variation-settings: ; font-language-override: ; font-weight: var(--weight-medium); margin: 6px 0px 10px !important; }
+.x-apb { display: flex; flex-wrap: wrap; gap: 6px; }
+.x-apb .x-sb { min-height: 30px; padding: 0px 12px; font-style: ; font-variant-ligatures: ; font-variant-caps: ; font-variant-numeric: ; font-variant-east-asian: ; font-variant-alternates: ; font-variant-position: ; font-variant-emoji: ; font-stretch: ; font-size: ; line-height: ; font-family: ; font-optical-sizing: ; font-size-adjust: ; font-kerning: ; font-feature-settings: ; font-variation-settings: ; font-language-override: ; font-weight: var(--weight-medium); }
+.x-apb .x-sb:disabled { opacity: 0.4; cursor: default; transform: none; }
+.x-ap [hidden] { display: none !important; }
+.x-apb .x-apx { min-width: 34px; padding: 0px 10px; letter-spacing: 1px; }
+.x-apm { margin-top: 6px; }
+.x-ape { display: flex; gap: 6px; margin: 6px 0px 10px; }
+.x-apr { margin-top: 8px; }
+.x-ape .x-in, .x-apr .x-in { flex: 1 1 0%; min-width: 0px; height: 32px; padding: 0px 10px; font: var(--type-small); }
+.x-ico { display: inline-block; flex: 0 0 auto; width: 14px; height: 14px; vertical-align: -2px; }
+.x-ico--in { margin-right: 5px; }
+.x-tool > span:first-child, .x-rcard > span:first-child { display: inline-flex; flex: 0 0 auto; }
+/* 原型里有、抽取时那条药丸不是这几种状态（完成 ✓ 可展开、被拒绝） */
+.x-tw.done .x-tool{cursor:pointer}
+.x-tw.done .x-tool::after,.x-tw.done .x-td{display:none}
+.x-tw.done .x-tc{display:inline}
+.x-tw.done .x-tl{opacity:.6}
+.x-tw.done .x-tool:hover{background:rgba(255,255,255,.16)}
+.x-tw.no{opacity:.5}.x-tw.no .x-tp{color:rgba(255,255,255,.85)}
+.x-apb .x-sb.on:disabled{opacity:.85}
+.x-apn{margin-top:8px!important;font:var(--type-caption);color:rgba(255,255,255,.66)}
+/* 程序里新加的：出错的药丸、药丸前面是哪个 Agent */
+.x-tw.err .x-tool::after,.x-tw.err .x-td{display:none}
+.x-tw.err .x-tc{display:inline;color:#ffb4ad}
+.x-tw.err .x-tool{cursor:pointer}
+.x-tag{opacity:.7}
+/* 原型源码里这几条用了 font: var(...) 简写，抽出来时被浏览器拆坏了，这里按原型源码再写一遍 */
+.x-tw{align-self:flex-start;max-width:90%;display:flex;flex-direction:column;gap:6px}
+.x-tw + .x-tw{margin-top:-4px}
+.x-tool{position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:6px;align-self:flex-start;max-width:100%;min-height:30px;padding:4px 11px;
+  border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);background:rgba(255,255,255,.1);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;font:var(--type-caption);cursor:default;text-align:left}
+.x-tl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity .3s}
+.x-tool::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.28) 50%,transparent 70%);
+  transform:translateX(-100%);animation:x-tshim 1.1s ease-in-out infinite;pointer-events:none}
+@keyframes x-tshim{to{transform:translateX(100%)}}
+.x-td{display:inline-flex;gap:3px}
+.x-td i{width:3px;height:3px;border-radius:50%;background:currentColor;animation:x-tdot 1s ease-in-out infinite}
+.x-td i:nth-child(2){animation-delay:.15s}.x-td i:nth-child(3){animation-delay:.3s}
+@keyframes x-tdot{0%,100%{opacity:.25}50%{opacity:1}}
+.x-tc{display:none;color:var(--fill-system-green)}
+.x-tw.done .x-tool{cursor:pointer}
+.x-tw.done .x-tool::after,.x-tw.done .x-td{display:none}
+.x-tw.done .x-tc{display:inline}
+.x-tw.done .x-tl{opacity:.6}
+.x-tw.done .x-tool:hover{background:rgba(255,255,255,.16)}
+.x-tres{margin:0 0 0 12px;padding-left:10px;border-left:1px solid rgba(255,255,255,.2);font:var(--type-caption);font-family:"Geist Mono",ui-monospace,monospace;
+  color:rgba(255,255,255,.62);white-space:pre-line}
+.x-tres b{display:block;font-weight:var(--weight-medium);color:rgba(255,255,255,.8)}
+@media (prefers-reduced-motion:reduce){.x-tool::after,.x-td i{animation:none}}
+/* 审批：药丸暂停「⏸ 等你确认」/「✕ 已拒绝」，下方一张小玻璃确认卡 */
+.x-tp{display:none;color:#FFE2B8}
+.x-tw.wait .x-tp,.x-tw.no .x-tp{display:inline}
+.x-tw.wait .x-tool::after,.x-tw.wait .x-td,.x-tw.no .x-tool::after,.x-tw.no .x-td{display:none}
+.x-tw.no{opacity:.5}.x-tw.no .x-tp{color:rgba(255,255,255,.85)}
+.x-ap{align-self:stretch;margin-top:-4px;padding:10px 12px;border-radius:14px;background:rgba(255,190,110,.08);box-shadow:inset 0 0 0 1px rgba(255,210,150,.28);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.x-ap.hi{background:rgba(255,90,80,.09);box-shadow:inset 0 0 0 1px rgba(255,140,130,.3)}
+.x-ap p{margin:0}
+.x-aph{display:flex;align-items:center;gap:6px;font:var(--type-caption);color:rgba(255,255,255,.7)}
+.x-risk{padding:1px 8px;border-radius:var(--r-pill);background:rgba(255,190,110,.16);color:#FFE2B8}
+.hi .x-risk{background:rgba(255,80,70,.18);color:#ffb4ad}
+.x-apd{margin:6px 0 10px!important;font:var(--type-small);font-weight:var(--weight-medium)}
+.x-apb{display:flex;flex-wrap:wrap;gap:6px}
+.x-apb .x-sb{min-height:30px;padding:0 12px;font:var(--type-caption);font-weight:var(--weight-medium)}
+.x-apb .x-sb:disabled{opacity:.4;cursor:default;transform:none}
+.x-apb .x-sb.on:disabled{opacity:.85}
+.x-apn{margin-top:8px!important;font:var(--type-caption);color:rgba(255,255,255,.66)}
+@media (max-width:640px){.x-apb .x-sb{min-height:var(--tap)}}
+/* 审批卡：「…」更多（修改后允许 / 拒绝并说明）、付款提示 */
+.x-ap [hidden]{display:none!important}
+.x-apb .x-apx{min-width:34px;padding:0 10px;letter-spacing:1px}
+.x-apm{margin-top:6px}
+.x-ape{display:flex;gap:6px;margin:6px 0 10px}
+.x-apr{margin-top:8px}
+.x-ape .x-in,.x-apr .x-in{flex:1;min-width:0;height:32px;padding:0 10px;font:var(--type-small)}
+.x-apn.x-aph2{color:rgba(255,255,255,.55)}
+
+/* ───────── 外观设置（原型 lkSys / lkDock / lkCalm） ───────── */
+/* 跟随系统深浅色：系统为深色时卡片玻璃更深 */
+html.dark #card { background: linear-gradient(180deg, rgba(14, 12, 32, 0.97), rgba(8, 6, 26, 0.97)); }
+html.dark #card::before { background: linear-gradient(180deg, rgba(14, 12, 32, calc(var(--tint, 0.75) + 0.12)), rgba(8, 6, 26, calc(var(--tint, 0.75) + 0.16))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
+/* 减少动态效果：关掉漂浮、呼吸 */
+html.calm .float, html.calm .breath { animation: none !important; }
+/* 贴边：外侧压平（失去 10% 宽度），平边贴住屏幕边，平边上一道暖色亮线；指针移上去时滑出来、恢复圆形 */
+#orb .float { transition: clip-path 0.45s ease; clip-path: inset(-20% -20% -20% -20% round 0); }
+#orb.docked[data-edge=r]:not(.peel) .float { clip-path: inset(-20% 10% -20% -20% round 0); }
+#orb.docked[data-edge=l]:not(.peel) .float { clip-path: inset(-20% -20% -20% 10% round 0); }
+#orb::after { content: ""; position: absolute; top: 24%; height: 52%; width: 2px; border-radius: 1px; pointer-events: none; opacity: 0; transition: opacity 0.45s ease;
+  background: linear-gradient(rgba(255, 252, 244, 0), #fffcf4 8%, #fffcf4 92%, rgba(255, 252, 244, 0)); }
+#orb.docked[data-edge=r]:not(.peel)::after { opacity: 1; right: 10%; box-shadow: 0 0 3px rgba(255, 236, 210, 0.95), -3px 0 9px rgba(255, 212, 150, 0.8); }
+#orb.docked[data-edge=l]:not(.peel)::after { opacity: 1; left: 10%; box-shadow: 0 0 3px rgba(255, 236, 210, 0.95), 3px 0 9px rgba(255, 212, 150, 0.8); }
+
+/* ───────── 悬停快捷入口（原型 .x-hvq / .x-hvb / .x-hvtip 原样，变量换成数值） ───────── */
+.x-hvq { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+.x-hvb { position: absolute; left: 0; top: 0; width: 34px; height: 34px; margin: -17px 0 0 -17px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; cursor: pointer;
+  background: radial-gradient(circle at 34% 26%, rgba(255,255,255,.42), rgba(255,255,255,.1) 46%, rgba(255,255,255,.03) 70%), rgba(14,12,40,.34);
+  backdrop-filter: blur(14px) saturate(170%); -webkit-backdrop-filter: blur(14px) saturate(170%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.34), inset 0 1px 1px rgba(255,255,255,.55), inset 0 -3px 6px rgba(0,0,0,.18), 0 4px 12px rgba(0,0,0,.28);
+  visibility: hidden; pointer-events: none; opacity: 0; transform: translate(0,0) scale(.3);
+  transition: transform .2s cubic-bezier(.5,0,.75,0), opacity .16s ease-in, visibility 0s linear .2s, background .15s ease-out; }
+.x-hvb::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; }
+.x-hvb svg { position: relative; width: 17px; height: 17px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.3)); }
+.x-hvq.on .x-hvb { visibility: visible; pointer-events: auto; opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1);
+  transition: transform .42s cubic-bezier(.3,1.5,.6,1) var(--dl), opacity .14s ease-out var(--dl), visibility 0s linear 0s, background .15s ease-out; }
+.x-hvq.on .x-hvb:hover, .x-hvq.on .x-hvb:focus-visible { background: radial-gradient(circle at 34% 26%, rgba(255,255,255,.55), rgba(255,255,255,.16) 46%, rgba(255,255,255,.05) 70%), rgba(40,34,90,.45); transform: translate(var(--dx), var(--dy)) scale(1.08); transition-delay: 0s; }
+.x-hvb:focus-visible { outline: 2px solid rgba(255,241,220,.8); outline-offset: 2px; }
+.x-hvtip { position: absolute; left: 0; top: 0; z-index: 7; margin: 0; padding: 4px 9px; border-radius: 99px; font-size: 12px; line-height: 16px; color: #fff; white-space: nowrap; pointer-events: none;
+  background: rgba(23, 20, 42, .86); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+  visibility: hidden; opacity: 0; transition: opacity .12s ease-out, visibility 0s linear .12s; }
+.x-hvtip.on { visibility: visible; opacity: 1; transition: opacity .12s ease-out; }
+@media (prefers-reduced-motion: reduce) { .x-hvb, .x-hvq.on .x-hvb { transition: opacity .12s linear, visibility 0s linear; } }
+html.calm .x-hvb, html.calm .x-hvq.on .x-hvb { transition: opacity .12s linear, visibility 0s linear; }
+
+/* 划词发来的消息：引用块 + 动作名（原型 .x-sel-q / .x-sel-qa） */
+.x-sel-q{display:block;margin:0 0 6px;padding:2px 0 2px 8px;border-left:2px solid rgba(255,241,220,.6);color:rgba(255,255,255,.78);white-space:pre-line;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.x-sel-qa{display:block}

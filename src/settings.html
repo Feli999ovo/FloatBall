@@ -3,117 +3,182 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>悬浮球设置</title>
+<title>悬浮球 设置</title>
 <link rel="stylesheet" href="settings.css" />
 </head>
 <body>
-<header id="top" data-tauri-drag-region>
-  <span data-tauri-drag-region>悬浮球设置</span>
-  <button type="button" id="closeBtn" aria-label="关闭（Esc）" title="关闭（Esc）">×</button>
-</header>
-<nav id="nav" role="tablist" aria-label="设置分类" aria-orientation="vertical">
-  <button role="tab" id="tabModels" aria-controls="pModels" aria-selected="true">模型</button>
-  <button role="tab" id="tabLook" aria-controls="pLook" aria-selected="false" tabindex="-1">外观</button>
-  <button role="tab" id="tabKeys" aria-controls="pKeys" aria-selected="false" tabindex="-1">快捷键</button>
-  <button role="tab" id="tabGeneral" aria-controls="pGeneral" aria-selected="false" tabindex="-1">通用</button>
-</nav>
+<!-- 结构照搬原型的设置窗口（.x-win.x-setw）。原型里它浮在页面上，这里是一个独立的系统窗口，所以铺满整个窗口 -->
+<div class="x-win x-glassy x-setw" role="dialog" aria-labelledby="setTitle">
+  <div class="x-wh" data-tauri-drag-region><h2 id="setTitle" data-tauri-drag-region>设置</h2><button class="x-x" id="setClose" aria-label="关闭">×</button></div>
+  <div class="x-wb">
+    <nav class="x-tabs" aria-label="设置分类">
+      <button class="on" data-tab="model">模型</button><button data-tab="agents">Agents</button><button data-tab="perm">权限</button><button data-tab="look">外观</button><button data-tab="keys">快捷键</button><button data-tab="sel">划词</button><button data-tab="voice">语音</button>
+    </nav>
 
-<main>
-  <!-- 模型库 -->
-  <section id="pModels" role="tabpanel" aria-labelledby="tabModels">
-    <div id="libView">
-      <header><h1>模型库</h1><button class="pri" id="addBtn">添加模型</button></header>
-      <ul id="modelList"></ul>
-      <p class="empty" id="modelEmpty" hidden>还没有模型。添加一个 OpenAI 兼容的接口，就能开始提问。</p>
-      <p class="hint">API Key 保存在系统钥匙串里，不写进任何文件。问题只会发给你在这里填的接口。</p>
+    <!-- 模型库 -->
+    <div class="x-pane" id="paneLib">
+      <div class="x-lh"><p>模型库</p><button class="x-sb" id="libAdd">+ 添加模型</button></div>
+      <ul class="x-lib" id="libList" aria-label="模型库"></ul>
+      <p class="x-soon" id="libEmpty" hidden>还没有模型</p>
+      <p class="x-note x-src" id="libSrc"></p>
     </div>
 
-    <form id="formView" hidden autocomplete="off">
-      <header><h1 id="formTitle">添加模型</h1></header>
-      <div class="presets" id="presets" aria-label="常用接口">
-        <button type="button" data-b="https://api.openai.com/v1" data-m="gpt-4o-mini">OpenAI</button>
-        <button type="button" data-b="https://api.deepseek.com/v1" data-m="deepseek-chat" data-v="0">DeepSeek</button>
-        <button type="button" data-b="https://dashscope.aliyuncs.com/compatible-mode/v1" data-m="qwen-plus">通义千问</button>
-        <button type="button" data-b="https://api.moonshot.cn/v1" data-m="moonshot-v1-8k" data-v="0">Kimi</button>
-        <button type="button" data-b="https://openrouter.ai/api/v1" data-m="openai/gpt-4o-mini">OpenRouter</button>
-        <button type="button" data-b="http://localhost:11434/v1" data-m="qwen2.5:7b" data-k="1" data-v="0">Ollama 本地</button>
-      </div>
-      <label>接口地址<input id="fBase" placeholder="https://api.openai.com/v1" spellcheck="false" /></label>
-      <label>API Key<input id="fKey" type="password" placeholder="sk-…" spellcheck="false" autocomplete="off" /></label>
-      <label class="ck"><input type="checkbox" id="fNoKey" />不需要 Key（本地模型）</label>
-      <label>模型名
-        <span class="row">
-          <input id="fModel" list="modelOptions" placeholder="gpt-4o-mini" spellcheck="false" />
-          <button type="button" id="fetchBtn">获取模型列表</button>
-        </span>
+    <!-- 添加 / 编辑模型 -->
+    <div class="x-pane" id="paneModel" hidden>
+      <div class="x-fh"><button class="x-sb" id="fBack">‹ 模型库</button><p id="fTitle">添加模型</p></div>
+      <label class="x-field"><span>服务商</span>
+        <select class="x-in" id="fProv">
+          <option>OpenAI</option><option>DeepSeek</option><option>通义千问</option><option>Kimi</option><option>OpenRouter</option><option>Ollama（本地）</option><option>自定义</option>
+        </select>
       </label>
-      <datalist id="modelOptions"></datalist>
-      <label>显示名称（可不填）<input id="fName" placeholder="不填就显示模型名" /></label>
-      <label class="ck"><input type="checkbox" id="fVision" />模型支持图片（截屏提问会把截图发给它）</label>
-      <p class="msg" id="formMsg" role="status"></p>
-      <footer>
-        <button type="button" id="testBtn">测试连接</button>
-        <span class="grow"></span>
-        <button type="button" id="cancelBtn">取消</button>
-        <button type="submit" class="pri" id="saveModelBtn">保存</button>
-      </footer>
-    </form>
-  </section>
-
-  <!-- 外观 -->
-  <section id="pLook" role="tabpanel" aria-labelledby="tabLook" hidden>
-    <header><h1>外观</h1></header>
-    <div class="field">
-      <span id="lblSize">小球大小</span>
-      <div class="seg" id="fSize" role="radiogroup" aria-labelledby="lblSize">
-        <button type="button" role="radio" data-v="60">小</button>
-        <button type="button" role="radio" data-v="72">标准</button>
-        <button type="button" role="radio" data-v="84">大</button>
+      <label class="x-field"><span>接口地址</span><input class="x-in" id="fBase" spellcheck="false" placeholder="https://…/v1" /></label>
+      <div class="x-field"><span>API Key</span>
+        <input class="x-in" id="fKey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…" aria-label="API Key" style="padding-right:44px" />
+        <button class="x-x" id="fEye" aria-label="显示 Key" aria-pressed="false" style="position:absolute;right:5px;bottom:5px;background:none">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path id="fEyeSlash" d="M4 4l16 16"/></svg>
+        </button>
+      </div>
+      <p class="x-note" id="fHint" hidden>本地模型可不填 Key</p>
+      <div class="x-field"><span>模型名</span>
+        <div class="x-row"><input class="x-in" id="fModel" spellcheck="false" placeholder="如 gpt-4o-mini" aria-label="模型名" /><button class="x-sb" id="fFetch">获取列表</button></div>
+        <div class="x-mlist x-glassy" id="fList" hidden></div>
+      </div>
+      <p class="x-note" style="margin:0">Key 只保存在本机系统钥匙串，不会上传。</p>
+      <div class="x-field" id="fCaps" style="margin:12px 0 0" hidden><span>检测到的能力</span><div class="x-caps" id="fCapList"></div><p class="x-note x-capsrc" id="fCapSrc"></p></div>
+      <div class="x-wf">
+        <button class="x-sb" id="fTest">测试连接</button><span class="x-res" id="fRes" aria-live="polite"></span>
+        <button class="x-sb x-pri" id="fSave">保存</button>
       </div>
     </div>
-    <div class="field">
-      <label for="fGlass">卡片透明度</label>
-      <input type="range" id="fGlass" min="0" max="60" step="5" />
-      <output id="glassOut" for="fGlass"></output>
-    </div>
-    <p class="hint" id="glassHint">越大越透，能看到卡片后面模糊的桌面。</p>
-    <div class="field">
-      <span id="lblEye">眼睛颜色</span>
-      <div class="dots" id="fEye" role="radiogroup" aria-labelledby="lblEye">
-        <button type="button" role="radio" data-v="#FFF1DC" aria-label="暖白"></button>
-        <button type="button" role="radio" data-v="#FFFFFF" aria-label="白"></button>
-        <button type="button" role="radio" data-v="#CFE3FF" aria-label="冷白"></button>
-        <button type="button" role="radio" data-v="#D9CCFF" aria-label="淡紫"></button>
-        <button type="button" role="radio" data-v="#C8F2DC" aria-label="淡绿"></button>
+
+    <!-- Agents：卡片列表 + 预算（原型的 paneAgents），编辑器（原型的 paneAgEd） -->
+    <div class="x-pane" id="paneAgents" hidden>
+      <div class="x-lh"><p>Agents</p><button class="x-sb" id="agAdd" aria-expanded="false" aria-controls="agTpl">+ 新建 Agent</button></div>
+      <div class="x-agtpl" id="agTpl" hidden></div>
+      <ul class="x-agcs" id="agList" aria-label="Agents"></ul>
+      <div class="x-bud">
+        <p class="x-bh">预算</p>
+        <label class="x-field" style="margin:0"><span>单个任务上限</span>
+          <select class="x-in" id="bTok"><option value="20000">2万 tokens</option><option value="50000">5万 tokens</option><option value="100000">10万 tokens</option><option value="0">不限</option></select></label>
+        <div class="x-g2">
+          <label class="x-field"><span>最多步数</span><select class="x-in" id="bStep"><option>20</option><option>50</option><option>100</option></select></label>
+          <label class="x-field"><span>最多同时子 Agent</span><select class="x-in" id="bPar"><option>1</option><option>3</option><option>5</option></select></label>
+        </div>
       </div>
     </div>
-    <p class="msg" id="lookMsg" role="status"></p>
-  </section>
-
-  <!-- 快捷键 -->
-  <section id="pKeys" role="tabpanel" aria-labelledby="tabKeys" hidden>
-    <header><h1>快捷键</h1></header>
-    <div class="field">
-      <span id="lblKeyMain">呼出或收起小球</span>
-      <button type="button" class="keycap" id="fKeyMain" aria-labelledby="lblKeyMain fKeyMain"></button>
+    <div class="x-pane x-ae" id="paneAgEd" hidden></div>
+    <!-- 权限（原型的 panePerm）：三档说明、已总是允许（可撤销）、离开电脑时暂停敏感操作 -->
+    <div class="x-pane" id="panePerm" hidden>
+      <ul class="x-pt" aria-label="权限分级">
+        <li><b>只读</b><span>搜索、读文件</span><em>自动允许</em></li>
+        <li><b>写入与联网</b><span>改文件、打开网页</span><em>首次询问</em></li>
+        <li><b>发送、删除</b><span>每次询问<small>可设总是允许</small></span><em>每次询问</em></li>
+      </ul>
+      <div class="x-bud">
+        <p class="x-bh">已总是允许</p>
+        <ul class="x-al" id="alList" aria-label="已总是允许"></ul>
+        <p class="x-pe" id="alEmpty">还没有总是允许的操作</p>
+      </div>
+      <div class="x-bud" style="margin-top:12px">
+        <div class="x-ar" style="margin:0"><span id="awayL">离开电脑时暂停敏感操作<small>回来后再继续等待确认；关掉后 5 分钟没确认就跳过</small></span><button type="button" class="x-sw" id="awaySw" role="switch" aria-checked="true" aria-labelledby="awayL"></button></div>
+      </div>
     </div>
-    <div class="field">
-      <span id="lblKeyCap">截屏提问</span>
-      <button type="button" class="keycap" id="fKeyCap" aria-labelledby="lblKeyCap fKeyCap"></button>
+    <!-- 外观：先放原来就能用的三项，结构和样式照原型；其余几项（睡眠、深浅色、贴边、悬停入口、多显示器）下一步照原型做 -->
+    <!-- 外观（原型的 paneLook）。球的大小按程序里小球的尺寸；玻璃通透度只有 Windows 有（卡片后面垫的是桌面截图） -->
+    <div class="x-pane" id="paneLook" hidden>
+      <div class="x-field"><span id="lkSizeL">球的大小</span>
+        <div class="x-seg x-lkseg" id="lkSize" role="radiogroup" aria-labelledby="lkSizeL">
+          <button type="button" role="radio" aria-checked="false" data-v="60">小</button><button type="button" role="radio" aria-checked="false" data-v="72">中</button><button type="button" role="radio" aria-checked="false" data-v="84">大</button>
+        </div>
+      </div>
+      <div class="x-field" id="lkGlassF"><label for="lkGlass">玻璃通透度 <output class="x-lkv" id="lkGlassV" for="lkGlass"></output></label>
+        <input class="x-range" id="lkGlass" type="range" min="0" max="60" step="5" />
+      </div>
+      <div class="x-field"><span id="lkEyeL">眼睛颜色</span>
+        <div class="x-dots" id="lkEye" role="radiogroup" aria-labelledby="lkEyeL"></div>
+      </div>
+      <label class="x-field"><span>空闲多久后睡觉</span>
+        <select class="x-in" id="lkIdle"><option value="60000">1 分钟</option><option value="300000">5 分钟</option><option value="600000">10 分钟</option><option value="900000">15 分钟</option><option value="0">从不</option></select>
+      </label>
+      <div class="x-bud">
+        <div class="x-ar" style="margin:0"><span id="lkSysL">跟随系统深浅色<small>系统为深色时，卡片玻璃更深</small></span><button type="button" class="x-sw" id="lkSys" role="switch" aria-checked="false" aria-labelledby="lkSysL"></button></div>
+        <div class="x-ar"><span id="lkDockL">贴边时自动收起<small>拖到屏幕边缘时贴住并压平</small></span><button type="button" class="x-sw" id="lkDock" role="switch" aria-checked="true" aria-labelledby="lkDockL"></button></div>
+        <div class="x-ar"><span id="lkCalmL">减少动态效果<small>关掉漂浮和呼吸</small></span><button type="button" class="x-sw" id="lkCalm" role="switch" aria-checked="false" aria-labelledby="lkCalmL"></button></div>
+      </div>
+      <!-- 悬停快捷入口（原型的 hvSet）。程序里有的入口：截屏提问、新对话、历史记录、任务列表 -->
+      <div class="x-hvset" id="hvSet">
+        <h3>悬停快捷入口</h3>
+        <div class="x-ar" style="margin:0 0 12px"><span id="hvOnL">启用<small>指针停在球上时，旁边弹出几个快捷小泡</small></span><button type="button" class="x-sw" id="hvOn" role="switch" aria-checked="true" aria-labelledby="hvOnL"></button></div>
+        <div class="x-field"><span id="hvSpdL">出现速度</span>
+          <div class="x-seg x-lkseg" id="hvSpd" role="radiogroup" aria-labelledby="hvSpdL">
+            <button type="button" role="radio" aria-checked="false" data-v="200">快</button><button type="button" role="radio" aria-checked="true" data-v="350">中</button><button type="button" role="radio" aria-checked="false" data-v="600">慢</button>
+          </div>
+        </div>
+        <div class="x-field"><span id="hvListL">入口</span>
+          <ul class="x-hvlist" id="hvList" aria-labelledby="hvListL"></ul>
+          <p class="x-note" id="hvMax" style="margin:6px 0 0">最多 4 个，按列表顺序排开</p>
+        </div>
+      </div>
+<div class="x-mds" id="mdsSet">
+                  <h3>多显示器</h3>
+                  <div class="x-field"><span id="mdsWhereL">小球出现在</span>
+                    <div class="x-seg x-lkseg" id="mdsWhere" role="radiogroup" aria-labelledby="mdsWhereL">
+                      <button type="button" role="radio" aria-checked="true" data-v="mouse">鼠标所在的屏幕</button><button type="button" role="radio" aria-checked="false" data-v="main" tabindex="-1">固定在主屏幕</button><button type="button" role="radio" aria-checked="false" data-v="last" tabindex="-1">上次所在的屏幕</button>
+                    </div>
+                  </div>
+                  <div class="x-ar"><span id="mdsSlideL">换屏时<small>跟着鼠标跳到另一块屏幕时，滑过去而不是闪现</small></span><button type="button" class="x-sw" id="mdsSlide" role="switch" aria-checked="true" aria-labelledby="mdsSlideL"></button></div>
+                  <figure class="x-mdsfig" id="mdsFig">
+                    <svg viewBox="0 0 320 132" role="img" aria-labelledby="mdsCap">
+                      <g fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.4)" stroke-width="1.2">
+                        <rect x="6" y="8" width="176" height="104" rx="10"/>
+                        <rect x="198" y="30" width="116" height="74" rx="8"/>
+                      </g>
+                      <g fill="rgba(255,255,255,.18)"><rect x="7" y="9" width="174" height="9" rx="4"/><rect x="84" y="112" width="20" height="8"/><rect x="70" y="120" width="48" height="3" rx="1.5"/><rect x="249" y="104" width="14" height="10"/><rect x="238" y="114" width="36" height="3" rx="1.5"/></g>
+                      <g fill="rgba(255,255,255,.72)" font-size="12" font-family="inherit"><text x="16" y="104">主屏</text><text x="206" y="97">副屏</text></g>
+                      <path class="x-mdscur" id="mdsCur" d="M246 56 l0 13 l3.4 -3.2 l2.6 5.6 l2 -.9 l-2.6 -5.5 l4.6 -.2 z" fill="#fff" stroke="rgba(14,12,40,.9)" stroke-width="1" stroke-linejoin="round"/>
+                      <g class="x-mdsorb" id="mdsOrb" style="transform:translate(270px,60px)">
+                        <circle r="9" fill="rgba(255,255,255,.28)" stroke="rgba(255,255,255,.9)" stroke-width="1"/>
+                        <rect x="-3.6" y="-3" width="2.2" height="5" rx="1.1" fill="#FFF1DC"/><rect x="1.4" y="-3" width="2.2" height="5" rx="1.1" fill="#FFF1DC"/>
+                      </g>
+                    </svg>
+                    <figcaption id="mdsCap" aria-live="polite">鼠标在副屏，小球跟到副屏</figcaption>
+                  </figure>
+                  <p class="x-note" style="margin:0">只有一块屏幕时这项不起作用。</p>
+                </div>
+      <p class="x-note" style="margin-top:14px">开机启动在托盘菜单和右键菜单里。</p>
     </div>
-    <p class="hint">点一下再按新的组合键，至少带一个 Ctrl、Alt 或 Shift。按 Esc 取消。</p>
-    <p class="msg" id="keysMsg" role="status"></p>
-  </section>
-
-  <!-- 通用 -->
-  <section id="pGeneral" role="tabpanel" aria-labelledby="tabGeneral" hidden>
-    <header><h1>通用</h1></header>
-    <label class="ck"><input type="checkbox" id="fAuto" />开机启动</label>
-    <label>系统提示词<textarea id="fSys" rows="5"></textarea></label>
-    <p class="hint">每次提问都会带上这段话，用来告诉模型怎么回答。</p>
-    <p class="msg" id="generalMsg" role="status"></p>
-  </section>
-</main>
+    <!-- 快捷键：列表和「录制」照原型；现在程序里只有这两项。恢复默认、其余几项下一步照原型做 -->
+    <div class="x-pane" id="paneKeys" hidden>
+      <ul class="x-keys" id="keyList" aria-label="快捷键"></ul>
+      <div class="x-wf"><p class="x-note" style="margin:0">至少带一个修饰键，录制时按 Esc 取消</p><button type="button" class="x-sb" id="keyReset" style="margin-left:auto">恢复默认</button></div>
+    </div>
+    <div class="x-pane" id="paneSel" hidden>
+      <p class="x-note" id="selNo" hidden style="margin:0 0 14px">这个系统上还不支持划词，目前只有 Windows 和 macOS 能用。</p>
+      <div class="x-ar" style="margin:0 0 14px"><span id="selOnL">启用划词工具栏<small>在其他应用里选中文字时，旁边出现快捷操作</small></span><button type="button" class="x-sw" id="selOn" role="switch" aria-checked="true" aria-labelledby="selOnL"></button></div>
+      <div class="x-field"><span id="selModeL">出现方式</span>
+        <div class="x-seg x-lkseg" id="selMode" role="radiogroup" aria-labelledby="selModeL">
+          <button type="button" role="radio" aria-checked="true" data-v="instant">选中后立即出现</button><button type="button" role="radio" aria-checked="false" data-v="alt" id="selModeAlt">按住 ⌥ 再选中</button>
+        </div>
+      </div>
+      <div class="x-field"><span id="selOrdL">工具栏按钮</span>
+        <div class="x-selordh" aria-hidden="true"><i></i><b>按钮</b><em>显示</em><i class="x-selordh-m"></i></div>
+        <ul class="x-selord" id="selOrd" aria-labelledby="selOrdL"></ul>
+        <p class="x-note" style="margin:6px 0 0">最多 6 个，其余放进「⋯」</p>
+      </div>
+      <label class="x-field"><span>翻译成</span>
+        <select class="x-in" id="selTr"><option value="auto" selected>自动（中↔英）</option><option value="en">英文</option><option value="zh">中文</option><option value="ja">日文</option></select>
+      </label>
+      <div class="x-field"><span id="selAppsL">不在这些应用里出现</span>
+        <div class="x-selapps" id="selApps" role="list" aria-labelledby="selAppsL"></div>
+      </div>
+      <p class="x-note" id="selMacNote" style="margin:0">macOS 需要在 系统设置 → 隐私与安全性 → 辅助功能 里允许本应用读取选中文字。<button type="button" class="x-sb" id="selPriv" hidden>去开启</button></p>
+      <p class="x-note" id="selWinNote" hidden style="margin:0">选中文字靠模拟一次 Ctrl+C 读取，读完会把剪贴板原来的内容放回去。终端和资源管理器里不出现。</p>
+    </div>
+    <div class="x-pane" id="paneVoice" hidden><p class="x-soon">语音页下一步照原型做</p></div>
+  </div>
+</div>
+<div class="x-toast x-glassy" id="toast" role="status"></div>
+<script src="assets/logos/index.js"></script>
 <script src="settings.js"></script>
 </body>
 </html>

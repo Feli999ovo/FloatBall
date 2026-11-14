@@ -2,11 +2,15 @@
 //! 前端（src/）负责小球、胶囊输入框和对话卡片的样子；这里负责系统能力：
 //! 托盘、右键菜单、全局快捷键、开机启动、模型调用、钥匙串、历史记录、截屏。
 
+mod agent;
 mod capture;
+mod catalog;
 mod config;
 mod llm;
+mod selection;
 mod store;
 
+use catalog::Catalog;
 use config::{Config, Model};
 use llm::ChatEvent;
 use serde::{Deserialize, Serialize};
@@ -14,7 +18,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::async_runtime::JoinHandle;
 use tauri::ipc::Channel;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -26,9 +30,31 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 pub struct AppState {
     cfg: Mutex<Config>,
     cfg_dir: PathBuf,
+    /// models.dev 的模型资料（查能力用）；联网时每天更新一次，存在 data_dir
+    catalog: Mutex<Catalog>,
+    catalog_busy: Mutex<bool>,
+    data_dir: PathBuf,
     store: Mutex<Option<store::Store>>,
     chats: Mutex<HashMap<String, JoinHandle<()>>>,
-    shortcuts: Mutex<(Option<Shortcut>, Option<Shortcut>)>,
+    asks: Arc<agent::Asks>,
+    /// 已注册的全局快捷键和它触发的动作（发给小球窗口的 menu 事件名）
+    shortcuts: Mutex<Vec<(Shortcut, &'static str)>>,
+    /// 最近出现过划词的应用（设置页「添加应用」时给候选）
+    sel_recent: Mutex<Vec<String>>,
+}
+
+impl AppState {
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+    pub(crate) fn note_app(&self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let mut r = self.sel_recent.lock().unwrap();
+        r.retain(|a| a != name);
+        r.insert(0, name.to_string());
+        r.truncate(8);
+    }
 }
 
 fn main_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
@@ -76,6 +102,7 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
     v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
     v["platform"] = json!(std::env::consts::OS);
+    v["catalog_date"] = json!(state.catalog.lock().unwrap().fetched.clone());
     v
 }
 
@@ -121,31 +148,158 @@ fn set_default_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Res
     commit(&app, &state, next)
 }
 
+/// 查模型能力（models.dev 资料）
+#[tauri::command]
+fn model_caps(state: State<'_, AppState>, provider: String, base_url: String, model: String) -> catalog::Caps {
+    state.catalog.lock().unwrap().lookup(&provider, &base_url, &model)
+}
+
+
+/// 联网时更新模型资料：每天最多一次，失败就继续用旧的
+fn refresh_catalog(app: &AppHandle, force: bool) {
+    let st = app.state::<AppState>();
+    if !force && !Catalog::stale(&st.data_dir) {
+        return;
+    }
+    {
+        let mut busy = st.catalog_busy.lock().unwrap();
+        if *busy {
+            return;
+        }
+        *busy = true;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let today = today();
+        let res = Catalog::fetch(&today).await;
+        let st = app.state::<AppState>();
+        match res {
+            Ok(c) => {
+                if let Err(e) = c.save(&st.data_dir) {
+                    log::warn!("模型资料保存失败：{e}");
+                }
+                *st.catalog.lock().unwrap() = c;
+                let _ = app.emit("catalog-updated", today);
+            }
+            Err(e) => log::info!("模型资料没更新（继续用旧的）：{e}"),
+        }
+        *st.catalog_busy.lock().unwrap() = false;
+    });
+}
+
+#[tauri::command]
+fn catalog_refresh(app: AppHandle) {
+    refresh_catalog(&app, false);
+}
+
+
+/// 今天的日期（UTC，YYYY-MM-DD），只用来标记资料版本
+fn today() -> String {
+    let days = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() / 86400).unwrap_or(0) as i64;
+    // 公历换算（Howard Hinnant 算法）
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    format!("{:04}-{:02}-{:02}", if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 #[derive(Deserialize)]
 struct Prefs {
-    system_prompt: String,
     shortcut: String,
     capture_shortcut: String,
+    #[serde(default)]
+    new_shortcut: Option<String>,
+    #[serde(default)]
+    tasks_shortcut: Option<String>,
     orb_size: u32,
     glass: u8,
     eye: String,
+    #[serde(default)]
+    idle_ms: Option<u64>,
+    #[serde(default)]
+    follow_system: Option<bool>,
+    #[serde(default)]
+    auto_dock: Option<bool>,
+    #[serde(default)]
+    calm: Option<bool>,
+    #[serde(default)]
+    hover: Option<config::Hover>,
+    #[serde(default)]
+    screen: Option<String>,
+    #[serde(default)]
+    screen_slide: Option<bool>,
+    #[serde(default)]
+    sel: Option<config::Sel>,
+}
+
+/// 多显示器：鼠标位置和所有屏幕（都是物理像素），给小球判断该待在哪块屏幕
+#[derive(Serialize)]
+struct Screen { x: i32, y: i32, w: u32, h: u32, scale: f64, primary: bool }
+#[derive(Serialize)]
+struct Screens { cursor: Option<(f64, f64)>, list: Vec<Screen> }
+#[tauri::command]
+fn screens(app: AppHandle) -> Screens {
+    let prim = app.primary_monitor().ok().flatten().map(|m| *m.position());
+    let list = app.available_monitors().unwrap_or_default().iter().map(|m| {
+        let (p, z) = (m.position(), m.size());
+        Screen { x: p.x, y: p.y, w: z.width, h: z.height, scale: m.scale_factor(), primary: prim == Some(*p) }
+    }).collect();
+    Screens { cursor: app.cursor_position().ok().map(|c| (c.x, c.y)), list }
 }
 
 /// 模型以外的设置。返回 Some(提示)：已经保存，但有快捷键被别的程序占用了
 #[tauri::command]
 fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Result<Option<String>, String> {
     let mut next = state.cfg.lock().unwrap().clone();
-    next.system_prompt = prefs.system_prompt;
     next.shortcut = prefs.shortcut.trim().to_string();
     next.capture_shortcut = prefs.capture_shortcut.trim().to_string();
+    if let Some(v) = prefs.new_shortcut { next.new_shortcut = v.trim().to_string(); }
+    if let Some(v) = prefs.tasks_shortcut { next.tasks_shortcut = v.trim().to_string(); }
     next.orb_size = prefs.orb_size.clamp(56, 88);
     next.glass = prefs.glass.min(60);
     if prefs.eye.len() == 7 && prefs.eye.starts_with('#') && prefs.eye[1..].chars().all(|c| c.is_ascii_hexdigit()) {
         next.eye = prefs.eye;
     }
+    if let Some(v) = prefs.idle_ms { next.idle_ms = v.min(24 * 3600 * 1000); }
+    if let Some(v) = prefs.follow_system { next.follow_system = v; }
+    if let Some(v) = prefs.auto_dock { next.auto_dock = v; }
+    if let Some(v) = prefs.calm { next.calm = v; }
+    if let Some(v) = prefs.hover { next.hover = v.normalized(); }
+    if let Some(v) = prefs.sel { next.sel = v.normalized(); }
+    if let Some(v) = prefs.screen { if matches!(v.as_str(), "mouse" | "main" | "last") { next.screen = v; } }
+    if let Some(v) = prefs.screen_slide { next.screen_slide = v; }
     let busy = register_shortcuts(&app, &state, &next)?;
     commit(&app, &state, next)?;
     Ok(busy)
+}
+
+/// 新建或修改一个 Agent，返回它的 id
+#[tauri::command]
+fn save_agent(app: AppHandle, state: State<'_, AppState>, agent: config::Agent) -> Result<String, String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    let id = next.upsert_agent(agent)?;
+    commit(&app, &state, next)?;
+    Ok(id)
+}
+
+#[tauri::command]
+fn delete_agent(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.remove_agent(&id)?;
+    commit(&app, &state, next)
+}
+
+#[tauri::command]
+fn save_limits(app: AppHandle, state: State<'_, AppState>, limits: config::Limits) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.limits = config::Limits { tokens: limits.tokens, steps: limits.steps.clamp(1, 500), parallel: limits.parallel.clamp(1, 10) };
+    commit(&app, &state, next)
 }
 
 #[tauri::command]
@@ -194,13 +348,13 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
         }
         // 去掉系统标题栏（界面里自己画），窗口透明，后面铺系统自带的毛玻璃：Windows 用亚克力，macOS 用系统材质。
         // Linux 没有这个效果，保留系统标题栏和不透明的底。
-        use tauri::utils::config::WindowEffectsConfig;
-        use tauri::window::Effect;
         let b = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
             .title("悬浮球设置")
-            .inner_size(760.0, 560.0)
-            .min_inner_size(640.0, 440.0)
+            .inner_size(480.0, 600.0)
+            .min_inner_size(440.0, 480.0)
             .center();
+        #[cfg(any(windows, target_os = "macos"))]
+        use tauri::{utils::config::WindowEffectsConfig, window::Effect};
         #[cfg(any(windows, target_os = "macos"))]
         let b = b.decorations(false).transparent(true).shadow(true).effects(WindowEffectsConfig {
             effects: vec![Effect::Acrylic, Effect::HudWindow],
@@ -214,6 +368,102 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
+// ───────── 划词工具栏 ─────────
+
+#[derive(Serialize)]
+struct SelStatus { supported: bool, trusted: bool, recent: Vec<String> }
+
+#[tauri::command]
+fn sel_status(state: State<'_, AppState>) -> SelStatus {
+    SelStatus { supported: selection::SUPPORTED, trusted: selection::trusted(false), recent: state.sel_recent.lock().unwrap().clone() }
+}
+
+/// 工具栏量好自己的大小后调用：放到松开点旁边并显示（不抢焦点，原应用的选区保持不变）
+#[tauri::command]
+fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) {
+    if let Some(win) = app.get_webview_window("selbar") {
+        selection::place(&win, x, y, w, h);
+        let _ = win.show();
+    }
+}
+
+/// 展开或收起「⋯」时只改大小，左上角不动（底部超出屏幕时往上挪）
+#[tauri::command]
+fn sel_resize(app: AppHandle, w: f64, h: f64) {
+    let Some(win) = app.get_webview_window("selbar") else { return };
+    let sf = win.scale_factor().unwrap_or(1.0);
+    let (wp, hp) = ((w * sf).round() as u32, (h * sf).round() as u32);
+    if let (Ok(pos), Ok(Some(m))) = (win.outer_position(), win.current_monitor()) {
+        let bottom = m.position().y + m.size().height as i32 - 8;
+        let y = if pos.y + hp as i32 > bottom { (bottom - hp as i32).max(m.position().y) } else { pos.y };
+        let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, y));
+    }
+    let _ = win.set_size(tauri::PhysicalSize::new(wp, hp));
+}
+
+#[tauri::command]
+fn sel_hide(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("selbar") {
+        let _ = win.hide();
+    }
+}
+
+/// 工具栏上点了某个动作：交给小球（展开对话并发出去）
+#[tauri::command]
+fn sel_act(app: AppHandle, act: String, text: String) {
+    if let Some(win) = app.get_webview_window("selbar") {
+        let _ = win.hide();
+    }
+    show_ball(&app);
+    let _ = app.emit_to("main", "sel:act", serde_json::json!({ "act": act, "text": text }));
+}
+
+#[tauri::command]
+fn sel_copy(text: String) -> Result<(), String> {
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        arboard::Clipboard::new().and_then(|mut c| c.set_text(text)).map_err(|e| e.to_string())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = text;
+        Err("这个系统上还不支持".into())
+    }
+}
+
+/// 用默认浏览器打开网页（只许 http/https）
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("只能打开网页".into());
+    }
+    open_external(&url)
+}
+
+/// macOS：打开 系统设置 → 隐私与安全性 → 辅助功能
+#[tauri::command]
+fn sel_open_privacy() -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        let _ = selection::trusted(true);
+        open_external("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    } else {
+        Ok(())
+    }
+}
+
+fn open_external(target: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    let r = {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", target]).creation_flags(0x0800_0000).spawn()
+    };
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(target).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(target).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     open_settings_window(&app);
@@ -222,7 +472,7 @@ fn open_settings(app: AppHandle) {
 // ───────── 对话 ─────────
 
 /// 加系统提示词；模型不支持图片时把图片换成一句说明
-fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> Vec<Value> {
+pub(crate) fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> Vec<Value> {
     let mut out = Vec::with_capacity(messages.len() + 1);
     if !system_prompt.trim().is_empty() {
         out.push(json!({"role":"system","content":system_prompt}));
@@ -246,33 +496,81 @@ fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> 
     out
 }
 
+/// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
+/// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
-fn chat(state: State<'_, AppState>, id: String, messages: Vec<Value>, on_event: Channel<ChatEvent>) -> Result<(), String> {
+fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
-    let Some(m) = cfg.current().cloned() else {
-        let _ = on_event.send(ChatEvent::Error { message: "还没有设置模型。右键小球 → 设置，添加一个模型。".into() });
-        return Ok(());
-    };
-    let key = config::get_api_key(m.id);
-    if key.is_none() && !m.no_key {
-        let _ = on_event.send(ChatEvent::Error {
-            message: "这个模型还没有填 API Key。右键小球 → 设置 → 模型。用本地模型（如 Ollama）可勾选「不需要 Key」。".into(),
-        });
-        return Ok(());
-    }
-    let msgs = prepare_messages(&cfg.system_prompt, m.vision, messages);
-    let endpoint = m.endpoint();
-    let model = m.model.clone();
+    let lead = cfg.lead().clone();
+    let got = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (g2, ch) = (got.clone(), on_event.clone());
+    // 每轮的 Done / Usage 不转给界面，整个任务结束时发一次
+    let emit: Arc<dyn Fn(ChatEvent) + Send + Sync> = Arc::new(move |ev: ChatEvent| {
+        if matches!(ev, ChatEvent::Done | ChatEvent::Usage { .. } | ChatEvent::ToolCall { .. }) {
+            return;
+        }
+        if !matches!(ev, ChatEvent::Error { .. }) {
+            g2.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        let _ = ch.send(ev);
+    });
+    let app2 = app.clone();
+    let world: Arc<dyn agent::World> = Arc::new(agent::RealWorld {
+        remember: Box::new(move |a: config::Allow| {
+            let st = app2.state::<AppState>();
+            let mut next = st.cfg.lock().unwrap().clone();
+            if !next.always_allow.contains(&a) {
+                next.always_allow.push(a);
+                let _ = commit(&app2, &st, next);
+                let _ = app2.emit_to("settings", "config", ());
+            }
+        }),
+    });
+    let trash = state.data_dir.join("回收站");
+    let asks = state.asks.clone();
     let task = tauri::async_runtime::spawn(async move {
-        llm::stream_chat(&endpoint, key.as_deref(), &model, &msgs, |ev| {
-            let _ = on_event.send(ev);
-        })
-        .await;
+        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone());
+        let mut r = t.run(&lead, messages.clone(), true).await;
+        let mut used = t.tokens();
+        let backup = cfg.models.iter().any(|m| m.id == lead.fallback && Some(m.id) != cfg.model_for(&lead).map(|x| x.id));
+        if let (Err(e), true, false) = (&r, backup, got.load(std::sync::atomic::Ordering::Relaxed)) {
+            js_log(format!("主模型出错，换备用模型：{e}"));
+            let mut l2 = lead.clone();
+            l2.model = lead.fallback;
+            l2.auto = false;
+            let t2 = agent::Task::new(cfg, world, asks, trash, emit);
+            r = t2.run(&l2, messages, true).await;
+            used += t2.tokens();
+        }
+        match r {
+            Ok(_) => {
+                let _ = on_event.send(ChatEvent::Usage { prompt: used, completion: 0 });
+                let _ = on_event.send(ChatEvent::Done);
+            }
+            Err(message) => {
+                let _ = on_event.send(ChatEvent::Error { message });
+            }
+        }
     });
     let mut chats = state.chats.lock().unwrap();
     chats.retain(|_, h| !h.inner().is_finished());
     chats.insert(id, task);
     Ok(())
+}
+
+/// 确认卡片上的选择
+#[tauri::command]
+fn answer_ask(state: State<'_, AppState>, ask: u64, answer: agent::Answer) -> bool {
+    state.asks.answer(ask, answer)
+}
+
+/// 权限页：撤销一条「总是允许」、开关「离开电脑时暂停敏感操作」
+#[tauri::command]
+fn save_perm(app: AppHandle, state: State<'_, AppState>, always_allow: Vec<config::Allow>, pause_away: bool) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.always_allow = always_allow;
+    next.pause_away = pause_away;
+    commit(&app, &state, next)
 }
 
 #[tauri::command]
@@ -445,20 +743,25 @@ fn register_shortcuts<R: Runtime>(app: &AppHandle<R>, state: &AppState, cfg: &Co
         }
         Shortcut::from_str(s).map(Some).map_err(|e| format!("快捷键「{s}」写法不对：{e}"))
     };
-    let main = parse(&cfg.shortcut)?;
-    let cap = parse(&cfg.capture_shortcut)?;
-    if main.is_some() && main == cap {
-        return Err("两个快捷键不能一样".into());
+    // 原型的快捷键页：唤起/收起、新对话、截屏提问、打开任务
+    let mut list: Vec<(Shortcut, &'static str)> = vec![];
+    for (v, act) in [(&cfg.shortcut, "toggle"), (&cfg.new_shortcut, "new_chat"), (&cfg.capture_shortcut, "capture"), (&cfg.tasks_shortcut, "tasks")] {
+        if let Some(sc) = parse(v)? {
+            if list.iter().any(|(o, _)| *o == sc) {
+                return Err(format!("快捷键「{v}」重复了，每个只能用一次"));
+            }
+            list.push((sc, act));
+        }
     }
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
     let mut errs = vec![];
-    for s in [&main, &cap].into_iter().flatten() {
+    for (s, _) in &list {
         if let Err(e) = gs.register(*s) {
             errs.push(format!("{s} 被别的程序占用了（{e}）"));
         }
     }
-    *state.shortcuts.lock().unwrap() = (main, cap);
+    *state.shortcuts.lock().unwrap() = list;
     Ok(if errs.is_empty() { None } else { Some(errs.join("；")) })
 }
 
@@ -504,13 +807,10 @@ pub fn run() {
                         return;
                     }
                     let st = app.state::<AppState>();
-                    let (main, cap) = st.shortcuts.lock().unwrap().clone();
-                    if main.as_ref() == Some(sc) {
+                    let act = st.shortcuts.lock().unwrap().iter().find(|(s, _)| s == sc).map(|(_, a)| *a);
+                    if let Some(act) = act {
                         show_ball(app);
-                        let _ = app.emit_to("main", "menu", "toggle".to_string());
-                    } else if cap.as_ref() == Some(sc) {
-                        show_ball(app);
-                        let _ = app.emit_to("main", "menu", "capture".to_string());
+                        let _ = app.emit_to("main", "menu", act.to_string());
                     }
                 })
                 .build(),
@@ -526,11 +826,18 @@ pub fn run() {
             app.manage(AppState {
                 cfg: Mutex::new(cfg.clone()),
                 cfg_dir,
+                catalog: Mutex::new(Catalog::load(&data_dir)),
+                catalog_busy: Mutex::new(false),
+                data_dir: data_dir.clone(),
                 store: Mutex::new(store),
                 chats: Mutex::new(HashMap::new()),
-                shortcuts: Mutex::new((None, None)),
+                asks: Arc::new(agent::Asks::default()),
+                shortcuts: Mutex::new(vec![]),
+                sel_recent: Mutex::new(vec![]),
             });
             let handle = app.handle().clone();
+            refresh_catalog(&handle, false);
+            selection::spawn(handle.clone());
             match register_shortcuts(&handle, &app.state::<AppState>(), &cfg) {
                 Ok(None) => {}
                 Ok(Some(e)) | Err(e) => eprintln!("[快捷键] {e}"),
@@ -565,8 +872,10 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs,
+            save_prefs, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
             list_models,
+            model_caps,
+            catalog_refresh,
             open_settings,
             save_position,
             test_connection,
