@@ -684,6 +684,8 @@ $("#clearHist").onclick = async () => {
 
 /* ───────── 菜单、快捷键 ───────── */
 // 设置窗口里改了东西
+// 设置窗口里「测试连接」成功时，小球开心一下（原型里的行为）
+listen("ball-state", ({ payload }) => mood(String(payload), 1800));
 listen("config", async () => {
   try { S.cfg = await invoke("get_config"); } catch (_) { return; }
   applyLook();

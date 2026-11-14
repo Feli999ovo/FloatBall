@@ -3,3 +3,6 @@ src-tauri/target/
 src-tauri/gen/
 .DS_Store
 ui-shots/
+tools/models-dev-raw/
+tools/models-dev-raw/
+__pycache__/

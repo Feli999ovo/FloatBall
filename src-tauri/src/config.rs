@@ -26,11 +26,23 @@ pub struct Model {
     pub vision: bool,
     /// 不需要 API Key（本地 Ollama 等）
     pub no_key: bool,
+    /// 设置窗口里选的服务商（OpenAI / DeepSeek / 通义千问 / Kimi / OpenRouter / Ollama（本地）/ 自定义），只用来显示和查能力
+    pub provider: String,
+    /// 能力：支持工具调用、推理（思考）、上下文长度（token）。None 表示不知道
+    pub tools: Option<bool>,
+    /// false：不知道支不支持图片（vision 这时按 true 处理，截图照发）
+    pub vision_known: bool,
+    pub reasoning: Option<bool>,
+    pub ctx: Option<u64>,
+    /// 能力从哪来：exact（models.dev 里这家服务商的这个模型）、lab（同名模型）、guess（相近的名字推断）、manual（用户点过）、none
+    pub caps_src: String,
+    /// models.dev 的服务商编号，界面按它找 logo
+    pub logo: String,
 }
 
 impl Default for Model {
     fn default() -> Self {
-        Self { id: 0, name: String::new(), base_url: "https://api.openai.com/v1".into(), model: String::new(), vision: true, no_key: false }
+        Self { id: 0, name: String::new(), base_url: "https://api.openai.com/v1".into(), model: String::new(), vision: true, no_key: false, provider: String::new(), tools: None, vision_known: true, reasoning: None, ctx: None, caps_src: String::new(), logo: String::new() }
     }
 }
 
@@ -106,6 +118,7 @@ impl Config {
                     model: model.to_string(),
                     vision: v.get("vision").and_then(Value::as_bool).unwrap_or(true),
                     no_key: v.get("allow_no_key").and_then(Value::as_bool).unwrap_or(false),
+                    ..Model::default()
                 }];
                 c.default_model = 1;
             }

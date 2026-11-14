@@ -3,10 +3,12 @@
 //! 托盘、右键菜单、全局快捷键、开机启动、模型调用、钥匙串、历史记录、截屏。
 
 mod capture;
+mod catalog;
 mod config;
 mod llm;
 mod store;
 
+use catalog::Catalog;
 use config::{Config, Model};
 use llm::ChatEvent;
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,10 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 pub struct AppState {
     cfg: Mutex<Config>,
     cfg_dir: PathBuf,
+    /// models.dev 的模型资料（查能力用）；联网时每天更新一次，存在 data_dir
+    catalog: Mutex<Catalog>,
+    catalog_busy: Mutex<bool>,
+    data_dir: PathBuf,
     store: Mutex<Option<store::Store>>,
     chats: Mutex<HashMap<String, JoinHandle<()>>>,
     shortcuts: Mutex<(Option<Shortcut>, Option<Shortcut>)>,
@@ -76,6 +82,7 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
     v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
     v["platform"] = json!(std::env::consts::OS);
+    v["catalog_date"] = json!(state.catalog.lock().unwrap().fetched.clone());
     v
 }
 
@@ -119,6 +126,67 @@ fn set_default_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Res
     }
     next.default_model = id;
     commit(&app, &state, next)
+}
+
+/// 查模型能力（models.dev 资料）
+#[tauri::command]
+fn model_caps(state: State<'_, AppState>, provider: String, base_url: String, model: String) -> catalog::Caps {
+    state.catalog.lock().unwrap().lookup(&provider, &base_url, &model)
+}
+
+
+/// 联网时更新模型资料：每天最多一次，失败就继续用旧的
+fn refresh_catalog(app: &AppHandle, force: bool) {
+    let st = app.state::<AppState>();
+    if !force && !Catalog::stale(&st.data_dir) {
+        return;
+    }
+    {
+        let mut busy = st.catalog_busy.lock().unwrap();
+        if *busy {
+            return;
+        }
+        *busy = true;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let today = today();
+        let res = Catalog::fetch(&today).await;
+        let st = app.state::<AppState>();
+        match res {
+            Ok(c) => {
+                if let Err(e) = c.save(&st.data_dir) {
+                    log::warn!("模型资料保存失败：{e}");
+                }
+                *st.catalog.lock().unwrap() = c;
+                let _ = app.emit("catalog-updated", today);
+            }
+            Err(e) => log::info!("模型资料没更新（继续用旧的）：{e}"),
+        }
+        *st.catalog_busy.lock().unwrap() = false;
+    });
+}
+
+#[tauri::command]
+fn catalog_refresh(app: AppHandle) {
+    refresh_catalog(&app, false);
+}
+
+
+/// 今天的日期（UTC，YYYY-MM-DD），只用来标记资料版本
+fn today() -> String {
+    let days = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() / 86400).unwrap_or(0) as i64;
+    // 公历换算（Howard Hinnant 算法）
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    format!("{:04}-{:02}-{:02}", if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 #[derive(Deserialize)]
@@ -198,8 +266,8 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
         use tauri::window::Effect;
         let b = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
             .title("悬浮球设置")
-            .inner_size(760.0, 560.0)
-            .min_inner_size(640.0, 440.0)
+            .inner_size(480.0, 600.0)
+            .min_inner_size(440.0, 480.0)
             .center();
         #[cfg(any(windows, target_os = "macos"))]
         let b = b.decorations(false).transparent(true).shadow(true).effects(WindowEffectsConfig {
@@ -526,11 +594,15 @@ pub fn run() {
             app.manage(AppState {
                 cfg: Mutex::new(cfg.clone()),
                 cfg_dir,
+                catalog: Mutex::new(Catalog::load(&data_dir)),
+                catalog_busy: Mutex::new(false),
+                data_dir: data_dir.clone(),
                 store: Mutex::new(store),
                 chats: Mutex::new(HashMap::new()),
                 shortcuts: Mutex::new((None, None)),
             });
             let handle = app.handle().clone();
+            refresh_catalog(&handle, false);
             match register_shortcuts(&handle, &app.state::<AppState>(), &cfg) {
                 Ok(None) => {}
                 Ok(Some(e)) | Err(e) => eprintln!("[快捷键] {e}"),
@@ -567,6 +639,8 @@ pub fn run() {
             set_default_model,
             save_prefs,
             list_models,
+            model_caps,
+            catalog_refresh,
             open_settings,
             save_position,
             test_connection,

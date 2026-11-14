@@ -1,7 +1,7 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, system_prompt: "你是住在用户桌面上的悬浮球助手。", shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", autostart: false, platform: "windows" },
+    cfg: { models: [], default_model: 0, system_prompt: "你是住在用户桌面上的悬浮球助手。", shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
@@ -26,11 +26,22 @@
       case "delete_model": st.cfg.models = st.cfg.models.filter((x) => x.id !== a.id); if (st.cfg.default_model === a.id) st.cfg.default_model = st.cfg.models.length ? st.cfg.models[0].id : 0; changed(); return null;
       case "set_default_model": st.cfg.default_model = a.id; changed(); return null;
       case "save_prefs": Object.assign(st.cfg, a.prefs); changed(); return st.shortcutBusy ? a.prefs.shortcut + " 被别的程序占用了" : null;
+      // 能力资料：真实程序查内置的 models.dev 快照，这里只放测试用到的几个
+      case "model_caps": {
+        const T = { "gpt-4o-mini": [true, true, false, 128000, "GPT-4o mini", "exact"], "gpt-4o": [true, true, false, 128000, "GPT-4o", "exact"], "deepseek-chat": [true, false, false, 128000, "DeepSeek Chat", "exact"], "deepseek-reasoner": [true, false, true, 128000, "DeepSeek Reasoner", "exact"], "qwen2.5:7b": [true, false, false, 131072, "Qwen2.5 7B Instruct", "guess"] };
+        const LOGO = { "OpenAI": "openai", "DeepSeek": "deepseek", "通义千问": "alibaba-cn", "Kimi": "moonshotai-cn", "OpenRouter": "openrouter", "Ollama（本地）": "ollama-cloud" };
+        const r = T[a.model.trim().toLowerCase()], local = a.provider.startsWith("Ollama") || /localhost|127\.0\.0\.1/.test(a.baseUrl);
+        st.capsCalls = (st.capsCalls || 0) + 1;
+        return r ? { tools: r[0], vision: r[1], reasoning: r[2], ctx: r[3], local, src: r[5], name: r[4], provider: LOGO[a.provider] || "" }
+                 : { tools: null, vision: null, reasoning: null, ctx: null, local, src: "none", name: "", provider: LOGO[a.provider] || "" };
+      }
+      case "catalog_refresh": st.catalogRefresh = (st.catalogRefresh || 0) + 1; return null;
+      case "js_log": (st.logs ||= []).push(a.msg); return null;
       case "list_models": st.listArgs = a; if (st.listFails) throw "连不上：connection refused"; return ["deepseek-chat", "deepseek-reasoner", "gpt-4o-mini"];
       case "open_settings": st.settingsOpened = (st.settingsOpened || 0) + 1; return null;
       case "set_autostart": st.cfg.autostart = a.on; return a.on;
       case "save_position": st.cfg.position = [a.x, a.y]; return null;
-      case "test_connection": st.testArgs = a; return "连接成功，用时 412 毫秒";
+      case "test_connection": st.testArgs = a; if (/bad/.test(a.baseUrl)) throw "API Key 不对或没有权限（401）：Incorrect API key provided: sk-xx****. You can find your API key at https://platform.openai.com/account/api-keys."; return "连接成功，用时 412 毫秒";
       case "backdrop": st.backdropArgs = a; return st.backdrop || null;
       case "show_context_menu": st.menuShown = true; return null;
       case "capture_screen": return "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
@@ -79,7 +90,7 @@
   };
   window.__TAURI__ = {
     core: { invoke, Channel },
-    event: { listen: async (n, f) => { (st.listeners[n] ||= []).push(f); } },
+    event: { listen: async (n, f) => { (st.listeners[n] ||= []).push(f); }, emitTo: async (to, n, p) => { (st.emitted ||= []).push([to, n, p]); } },
     // 与真实 @tauri-apps/api 一致：currentMonitor 是 window 模块的函数，不是窗口对象的方法
     window: { getCurrentWindow: () => win, currentMonitor: () => (st.monitorFails ? Promise.reject(new Error("no monitor")) : win._mon()) },
     webview: { getCurrentWebview: () => ({ onDragDropEvent: (f) => (st.drop = f) }) },
