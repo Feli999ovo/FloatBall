@@ -462,3 +462,10 @@ body.win .x-win.x-setw{border-radius:0;box-shadow:inset 0 0 0 1px rgba(255,255,2
 .x-aef p+.x-sb{margin-left:auto}
 .x-lbx{background:rgba(160,50,70,.55);box-shadow:inset 0 0 0 1px rgba(255,140,150,.35)}
 .x-lbx:hover{background:rgba(180,60,80,.7)}
+
+/* 权限页「已总是允许」列表（原型 .x-al 原样；抽取时列表为空没抽到） */
+.x-al { list-style: none; margin: 0; padding: 0; }
+.x-al li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,.12); font: var(--type-small); color: #fff; }
+.x-al li:first-child { border-top: 0; }
+.x-al small { display: block; font: var(--type-caption); color: rgba(255,255,255,.55); }
+.x-al .x-sb { margin-left: auto; min-height: 30px; padding: 0 12px; font: var(--type-caption); }

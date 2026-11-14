@@ -497,6 +497,7 @@ async def main():
             items = await sp.eval_on_selector_all("#alList li", "x => x.map(e => e.querySelector('b').textContent + '|' + e.querySelector('small').textContent)")
             check(items == ["删除|范围：Downloads", "写入|范围：周报"] and not await vis("#alEmpty"), P + f"权限页列出总是允许 {items}")
             check(await sp.get_attribute("#awaySw", "aria-checked") == "true", P + "离开时暂停默认开")
+            await sp.evaluate("document.getElementById('toast').classList.remove('on')"); await sp.wait_for_timeout(300)
             await sp_shot(f"33_perm_{plat}")
             await sp.click("#alList li:first-child button"); await sp.wait_for_timeout(150)
             check((await mock())["cfg"]["always_allow"] == [{"kind": "写入", "scope": "周报"}] and "已撤销：删除 · Downloads" in await txt("#toast"), P + "撤销一条")
