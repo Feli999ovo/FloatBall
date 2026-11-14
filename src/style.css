@@ -367,3 +367,18 @@ body.collapsed #toast { display: none; }
 .x-apr{margin-top:8px}
 .x-ape .x-in,.x-apr .x-in{flex:1;min-width:0;height:32px;padding:0 10px;font:var(--type-small)}
 .x-apn.x-aph2{color:rgba(255,255,255,.55)}
+
+/* ───────── 外观设置（原型 lkSys / lkDock / lkCalm） ───────── */
+/* 跟随系统深浅色：系统为深色时卡片玻璃更深 */
+html.dark #card { background: linear-gradient(180deg, rgba(14, 12, 32, 0.97), rgba(8, 6, 26, 0.97)); }
+html.dark #card::before { background: linear-gradient(180deg, rgba(14, 12, 32, calc(var(--tint, 0.75) + 0.12)), rgba(8, 6, 26, calc(var(--tint, 0.75) + 0.16))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
+/* 减少动态效果：关掉漂浮、呼吸 */
+html.calm .float, html.calm .breath { animation: none !important; }
+/* 贴边：外侧压平（失去 10% 宽度），平边贴住屏幕边，平边上一道暖色亮线；指针移上去时滑出来、恢复圆形 */
+#orb .float { transition: clip-path 0.45s ease; clip-path: inset(-20% -20% -20% -20% round 0); }
+#orb.docked[data-edge=r]:not(.peel) .float { clip-path: inset(-20% 10% -20% -20% round 0); }
+#orb.docked[data-edge=l]:not(.peel) .float { clip-path: inset(-20% -20% -20% 10% round 0); }
+#orb::after { content: ""; position: absolute; top: 24%; height: 52%; width: 2px; border-radius: 1px; pointer-events: none; opacity: 0; transition: opacity 0.45s ease;
+  background: linear-gradient(rgba(255, 252, 244, 0), #fffcf4 8%, #fffcf4 92%, rgba(255, 252, 244, 0)); }
+#orb.docked[data-edge=r]:not(.peel)::after { opacity: 1; right: 10%; box-shadow: 0 0 3px rgba(255, 236, 210, 0.95), -3px 0 9px rgba(255, 212, 150, 0.8); }
+#orb.docked[data-edge=l]:not(.peel)::after { opacity: 1; left: 10%; box-shadow: 0 0 3px rgba(255, 236, 210, 0.95), 3px 0 9px rgba(255, 212, 150, 0.8); }

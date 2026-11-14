@@ -84,19 +84,28 @@
       </div>
     </div>
     <!-- 外观：先放原来就能用的三项，结构和样式照原型；其余几项（睡眠、深浅色、贴边、悬停入口、多显示器）下一步照原型做 -->
+    <!-- 外观（原型的 paneLook）。球的大小按程序里小球的尺寸；玻璃通透度只有 Windows 有（卡片后面垫的是桌面截图） -->
     <div class="x-pane" id="paneLook" hidden>
       <div class="x-field"><span id="lkSizeL">球的大小</span>
         <div class="x-seg x-lkseg" id="lkSize" role="radiogroup" aria-labelledby="lkSizeL">
           <button type="button" role="radio" aria-checked="false" data-v="60">小</button><button type="button" role="radio" aria-checked="false" data-v="72">中</button><button type="button" role="radio" aria-checked="false" data-v="84">大</button>
         </div>
       </div>
-      <div class="x-field" id="lkGlassF"><label for="lkGlass">卡片透明度 <output class="x-lkv" id="lkGlassV" for="lkGlass"></output></label>
+      <div class="x-field" id="lkGlassF"><label for="lkGlass">玻璃通透度 <output class="x-lkv" id="lkGlassV" for="lkGlass"></output></label>
         <input class="x-range" id="lkGlass" type="range" min="0" max="60" step="5" />
       </div>
       <div class="x-field"><span id="lkEyeL">眼睛颜色</span>
         <div class="x-dots" id="lkEye" role="radiogroup" aria-labelledby="lkEyeL"></div>
       </div>
-      <p class="x-note x-tmp">这一页其余几项下一步照原型做。开机启动在托盘菜单和右键菜单里。</p>
+      <label class="x-field"><span>空闲多久后睡觉</span>
+        <select class="x-in" id="lkIdle"><option value="60000">1 分钟</option><option value="300000">5 分钟</option><option value="600000">10 分钟</option><option value="900000">15 分钟</option><option value="0">从不</option></select>
+      </label>
+      <div class="x-bud">
+        <div class="x-ar" style="margin:0"><span id="lkSysL">跟随系统深浅色<small>系统为深色时，卡片玻璃更深</small></span><button type="button" class="x-sw" id="lkSys" role="switch" aria-checked="false" aria-labelledby="lkSysL"></button></div>
+        <div class="x-ar"><span id="lkDockL">贴边时自动收起<small>拖到屏幕边缘时贴住并压平</small></span><button type="button" class="x-sw" id="lkDock" role="switch" aria-checked="true" aria-labelledby="lkDockL"></button></div>
+        <div class="x-ar"><span id="lkCalmL">减少动态效果<small>关掉漂浮和呼吸</small></span><button type="button" class="x-sw" id="lkCalm" role="switch" aria-checked="false" aria-labelledby="lkCalmL"></button></div>
+      </div>
+      <p class="x-note" style="margin-top:14px">开机启动在托盘菜单和右键菜单里。</p>
     </div>
     <!-- 快捷键：列表和「录制」照原型；现在程序里只有这两项。恢复默认、其余几项下一步照原型做 -->
     <div class="x-pane" id="paneKeys" hidden>

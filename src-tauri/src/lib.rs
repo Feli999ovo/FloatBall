@@ -198,6 +198,14 @@ struct Prefs {
     orb_size: u32,
     glass: u8,
     eye: String,
+    #[serde(default)]
+    idle_ms: Option<u64>,
+    #[serde(default)]
+    follow_system: Option<bool>,
+    #[serde(default)]
+    auto_dock: Option<bool>,
+    #[serde(default)]
+    calm: Option<bool>,
 }
 
 /// 模型以外的设置。返回 Some(提示)：已经保存，但有快捷键被别的程序占用了
@@ -211,6 +219,10 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     if prefs.eye.len() == 7 && prefs.eye.starts_with('#') && prefs.eye[1..].chars().all(|c| c.is_ascii_hexdigit()) {
         next.eye = prefs.eye;
     }
+    if let Some(v) = prefs.idle_ms { next.idle_ms = v.min(24 * 3600 * 1000); }
+    if let Some(v) = prefs.follow_system { next.follow_system = v; }
+    if let Some(v) = prefs.auto_dock { next.auto_dock = v; }
+    if let Some(v) = prefs.calm { next.calm = v; }
     let busy = register_shortcuts(&app, &state, &next)?;
     commit(&app, &state, next)?;
     Ok(busy)

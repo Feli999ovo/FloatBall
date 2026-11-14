@@ -494,6 +494,7 @@ function prefs() {
   return {
     shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut,
     orb_size: +(on("lkSize") || cfg.orb_size), glass: +$("lkGlass").value, eye: on("lkEye") || cfg.eye,
+    idle_ms: +$("lkIdle").value, follow_system: sw("lkSys"), auto_dock: sw("lkDock"), calm: sw("lkCalm"),
   };
 }
 async function savePrefs() {
@@ -522,7 +523,10 @@ const radio = (g, v) => $(g).querySelectorAll("[role=radio]").forEach((b) => {
   const b = document.createElement("button"); b.type = "button"; b.className = "x-dot"; b.setAttribute("role", "radio");
   b.dataset.v = c; b.setAttribute("aria-label", name); b.title = name; b.style.setProperty("--t", c); $("lkEye").appendChild(b);
 });
-const showGlass = () => { const v = +$("lkGlass").value; $("lkGlassV").textContent = v ? v + "%" : "不透明"; };
+const showGlass = () => { const v = +$("lkGlass").value; $("lkGlassV").textContent = v ? "通透 " + v + "%" : "不透明"; };
+const sw = (id) => $(id).getAttribute("aria-checked") === "true";
+$("lkIdle").addEventListener("change", savePrefs);
+["lkSys", "lkDock", "lkCalm"].forEach((id) => $(id).addEventListener("click", () => { $(id).setAttribute("aria-checked", !sw(id)); savePrefs(); }));
 $("lkGlass").addEventListener("input", showGlass);
 $("lkGlass").addEventListener("change", savePrefs);
 
@@ -583,6 +587,9 @@ async function reload() {
   ["bTok", "bStep", "bPar"].forEach((id, i) => { $(id).value = String(cfg.limits[["tokens", "steps", "parallel"][i]]); });
   keyVal.shortcut = cfg.shortcut; keyVal.capture_shortcut = cfg.capture_shortcut; if (!keyRec) renderKeys();
   radio("lkSize", cfg.orb_size); radio("lkEye", cfg.eye); $("lkGlass").value = cfg.glass; showGlass();
+  $("lkIdle").value = String(cfg.idle_ms ?? 600000);
+  if ($("lkIdle").selectedIndex < 0) $("lkIdle").value = "600000";
+  $("lkSys").setAttribute("aria-checked", !!cfg.follow_system); $("lkDock").setAttribute("aria-checked", cfg.auto_dock !== false); $("lkCalm").setAttribute("aria-checked", !!cfg.calm);
   if (!$("paneLib").hidden) renderLib();
   if (!$("paneAgents").hidden) renderAgents();
   if (!$("panePerm").hidden) renderPerm();

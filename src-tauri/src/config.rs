@@ -151,6 +151,14 @@ pub struct Config {
     pub glass: u8,
     /// 眼睛颜色（#RRGGBB）
     pub eye: String,
+    /// 空闲多久后睡觉（毫秒），0 = 从不
+    pub idle_ms: u64,
+    /// 跟随系统深浅色：系统为深色时卡片玻璃更深
+    pub follow_system: bool,
+    /// 拖到屏幕边缘时贴住并压平
+    pub auto_dock: bool,
+    /// 减少动态效果
+    pub calm: bool,
 }
 
 impl Default for Config {
@@ -169,6 +177,10 @@ impl Default for Config {
             orb_size: 72,
             glass: 25,
             eye: "#FFF1DC".into(),
+            idle_ms: 10 * 60 * 1000,
+            follow_system: false,
+            auto_dock: true,
+            calm: false,
         }
     }
 }
@@ -360,6 +372,8 @@ mod tests {
         let mut c = Config::default();
         c.upsert(model("deepseek-chat")).unwrap();
         c.position = Some((10.0, 20.0));
+        c.calm = true;
+        c.idle_ms = 0;
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
     }

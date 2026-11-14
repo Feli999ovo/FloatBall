@@ -57,12 +57,32 @@ document.addEventListener("mousemove", (e) => {
 });
 orb.addEventListener("mouseenter", () => { if (!S.open && !S.busy && /s-(idle|sleep)/.test(orb.className)) mood("curious"); });
 orb.addEventListener("mouseleave", () => { if (!S.open && orb.className.includes("s-curious")) mood("idle"); });
-// 10 分钟没动静就睡觉
+// 没动静一段时间就睡觉（设置 → 外观「空闲多久后睡觉」，0 = 从不）
 setInterval(() => {
-  if (!S.open && !S.busy && Date.now() - S.lastActive > 10 * 60 * 1000) mood("sleep");
-}, 30000);
+  const ms = S.cfg ? S.cfg.idle_ms : 600000;
+  if (ms && !S.open && !S.busy && !orb.className.includes("s-sleep") && Date.now() - S.lastActive > ms) mood("sleep");
+}, 5000);
 
 /* ───────── 窗口：收起 / 展开 / 拖动 / 贴边 ───────── */
+// 贴边：side -1 左、1 右、0 不贴。贴着时窗口有一截在屏幕外，小球外侧被裁平；指针移上去时滑出来露出整颗球
+let docked = 0;
+function setDock(side) {
+  docked = side;
+  orb.dataset.edge = side < 0 ? "l" : side > 0 ? "r" : "";
+  orb.classList.toggle("docked", !!side);
+}
+// 从贴边位置换算出完整露出来的位置（展开、指针移上来时用）
+const tuckShift = () => (SMALL - PAD * 2) * 0.1 + 2;
+async function peel(out) {
+  if (!docked || S.open || morphing || peekBox) return;
+  const p = await winPos();
+  morphing = true;
+  orb.classList.toggle("peel", out);
+  try { await appWin.setPosition(new LogicalPosition(p.x - docked * tuckShift() * (out ? 1 : -1), p.y)); }
+  finally { setTimeout(() => (morphing = false), 80); }
+}
+orb.addEventListener("pointerenter", () => { if (docked && !orb.classList.contains("peel")) peel(true); });
+orb.addEventListener("pointerleave", () => { if (docked && orb.classList.contains("peel") && !press) peel(false); });
 async function monitorArea() {
   // 拿不到显示器信息时（个别 Linux 环境）退回到网页的 screen 对象
   const fallback = () => ({ x: screen.availLeft || 0, y: screen.availTop || 0, w: Math.max(screen.availWidth || 0, 1280), h: Math.max(screen.availHeight || 0, 720) });
@@ -118,6 +138,11 @@ async function expand(view) {
   morphing = true;
   try {
     S.anchor = await winPos();
+    // 贴着边：先换算成完整露出来的位置，收起时再贴回去
+    if (docked) {
+      if (!orb.classList.contains("peel")) S.anchor.x -= docked * tuckShift();
+      S.redock = docked; orb.classList.remove("peel"); setDock(0);
+    }
     const a = await monitorArea();
     const cx = S.anchor.x + SMALL / 2;
     const flipX = cx > a.x + a.w / 2;
@@ -164,6 +189,7 @@ async function collapse() {
     await reshape(SMALL, SMALL, p.x, p.y, flipped, () => body.classList.remove("flip-x", "flip-y"));
     if (!S.busy) mood("idle");
   } finally { morphing = false; }
+  if (S.redock) { S.redock = 0; settle(); } // 展开前贴着边：缩回后贴回去
 }
 function toggle() { S.open ? collapse() : expand(); }
 function focusAsk() { if (!$("#vChat").hidden) setTimeout(() => ask.focus(), 30); }
@@ -179,6 +205,7 @@ window.addEventListener("pointermove", (e) => {
   if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 4) {
     press.dragged = true;
     S.userMoved = true;
+    if (docked) { orb.classList.remove("peel"); setDock(0); }
     orb.classList.add("dragging");
     appWin.startDragging().catch(() => {});
   }
@@ -196,7 +223,7 @@ orb.addEventListener("contextmenu", (e) => { e.preventDefault(); invoke("show_co
 // 拖完停下 350ms 后：贴边吸附 + 记住位置
 let moveTimer = 0;
 appWin.onMoved(() => {
-  if (morphing) return;
+  if (morphing || orb.classList.contains("peel")) return; // 贴边滑出来露脸不算拖动
   orb.classList.remove("dragging");
   if (S.open) $("#card").classList.remove("glassy"); // 窗口挪了，底图对不上了
   clearTimeout(moveTimer);
@@ -220,9 +247,12 @@ async function settle() {
   S.userMoved = false;
   const a = await monitorArea();
   let { x, y } = p;
-  const SNAP = 24;
-  if (x - a.x < SNAP) x = a.x - PAD + 2;
-  if (a.x + a.w - (x + SMALL) < SNAP) x = a.x + a.w - SMALL + PAD - 2;
+  const SNAP = 24, ORB = SMALL - PAD * 2;
+  // 贴边（原型的 dock）：开了「贴边时自动收起」时，小球的一侧压平、平边贴住屏幕边；没开就只是吸到边上
+  let side = 0;
+  if (x - a.x < SNAP) { side = -1; x = S.cfg && S.cfg.auto_dock ? a.x - PAD - ORB * 0.1 : a.x - PAD + 2; }
+  else if (a.x + a.w - (x + SMALL) < SNAP) { side = 1; x = S.cfg && S.cfg.auto_dock ? a.x + a.w - PAD - ORB * 0.9 : a.x + a.w - SMALL + PAD - 2; }
+  setDock(S.cfg && S.cfg.auto_dock ? side : 0);
   y = Math.max(a.y - PAD + 2, Math.min(y, a.y + a.h - SMALL + PAD - 2));
   if (x !== p.x || y !== p.y) {
     morphing = true;
@@ -424,12 +454,18 @@ function applyLook() {
   if (warm) { root.removeProperty("--eye-near"); root.removeProperty("--eye-glow"); }
   else { root.setProperty("--eye-near", eye); root.setProperty("--eye-glow", eye + "BF"); }
   root.setProperty("--tint", String(1 - (c.glass == null ? 25 : c.glass) / 100));
+  // 减少动态效果；跟随系统深浅色（系统为深色时卡片玻璃更深）
+  const html = document.documentElement.classList;
+  html.toggle("calm", !!c.calm);
+  html.toggle("dark", !!c.follow_system && darkMQ.matches);
   if (small !== SMALL) {
     SMALL = small;
     // 收起着的时候窗口就是小球那么大，跟着改
     if (!S.open) appWin.setSize(new LogicalSize(SMALL, SMALL)).catch(() => {});
   }
 }
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+darkMQ.addEventListener("change", applyLook);
 const msgsEl = $("#msgs");
 function updateEmpty() {
   $("#empty").hidden = msgsEl.children.length > 0;
@@ -783,9 +819,12 @@ $("#clearHist").onclick = async () => {
 // 设置窗口里「测试连接」成功时，小球开心一下（原型里的行为）
 listen("ball-state", ({ payload }) => mood(String(payload), 1800));
 listen("config", async () => {
+  const was = S.cfg ? S.cfg.auto_dock + "|" + S.cfg.orb_size : "";
   try { S.cfg = await invoke("get_config"); } catch (_) { return; }
   applyLook();
   updateEmpty();
+  // 改了贴边开关或小球大小：重新贴一次
+  if (was !== S.cfg.auto_dock + "|" + S.cfg.orb_size && !S.open) setTimeout(settle, 60);
 });
 listen("menu", async ({ payload }) => {
   switch (payload) {
@@ -803,6 +842,7 @@ listen("menu", async ({ payload }) => {
   applyLook();
   updateEmpty();
   mood("idle");
+  settle(); // 上次贴着边：重新压平
   // 还没设置模型：小球露出好奇的表情提醒一下，不自动展开，免得挡住屏幕
   if (needsSetup()) mood("curious", 4000);
 })();
