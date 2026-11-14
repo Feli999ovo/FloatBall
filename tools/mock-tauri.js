@@ -1,7 +1,7 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["搜索网页", "读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", autostart: false, platform: "windows", catalog_date: "2026-11-14" },
+    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["搜索网页", "读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
@@ -36,6 +36,8 @@
       }
       case "delete_agent": if (a.id === "lead") throw "主控不能删"; st.cfg.agents = st.cfg.agents.filter((x) => x.id !== a.id); changed(); return null;
       case "save_limits": st.cfg.limits = { ...a.limits }; changed(); return null;
+      case "answer_ask": (st.answers ||= []).push(a); if (st.onAnswer) { const f = st.onAnswer; st.onAnswer = null; setTimeout(() => f(a.answer), 30); return true; } return false;
+      case "save_perm": st.cfg.always_allow = a.alwaysAllow; st.cfg.pause_away = a.pauseAway; changed(); return null;
       case "save_prefs": Object.assign(st.cfg, a.prefs); changed(); return st.shortcutBusy ? a.prefs.shortcut + " 被别的程序占用了" : null;
       // 能力资料：真实程序查内置的 models.dev 快照，这里只放测试用到的几个
       case "model_caps": {
@@ -73,6 +75,30 @@
         st.lastMessages = a.messages;
         const ch = a.onEvent;
         if (!view().ready) { setTimeout(() => ch.onmessage({ type: "error", message: "还没有填 API Key。右键小球 → 设置 → 模型。" }), 50); return null; }
+        // 用工具、需要确认（删除）：看文件夹 → 等确认 → 删或不删
+        if (/删除/.test(q)) {
+          const send = (e) => { if (st.cancelled !== a.id) ch.onmessage(e); };
+          const T = (call, name, arg, status, result = "") => send({ type: "tool", call, agent: "主控", name, arg, status, result });
+          setTimeout(() => {
+            send({ type: "delta", text: "我先看看下载文件夹。" });
+            T("t0", "查看文件夹", "/Users/j/Downloads", "run");
+            setTimeout(() => {
+              T("t0", "查看文件夹", "/Users/j/Downloads", "done", "报告.pdf（20480 字节）\n报告 (1).pdf（20480 字节）");
+              T("t1", "删除文件", "报告 (1).pdf", "wait");
+              send({ type: "ask", ask: 7, call: "t1", kind: "删除", desc: "删除 /Users/j/Downloads/报告 (1).pdf", scope: "Downloads", hi: true });
+              st.onAnswer = (ans) => {
+                if (ans.allow) {
+                  T("t1", "删除文件", "报告 (1).pdf", "run");
+                  setTimeout(() => { T("t1", "删除文件", "报告 (1).pdf", "done", "已删除，移到了悬浮球回收站"); send({ type: "delta", text: "删好了，重复的那份在悬浮球回收站里。" }); send({ type: "usage", prompt: 1840, completion: 0 }); send({ type: "done" }); }, 100);
+                } else {
+                  T("t1", "删除文件", "报告 (1).pdf", "no", "用户拒绝了这个操作" + (ans.reason ? "，原因：" + ans.reason : ""));
+                  setTimeout(() => { send({ type: "delta", text: "好的，没删。" }); send({ type: "done" }); }, 50);
+                }
+              };
+            }, 150);
+          }, 100);
+          return null;
+        }
         const r = reply(q);
         if (!r) { setTimeout(() => ch.onmessage({ type: "error", message: "API Key 不对或没有权限（401）：Incorrect API key" }), 300); return null; }
         const parts = r.match(/[\s\S]{1,6}/g); let i = 0;

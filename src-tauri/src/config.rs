@@ -98,6 +98,14 @@ impl Agent {
     }
 }
 
+/// 总是允许的一类操作：种类（写入 / 打开网页 / 删除 / 发送）+ 范围（文件夹名、网站、收件人）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct Allow {
+    pub kind: String,
+    pub scope: String,
+}
+
 /// 预算：单个任务最多用多少 token（0 不限）、最多多少步、最多同时几个子 Agent
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -127,6 +135,10 @@ pub struct Config {
     pub agents: Vec<Agent>,
     /// 预算
     pub limits: Limits,
+    /// 权限：总是允许的操作
+    pub always_allow: Vec<Allow>,
+    /// 离开电脑时暂停敏感操作：确认卡片一直等；关掉则 5 分钟没确认就跳过
+    pub pause_away: bool,
     /// 呼出 / 收起悬浮球
     pub shortcut: String,
     /// 截屏提问
@@ -149,6 +161,8 @@ impl Default for Config {
             system_prompt: String::new(),
             agents: vec![Agent::lead(DEFAULT_PROMPT)],
             limits: Limits::default(),
+            always_allow: vec![],
+            pause_away: true,
             shortcut: "Alt+Space".into(),
             capture_shortcut: "Alt+Shift+S".into(),
             position: None,

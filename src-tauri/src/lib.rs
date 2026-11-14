@@ -2,6 +2,7 @@
 //! 前端（src/）负责小球、胶囊输入框和对话卡片的样子；这里负责系统能力：
 //! 托盘、右键菜单、全局快捷键、开机启动、模型调用、钥匙串、历史记录、截屏。
 
+mod agent;
 mod capture;
 mod catalog;
 mod config;
@@ -16,7 +17,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::async_runtime::JoinHandle;
 use tauri::ipc::Channel;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -34,6 +35,7 @@ pub struct AppState {
     data_dir: PathBuf,
     store: Mutex<Option<store::Store>>,
     chats: Mutex<HashMap<String, JoinHandle<()>>>,
+    asks: Arc<agent::Asks>,
     shortcuts: Mutex<(Option<Shortcut>, Option<Shortcut>)>,
 }
 
@@ -283,13 +285,13 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
         }
         // 去掉系统标题栏（界面里自己画），窗口透明，后面铺系统自带的毛玻璃：Windows 用亚克力，macOS 用系统材质。
         // Linux 没有这个效果，保留系统标题栏和不透明的底。
-        use tauri::utils::config::WindowEffectsConfig;
-        use tauri::window::Effect;
         let b = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
             .title("悬浮球设置")
             .inner_size(480.0, 600.0)
             .min_inner_size(440.0, 480.0)
             .center();
+        #[cfg(any(windows, target_os = "macos"))]
+        use tauri::{utils::config::WindowEffectsConfig, window::Effect};
         #[cfg(any(windows, target_os = "macos"))]
         let b = b.decorations(false).transparent(true).shadow(true).effects(WindowEffectsConfig {
             effects: vec![Effect::Acrylic, Effect::HudWindow],
@@ -311,7 +313,7 @@ fn open_settings(app: AppHandle) {
 // ───────── 对话 ─────────
 
 /// 加系统提示词；模型不支持图片时把图片换成一句说明
-fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> Vec<Value> {
+pub(crate) fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> Vec<Value> {
     let mut out = Vec::with_capacity(messages.len() + 1);
     if !system_prompt.trim().is_empty() {
         out.push(json!({"role":"system","content":system_prompt}));
@@ -335,60 +337,59 @@ fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<Value>) -> 
     out
 }
 
-/// 一个能用的模型：接口、Key、模型名、支不支持图片
-struct Target {
-    endpoint: String,
-    key: Option<String>,
-    model: String,
-    vision: bool,
-}
-
-fn target(m: &config::Model) -> Result<Target, String> {
-    let key = config::get_api_key(m.id);
-    if key.is_none() && !m.no_key {
-        return Err(format!("模型「{}」还没有填 API Key。右键小球 → 设置 → 模型。", if m.name.is_empty() { &m.model } else { &m.name }));
-    }
-    Ok(Target { endpoint: m.endpoint(), key, model: m.model.clone(), vision: m.vision })
-}
-
-/// 提问交给主控：用主控的指令和模型；主模型出错（还没回一个字）时换备用模型再试一次
+/// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
+/// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
-fn chat(state: State<'_, AppState>, id: String, messages: Vec<Value>, on_event: Channel<ChatEvent>) -> Result<(), String> {
+fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
     let lead = cfg.lead().clone();
-    let Some(m) = cfg.model_for(&lead).cloned() else {
-        let _ = on_event.send(ChatEvent::Error { message: "还没有设置模型。右键小球 → 设置，添加一个模型。".into() });
-        return Ok(());
-    };
-    let first = match target(&m) {
-        Ok(t) => t,
-        Err(message) => {
-            let _ = on_event.send(ChatEvent::Error { message });
-            return Ok(());
+    let got = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (g2, ch) = (got.clone(), on_event.clone());
+    // 每轮的 Done / Usage 不转给界面，整个任务结束时发一次
+    let emit: Arc<dyn Fn(ChatEvent) + Send + Sync> = Arc::new(move |ev: ChatEvent| {
+        if matches!(ev, ChatEvent::Done | ChatEvent::Usage { .. } | ChatEvent::ToolCall { .. }) {
+            return;
         }
-    };
-    let backup = cfg.models.iter().find(|x| x.id == lead.fallback && x.id != m.id).and_then(|x| target(x).ok());
+        if !matches!(ev, ChatEvent::Error { .. }) {
+            g2.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        let _ = ch.send(ev);
+    });
+    let app2 = app.clone();
+    let world: Arc<dyn agent::World> = Arc::new(agent::RealWorld {
+        remember: Box::new(move |a: config::Allow| {
+            let st = app2.state::<AppState>();
+            let mut next = st.cfg.lock().unwrap().clone();
+            if !next.always_allow.contains(&a) {
+                next.always_allow.push(a);
+                let _ = commit(&app2, &st, next);
+                let _ = app2.emit_to("settings", "config", ());
+            }
+        }),
+    });
+    let trash = state.data_dir.join("回收站");
+    let asks = state.asks.clone();
     let task = tauri::async_runtime::spawn(async move {
-        let mut tries = vec![first];
-        tries.extend(backup);
-        let n = tries.len();
-        for (i, t) in tries.into_iter().enumerate() {
-            let msgs = prepare_messages(&lead.prompt, t.vision, messages.clone());
-            let mut got = false;
-            let mut failed = None;
-            llm::stream_chat(&t.endpoint, t.key.as_deref(), &t.model, &msgs, |ev| match ev {
-                ChatEvent::Error { message } if !got && i + 1 < n => failed = Some(message),
-                ev => {
-                    if matches!(ev, ChatEvent::Delta { .. } | ChatEvent::Reasoning { .. }) {
-                        got = true;
-                    }
-                    let _ = on_event.send(ev);
-                }
-            })
-            .await;
-            match failed {
-                Some(e) => js_log(format!("主模型出错，换备用模型：{e}")),
-                None => break,
+        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone());
+        let mut r = t.run(&lead, messages.clone(), true).await;
+        let mut used = t.tokens();
+        let backup = cfg.models.iter().any(|m| m.id == lead.fallback && Some(m.id) != cfg.model_for(&lead).map(|x| x.id));
+        if let (Err(e), true, false) = (&r, backup, got.load(std::sync::atomic::Ordering::Relaxed)) {
+            js_log(format!("主模型出错，换备用模型：{e}"));
+            let mut l2 = lead.clone();
+            l2.model = lead.fallback;
+            l2.auto = false;
+            let t2 = agent::Task::new(cfg, world, asks, trash, emit);
+            r = t2.run(&l2, messages, true).await;
+            used += t2.tokens();
+        }
+        match r {
+            Ok(_) => {
+                let _ = on_event.send(ChatEvent::Usage { prompt: used, completion: 0 });
+                let _ = on_event.send(ChatEvent::Done);
+            }
+            Err(message) => {
+                let _ = on_event.send(ChatEvent::Error { message });
             }
         }
     });
@@ -396,6 +397,21 @@ fn chat(state: State<'_, AppState>, id: String, messages: Vec<Value>, on_event: 
     chats.retain(|_, h| !h.inner().is_finished());
     chats.insert(id, task);
     Ok(())
+}
+
+/// 确认卡片上的选择
+#[tauri::command]
+fn answer_ask(state: State<'_, AppState>, ask: u64, answer: agent::Answer) -> bool {
+    state.asks.answer(ask, answer)
+}
+
+/// 权限页：撤销一条「总是允许」、开关「离开电脑时暂停敏感操作」
+#[tauri::command]
+fn save_perm(app: AppHandle, state: State<'_, AppState>, always_allow: Vec<config::Allow>, pause_away: bool) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.always_allow = always_allow;
+    next.pause_away = pause_away;
+    commit(&app, &state, next)
 }
 
 #[tauri::command]
@@ -654,6 +670,7 @@ pub fn run() {
                 data_dir: data_dir.clone(),
                 store: Mutex::new(store),
                 chats: Mutex::new(HashMap::new()),
+                asks: Arc::new(agent::Asks::default()),
                 shortcuts: Mutex::new((None, None)),
             });
             let handle = app.handle().clone();
@@ -692,7 +709,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, save_agent, delete_agent, save_limits,
+            save_prefs, save_agent, delete_agent, save_limits, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,

@@ -17,6 +17,13 @@ pub enum ChatEvent {
     Usage { prompt: u64, completion: u64 },
     Done,
     Error { message: String },
+    /// 模型要调用工具（流里分段到达，按 index 拼起来）。只在 Rust 里用，不发给界面
+    #[serde(skip)]
+    ToolCall { index: usize, id: String, name: String, args: String },
+    /// Agent 用了一个工具：界面上显示成一行「工具药丸」。status：run / done / no（被拒绝）/ err
+    Tool { call: String, agent: String, name: String, arg: String, status: String, result: String },
+    /// 需要用户确认（发送、删除、写文件等）。界面显示确认卡片，用户的选择通过 answer_ask 传回
+    Ask { ask: u64, call: String, kind: String, desc: String, scope: String, hi: bool },
 }
 
 /// 把字节流切成 SSE 事件。网络包可能在任意位置断开（包括 UTF-8 字符中间），所以按字节缓冲。
@@ -82,6 +89,7 @@ impl SseParser {
                     out.push(ChatEvent::Delta { text: t.to_string() });
                 }
             }
+            push_tool_calls(delta, out);
         }
         if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
             out.push(ChatEvent::Usage {
@@ -89,6 +97,19 @@ impl SseParser {
                 completion: u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0),
             });
         }
+    }
+}
+
+/// delta.tool_calls / message.tool_calls → ToolCall 事件
+fn push_tool_calls(v: &Value, out: &mut Vec<ChatEvent>) {
+    for (i, c) in v.get("tool_calls").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        let s = |p: &str| c.pointer(p).and_then(Value::as_str).unwrap_or("").to_string();
+        out.push(ChatEvent::ToolCall {
+            index: c.get("index").and_then(Value::as_u64).map_or(i, |x| x as usize),
+            id: s("/id"),
+            name: s("/function/name"),
+            args: s("/function/arguments"),
+        });
     }
 }
 
@@ -126,19 +147,22 @@ fn friendly_status(code: u16, body: &str) -> String {
 }
 
 /// 发起流式请求，把事件逐个交给 `emit`。返回前一定会发出 Done 或 Error。
-pub async fn stream_chat(
-    endpoint: &str,
-    api_key: Option<&str>,
-    model: &str,
-    messages: &[Value],
-    mut emit: impl FnMut(ChatEvent),
-) {
-    let body = json!({
+#[cfg(test)]
+pub async fn stream_chat(endpoint: &str, api_key: Option<&str>, model: &str, messages: &[Value], emit: impl FnMut(ChatEvent)) {
+    stream_chat_with(endpoint, api_key, model, messages, &json!({}), emit).await
+}
+
+/// 同上，extra 里的字段（tools、max_tokens 等）合并进请求
+pub async fn stream_chat_with(endpoint: &str, api_key: Option<&str>, model: &str, messages: &[Value], extra: &Value, mut emit: impl FnMut(ChatEvent)) {
+    let mut body = json!({
         "model": model,
         "messages": messages,
         "stream": true,
         "stream_options": {"include_usage": true}
     });
+    for (k, v) in extra.as_object().into_iter().flatten() {
+        body[k] = v.clone();
+    }
     let mut req = client(endpoint).post(endpoint).json(&body);
     if let Some(k) = api_key {
         req = req.bearer_auth(k);
@@ -198,6 +222,17 @@ async fn pump(resp: reqwest::Response, mut emit: impl FnMut(ChatEvent)) {
                 if let Some(t) = v.pointer("/choices/0/message/content").and_then(Value::as_str) {
                     emit(ChatEvent::Delta { text: t.to_string() });
                 }
+                let mut calls = vec![];
+                if let Some(m) = v.pointer("/choices/0/message") {
+                    push_tool_calls(m, &mut calls);
+                }
+                calls.into_iter().for_each(&mut emit);
+                if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
+                    emit(ChatEvent::Usage {
+                        prompt: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0),
+                        completion: u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0),
+                    });
+                }
                 emit(ChatEvent::Done);
             }
             Err(e) => emit(ChatEvent::Error { message: format!("读不懂返回内容：{e}") }),
@@ -236,6 +271,59 @@ async fn pump(resp: reqwest::Response, mut emit: impl FnMut(ChatEvent)) {
         emit(ev);
     }
     emit(ChatEvent::Done);
+}
+
+/// 一轮回复：正文、要调用的工具、用了多少 token
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Turn {
+    pub content: String,
+    pub calls: Vec<Call>,
+    pub tokens: u64,
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Call {
+    pub id: String,
+    pub name: String,
+    pub args: String,
+}
+
+/// 请求一轮（可带工具）。正文和思考过程照常通过 emit 流给界面；工具调用拼好后放在返回值里
+pub async fn turn(endpoint: &str, api_key: Option<&str>, model: &str, messages: &[Value], extra: &Value, mut emit: impl FnMut(ChatEvent)) -> Result<Turn, String> {
+    let mut t = Turn::default();
+    let mut err = None;
+    stream_chat_with(endpoint, api_key, model, messages, extra, |ev| match ev {
+        ChatEvent::Delta { ref text } => {
+            t.content.push_str(text);
+            emit(ev);
+        }
+        ChatEvent::Reasoning { .. } => emit(ev),
+        ChatEvent::Usage { prompt, completion } => t.tokens = prompt + completion,
+        ChatEvent::ToolCall { index, id, name, args } => {
+            while t.calls.len() <= index {
+                t.calls.push(Call::default());
+            }
+            let c = &mut t.calls[index];
+            if !id.is_empty() {
+                c.id = id;
+            }
+            c.name.push_str(&name);
+            c.args.push_str(&args);
+        }
+        ChatEvent::Error { message } => err = Some(message),
+        _ => {}
+    })
+    .await;
+    if let Some(e) = err {
+        return Err(e);
+    }
+    t.calls.retain(|c| !c.name.is_empty());
+    for (i, c) in t.calls.iter_mut().enumerate() {
+        if c.id.is_empty() {
+            c.id = format!("call_{i}");
+        }
+    }
+    Ok(t)
 }
 
 /// 设置页「获取模型列表」：GET {接口地址}/models
