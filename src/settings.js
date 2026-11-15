@@ -493,11 +493,12 @@ $("awaySw").addEventListener("click", async () => { if (await savePerm(cfg.alway
 function prefs() {
   const on = (g) => { const b = $(g).querySelector('[aria-checked="true"]'); return b && b.dataset.v; };
   return {
-    shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut, new_shortcut: keyVal.new_shortcut, tasks_shortcut: keyVal.tasks_shortcut,
+    shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut, new_shortcut: keyVal.new_shortcut, tasks_shortcut: keyVal.tasks_shortcut, talk_shortcut: keyVal.talk_shortcut,
     orb_size: +(on("lkSize") || cfg.orb_size), glass: +$("lkGlass").value, eye: on("lkEye") || cfg.eye,
     idle_ms: +$("lkIdle").value, follow_system: sw("lkSys"), auto_dock: sw("lkDock"), calm: sw("lkCalm"),
     hover: { on: sw("hvOn"), delay: +(on("hvSpd") || 350), order: hvOrder },
     ...(selCfg ? { sel: selCfg } : {}),
+    ...(vcCfg ? { voice: vcCfg } : {}),
     screen: on("mdsWhere") || "mouse", screen_slide: sw("mdsSlide"),
   };
 }
@@ -569,7 +570,7 @@ function hvRender(focusId, focusSel) {
 
 // 快捷键：原型的「录制」。写进配置用 Tauri 的写法（Alt+Space），显示用原型的写法（⌥ Space）
 // 原型的 KEY_DEF（程序里已有的四个动作），默认值同原型
-const KEY_DEF = [["shortcut", "唤起/收起", "Alt+Space"], ["new_shortcut", "新对话", "Alt+N"], ["capture_shortcut", "截屏提问", "Alt+S"], ["tasks_shortcut", "打开任务", "Alt+T"]];
+const KEY_DEF = [["shortcut", "唤起/收起", "Alt+Space"], ["new_shortcut", "新对话", "Alt+N"], ["capture_shortcut", "截屏提问", "Alt+S"], ["tasks_shortcut", "打开任务", "Alt+T"], ["talk_shortcut", "按住说话", "RightAlt"]];
 const keyVal = Object.fromEntries(KEY_DEF.map(([k]) => [k, ""]));
 let keyRec = null;
 const isMac = /Mac/.test(navigator.platform);
@@ -584,6 +585,7 @@ function keyName(e) {
 }
 function showCombo(v) {
   if (!v) return "未设置";
+  if (v === "RightAlt") return isMac ? "右 ⌥（按住）" : "右 Alt（按住）";
   const parts = v.split("+"); const key = parts.pop();
   const mods = parts.map((p) => (isMac ? SYM[p] || p : p === "Super" ? "Win" : p === "CommandOrControl" ? "Ctrl" : p === "Control" ? "Ctrl" : p));
   return mods.concat(SHOWN[key] || key).join(isMac ? " " : "+");
@@ -741,6 +743,35 @@ $("selMode").addEventListener("keydown", (e) => {
 $("selTr").addEventListener("change", (e) => { selCfg.tr = e.target.value; savePrefs(); });
 $("selPriv").addEventListener("click", () => invoke("sel_open_privacy").catch(() => {}));
 
+// 语音（原型的 vcCfg）：识别语言、松开后、识别用的服务商和模型、朗读回复
+let vcCfg = null;
+function renderVoice() {
+  const a = document.activeElement && document.activeElement.id;
+  $("vcLang").value = vcCfg.lang; radio("vcAfter", vcCfg.after);
+  const sel = $("vcModel"), ms = cfg.models || [];
+  sel.innerHTML = "";
+  const def = ms.find((m) => m.id === cfg.default_model);
+  const o0 = mk("option", "", "默认模型" + (def ? `（${def.name || def.model}）` : "")); o0.value = "0"; sel.appendChild(o0);
+  ms.forEach((m) => { const o = mk("option", "", m.name || m.model); o.value = String(m.id); sel.appendChild(o); });
+  sel.value = String(ms.some((m) => m.id === vcCfg.model) ? vcCfg.model : 0);
+  sel.disabled = !ms.length;
+  if (a !== "vcStt") $("vcStt").value = vcCfg.stt;
+  $("vcTts").setAttribute("aria-checked", !!vcCfg.tts);
+  $("vcAltK").textContent = cfg.platform === "macos" ? "⌥" : "Alt";
+  $("vcSvcNote").textContent = ms.length ? "用这个模型的接口地址和 Key，调用它的语音识别接口。DeepSeek 等没有语音识别的服务商用不了。" : "先在「模型」里添加一个模型，语音识别用它的接口地址和 Key。";
+}
+$("vcLang").addEventListener("change", (e) => { vcCfg.lang = e.target.value; savePrefs(); });
+$("vcAfter").addEventListener("click", (e) => { const b = e.target.closest("[role=radio]"); if (!b) return; radio("vcAfter", b.dataset.v); vcCfg.after = b.dataset.v; savePrefs(); });
+$("vcAfter").addEventListener("keydown", (e) => {
+  const bs = [...$("vcAfter").querySelectorAll("[role=radio]")], i = bs.indexOf(document.activeElement);
+  const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+  if (!d || i < 0) return; e.preventDefault(); const n = bs[(i + d + bs.length) % bs.length]; n.focus(); n.click();
+});
+$("vcModel").addEventListener("change", (e) => { vcCfg.model = +e.target.value; savePrefs(); });
+$("vcStt").addEventListener("change", (e) => { const v = e.target.value.trim(); if (!v) e.target.value = vcCfg.stt; else { vcCfg.stt = v; savePrefs(); } });
+$("vcStt").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
+$("vcTts").addEventListener("click", () => { vcCfg.tts = !sw("vcTts"); $("vcTts").setAttribute("aria-checked", vcCfg.tts); savePrefs(); });
+
 /* ───────── 读配置 ───────── */
 async function reload() {
   cfg = await invoke("get_config");
@@ -754,6 +785,7 @@ async function reload() {
   { const a = document.activeElement, li = a && a.closest && a.closest("#hvList li"); // 重新渲染时焦点留在原来那一项
     hvRender(li && li.dataset.id, a && a.dataset && a.dataset.d ? `[data-d=${a.dataset.d}]` : "input"); }
   if (cfg.sel) { selCfg = JSON.parse(JSON.stringify(cfg.sel)); renderSel(); }
+  if (cfg.voice) { vcCfg = { ...cfg.voice }; renderVoice(); }
   radio("mdsWhere", cfg.screen || "mouse"); $("mdsSlide").setAttribute("aria-checked", cfg.screen_slide !== false); mdsFig(false);
   $("lkSys").setAttribute("aria-checked", !!cfg.follow_system); $("lkDock").setAttribute("aria-checked", cfg.auto_dock !== false); $("lkCalm").setAttribute("aria-checked", !!cfg.calm);
   if (!$("paneLib").hidden) renderLib();

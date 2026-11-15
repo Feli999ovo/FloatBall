@@ -174,7 +174,27 @@
       <p class="x-note" id="selMacNote" style="margin:0">macOS 需要在 系统设置 → 隐私与安全性 → 辅助功能 里允许本应用读取选中文字。<button type="button" class="x-sb" id="selPriv" hidden>去开启</button></p>
       <p class="x-note" id="selWinNote" hidden style="margin:0">选中文字靠模拟一次 Ctrl+C 读取，读完会把剪贴板原来的内容放回去。终端和资源管理器里不出现。</p>
     </div>
-    <div class="x-pane" id="paneVoice" hidden><p class="x-soon">语音页下一步照原型做</p></div>
+    <div class="x-pane" id="paneVoice" hidden>
+      <label class="x-field"><span>识别语言</span>
+        <select class="x-in" id="vcLang"><option value="auto" selected>自动</option><option value="zh">普通话</option><option value="en">English</option><option value="yue">粤语</option></select>
+      </label>
+      <div class="x-field"><span id="vcAfterL">松开后</span>
+        <div class="x-seg x-lkseg" id="vcAfter" role="radiogroup" aria-labelledby="vcAfterL">
+          <button type="button" role="radio" aria-checked="true" data-v="send">直接发送</button><button type="button" role="radio" aria-checked="false" data-v="box">先放进输入框</button>
+        </div>
+      </div>
+      <div class="x-g2 x-vcsvc">
+        <label class="x-field"><span>识别用哪个服务商</span><select class="x-in" id="vcModel"></select></label>
+        <label class="x-field"><span>识别模型</span><input class="x-in" id="vcStt" list="vcSttList" spellcheck="false" autocomplete="off" placeholder="whisper-1" /></label>
+      </div>
+      <datalist id="vcSttList"><option value="whisper-1"></option><option value="gpt-4o-mini-transcribe"></option><option value="gpt-4o-transcribe"></option><option value="whisper-large-v3"></option><option value="whisper-large-v3-turbo"></option><option value="FunAudioLLM/SenseVoiceSmall"></option></datalist>
+      <p class="x-note" id="vcSvcNote" style="margin:6px 0 14px">用这个模型的接口地址和 Key，调用它的语音识别接口。DeepSeek 等没有语音识别的服务商用不了。</p>
+      <div class="x-bud">
+        <div class="x-ar" style="margin:0"><span id="vcTtsL">朗读回复<small>每条新回复读出来（用系统自带的语音）</small></span><button type="button" class="x-sw" id="vcTts" role="switch" aria-checked="false" aria-labelledby="vcTtsL"></button></div>
+        <div class="x-ar x-vc-wake" style="margin-top:12px"><span id="vcWakeL">唤醒词「嘿，小球」<small>还没做：需要在本机一直听唤醒词，下一版再加。</small></span><button type="button" class="x-sw" id="vcWake" role="switch" aria-checked="false" aria-disabled="true" disabled aria-labelledby="vcWakeL"></button></div>
+      </div>
+      <p class="x-note" style="margin:14px 0 0">长按小球、按住「按住说话」快捷键（默认右 <span id="vcAltK">Alt</span>），或点输入框旁的麦克风。只在按住或听写时录音，录完发给上面选的服务商识别。</p>
+    </div>
   </div>
 </div>
 <div class="x-toast x-glassy" id="toast" role="status"></div>

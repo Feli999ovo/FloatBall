@@ -167,6 +167,10 @@ pub struct Config {
     pub hover: Hover,
     /// 划词工具栏
     pub sel: Sel,
+    /// 语音
+    pub voice: Voice,
+    /// 按住说话：RightAlt（默认）或组合键，空 = 关闭
+    pub talk_shortcut: String,
     /// 多显示器：小球出现在哪块屏幕。mouse 鼠标所在 / main 固定主屏 / last 上次所在
     pub screen: String,
     /// 跟着鼠标换屏时滑过去而不是闪现
@@ -216,6 +220,41 @@ impl Hover {
         self
     }
 }
+
+/// 语音（原型的 vcCfg）。识别用模型库里某个模型的接口地址和 Key，调它的 /audio/transcriptions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Voice {
+    /// 识别语言：auto、zh（普通话）、en、yue（粤语）
+    pub lang: String,
+    /// 松开后：send 直接发送 / box 先放进输入框
+    pub after: String,
+    /// 朗读回复
+    pub tts: bool,
+    /// 用模型库里哪个模型的接口和 Key（编号，0 = 默认模型）
+    pub model: u32,
+    /// 识别模型名，例如 whisper-1、gpt-4o-mini-transcribe、whisper-large-v3、FunAudioLLM/SenseVoiceSmall
+    pub stt: String,
+}
+
+impl Default for Voice {
+    fn default() -> Self {
+        Self { lang: "auto".into(), after: "send".into(), tts: false, model: 0, stt: "whisper-1".into() }
+    }
+}
+
+impl Voice {
+    pub fn normalized(mut self) -> Self {
+        if !["auto", "zh", "en", "yue"].contains(&self.lang.as_str()) { self.lang = "auto".into(); }
+        if self.after != "box" { self.after = "send".into(); }
+        self.stt = self.stt.trim().to_string();
+        if self.stt.is_empty() { self.stt = "whisper-1".into(); }
+        self
+    }
+}
+
+/// 「按住说话」的默认键：单独按住右 Alt（右 ⌥）。不是组合键，全局快捷键注册不了，由划词的后台线程读按键状态
+pub const TALK_RALT: &str = "RightAlt";
 
 /// 划词工具栏（原型的 selCfg）。order 里勾了「显示」的前 6 个放在工具栏上，其余放进「⋯」
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -296,6 +335,8 @@ impl Default for Config {
             calm: false,
             hover: Hover::default(),
             sel: Sel::default(),
+            voice: Voice::default(),
+            talk_shortcut: TALK_RALT.into(),
             screen: "mouse".into(),
             screen_slide: true,
         }
@@ -503,6 +544,18 @@ mod tests {
         c.hover.order[1].show = false;
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
+    }
+
+    #[test]
+    fn voice_normalizes() {
+        let v = Voice { lang: "fr".into(), after: "x".into(), tts: true, model: 3, stt: "  ".into() }.normalized();
+        assert_eq!(v, Voice { lang: "auto".into(), after: "send".into(), tts: true, model: 3, stt: "whisper-1".into() });
+        let v = Voice { lang: "yue".into(), after: "box".into(), stt: " whisper-large-v3 ".into(), ..Voice::default() }.normalized();
+        assert_eq!((v.lang.as_str(), v.after.as_str(), v.stt.as_str()), ("yue", "box", "whisper-large-v3"));
+        // 旧配置里没有 voice、talk_shortcut：用默认值
+        let c: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(c.voice, Voice::default());
+        assert_eq!(c.talk_shortcut, TALK_RALT);
     }
 
     #[test]

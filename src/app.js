@@ -201,22 +201,29 @@ function focusAsk() { if (!$("#vChat").hidden) setTimeout(() => ask.focus(), 30)
 let press = null;
 orb.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
-  press = { x: e.screenX, y: e.screenY, dragged: false };
+  press = { x: e.screenX, y: e.screenY, dragged: false, voice: false, lt: 0 };
+  try { orb.setPointerCapture(e.pointerId); } catch (_) {}
+  // 长按（收起时）：按住说话
+  if (!S.open && !vc) press.lt = setTimeout(() => { if (press && !press.dragged) { press.voice = true; vcStart("press"); } }, VC_HOLD);
 });
 window.addEventListener("pointermove", (e) => {
+  if (press && press.voice) return vcPressMove(e);
   if (!press || press.dragged) return;
   if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 4) {
-    press.dragged = true;
+    press.dragged = true; clearTimeout(press.lt);
     S.userMoved = true;
     if (docked) { orb.classList.remove("peel"); setDock(0); }
     orb.classList.add("dragging");
     appWin.startDragging().catch(() => {});
   }
 });
+window.addEventListener("pointercancel", () => { if (press && press.voice && vc && vc.mode === "press") vcCancel(); if (press) clearTimeout(press.lt); press = null; });
 window.addEventListener("pointerup", () => {
   if (!press) return;
-  const wasDrag = press.dragged;
+  const wasDrag = press.dragged, wasVoice = press.voice;
+  clearTimeout(press.lt);
   press = null;
+  if (wasVoice) { orb.classList.remove("dragging"); if (vc && vc.mode === "press") vcRelease(); return; }
   orb.classList.remove("dragging");
   if (!wasDrag) { poke(); toggle(); }
 });
@@ -341,7 +348,7 @@ const HV_ACT = {
 const hv = { shown: false, t: 0, hideT: 0, box: null };
 const hvQ = $("#hvq"), hvTip = $("#hvTip");
 const hvIds = () => { const h = S.cfg && S.cfg.hover; return h && h.on ? h.order.filter((o) => o.show && HV_ACT[o.id]).slice(0, 4).map((o) => o.id) : []; };
-const hvOk = () => hvIds().length && !S.open && !morphing && !peekBox && !press && !orb.className.includes("s-sleep");
+const hvOk = () => hvIds().length && !vc && !vcBox && !S.open && !morphing && !peekBox && !press && !orb.className.includes("s-sleep");
 orb.addEventListener("pointerenter", () => {
   clearTimeout(hv.hideT);
   if (hv.shown || hv.t || !hvOk()) return;
@@ -671,6 +678,7 @@ function run() {
       invoke("history_append", { convId: S.convId, role: "assistant", content: out }).catch(() => {});
       setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
       mood("done", 1800);
+      vcSpeak(el, out);
       if (!S.open) { poke(); showPeek(out || "回复好了"); }
     } else if (ev.type === "error") {
       finish("err");
@@ -1017,6 +1025,261 @@ async function selAct({ act, text }) {
   run();
 }
 listen("sel:act", ({ payload }) => selAct(payload));
+
+/* ───────── 语音（原型的 vcStart / vcRelease / vcDict） ─────────
+   三种开始方式：长按小球（按住说话，松开结束）· 「按住说话」快捷键（默认单独按住右 Alt）· 胶囊里的麦克风（听写进输入框）。
+   录音用网页的麦克风接口，松开后把整段录音交给语音设置里选的服务商识别（/audio/transcriptions）。
+   和原型不同：识别接口不是流式的，说话时气泡里显示「在听…」和时长，松开后显示「识别中…」，没有逐字出现。 */
+const VC_LEAD = 300, VC_MIN = 600, VC_CANCEL = 48, VC_HOLD = 350, VC_MAXMS = 120000;
+const vcBub = $("#vcBub"), vcRip = $("#vcRip"), vcMic = $("#vcMic");
+const vcTxt = vcBub.querySelector(".vc-txt"), vcTime = vcBub.querySelector(".vc-time");
+const vcRings = [...vcRip.children];
+let vc = null, vcBox = null, vcKeyT = 0, vcAsk0 = "";
+const vcCfg = () => (S.cfg && S.cfg.voice) || { lang: "auto", after: "send", tts: false };
+const vcFmt = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const vcMime = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+function vcSay(t, dim) {
+  vcTxt.textContent = "";
+  if (dim) { const i = document.createElement("i"); i.textContent = t; vcTxt.appendChild(i); } else vcTxt.textContent = t;
+}
+// 收起时窗口只有小球那么大：录音时扩成「小球 + 涟漪 + 一侧的气泡」，小球留在原地（同悬停小泡、回复气泡的做法）
+async function vcOpenBox() {
+  if (vcBox) return;
+  const p = await winPos(), a = await monitorArea();
+  const ORB = SMALL - PAD * 2, E = Math.ceil(ORB / 2 + 62), BW = 16 + 260, H = Math.max(E * 2, 132);
+  const cxs = p.x + SMALL / 2, cys = p.y + SMALL / 2, right = cxs < a.x + a.w / 2;
+  const w = E * 2 + BW, h = H;
+  let x = right ? cxs - E : cxs - E - BW, y = cys - h / 2;
+  x = Math.max(a.x, Math.min(x, a.x + a.w - w)); y = Math.max(a.y, Math.min(y, a.y + a.h - h));
+  const lx = cxs - x, ly = cys - y; // 小球中心在新窗口里的位置
+  vcBox = { p, right, lx, ly, R: ORB / 2 };
+  morphing = true;
+  try {
+    await reshape(w, h, x, y, true, () => {
+      body.classList.add("voicing");
+      $("#app").style.padding = `${ly - ORB / 2}px 0 0 ${lx - ORB / 2}px`;
+      vcBub.style.transformOrigin = right ? "0 50%" : "100% 50%";
+      vcBub.style.borderRadius = right ? "4px 16px 16px 16px" : "16px 4px 16px 16px";
+      vcBub.style.left = right ? lx + ORB / 2 + 16 + "px" : "auto";
+      vcBub.style.right = right ? "auto" : w - lx + ORB / 2 + 16 + "px";
+    });
+  } finally { morphing = false; }
+}
+async function vcCloseBox() {
+  const b = vcBox; if (!b) return;
+  vcBox = null;
+  if (S.open) { body.classList.remove("voicing"); return; } // 已经展开：展开时会自己排版
+  morphing = true;
+  try {
+    await reshape(SMALL, SMALL, b.p.x, b.p.y, true, () => { body.classList.remove("voicing"); $("#app").style.padding = ""; });
+  } finally { morphing = false; }
+}
+function vcPlaceBub() {
+  if (!vcBox) return;
+  const bh = vcBub.offsetHeight;
+  vcBub.style.top = Math.max(4, Math.min(innerHeight - bh - 4, vcBox.ly - bh / 2)) + "px";
+}
+function vcTick() {
+  if (!vc || vc.stopped) return;
+  const now = performance.now(), el = now - vc.t0;
+  let L = 0;
+  if (vc.an) {
+    vc.an.getByteTimeDomainData(vc.buf);
+    let sum = 0; for (const v of vc.buf) { const d = (v - 128) / 128; sum += d * d; }
+    L = Math.min(1, Math.sqrt(sum / vc.buf.length) * 5);
+  }
+  vc.lv += (L - vc.lv) * 0.35;
+  if (vc.mode === "dict") { vcMic.style.setProperty("--vc-l", vc.lv.toFixed(3)); }
+  else {
+    body.style.setProperty("--vc-l", (0.8 + 0.45 * vc.lv).toFixed(3));
+    vcTime.textContent = vcFmt(el);
+    if (vcBox) {
+      const { lx, ly, R } = vcBox;
+      vcRings.forEach((g, i) => {
+        const d = R + 8 + i * 13 + vc.lv * (5 + i * 4) + Math.sin(now / 260 - i * 0.9) * 1.5;
+        g.style.width = g.style.height = d * 2 + "px";
+        g.style.transform = `translate(${lx - d}px,${ly - d}px)`;
+        g.style.opacity = ((0.7 - i * 0.2) * (0.35 + 0.65 * vc.lv)).toFixed(3);
+      });
+      vcPlaceBub();
+    }
+  }
+  if (el > VC_MAXMS) return vc.mode === "dict" ? vcDictStop() : vcRelease(); // 最长 2 分钟
+  vc.raf = requestAnimationFrame(vcTick);
+}
+// 开始录音。mode：press 长按小球 / key 快捷键 / dict 胶囊麦克风
+async function vcStart(mode) {
+  if (vc || S.busy || morphing) return false;
+  if (!S.cfg || !(S.cfg.models || []).length) { toast("先在设置 → 模型里添加一个模型，语音识别要用它的接口"); if (!S.open) showPeek("先在设置里添加模型，才能用语音"); return false; }
+  const me = { mode, t0: performance.now(), cancel: false, stopped: false, lv: 0, chunks: [], raf: 0 };
+  vc = me;
+  if (hv.shown) await hvHide();
+  if (peekBox) await hidePeek();
+  if (mode === "key" && S.open) await collapse();
+  try {
+    me.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (e) {
+    vc = null;
+    const msg = e && e.name === "NotAllowedError" ? "没有麦克风权限。macOS：系统设置 → 隐私与安全性 → 麦克风；Windows：设置 → 隐私 → 麦克风" : e && e.name === "NotFoundError" ? "没找到麦克风" : "打不开麦克风：" + (e && e.message || e);
+    toast(msg); if (!S.open) showPeek(msg); mood("error", 2400);
+    return false;
+  }
+  if (vc !== me) { me.stream.getTracks().forEach((t) => t.stop()); return false; } // 等权限时已经松手、取消了
+  me.mime = vcMime();
+  me.rec = new MediaRecorder(me.stream, me.mime ? { mimeType: me.mime } : undefined);
+  me.rec.ondataavailable = (e) => { if (e.data && e.data.size) me.chunks.push(e.data); };
+  me.rec.start(250);
+  try {
+    me.ctx = new AudioContext(); me.an = me.ctx.createAnalyser(); me.an.fftSize = 512;
+    me.ctx.createMediaStreamSource(me.stream).connect(me.an); me.buf = new Uint8Array(me.an.fftSize);
+  } catch (_) { me.an = null; }
+  me.t0 = performance.now();
+  if (mode === "dict") {
+    vcAsk0 = ask.placeholder; ask.placeholder = "在听…再点一下麦克风结束";
+    vcMic.classList.add("vc-on"); vcMic.setAttribute("aria-pressed", "true"); vcMic.setAttribute("aria-label", "停止听写");
+    ask.focus();
+  } else {
+    if (!S.open) await vcOpenBox();
+    if (vc !== me) return true;
+    mood("listen");
+    body.classList.add("vc-rec");
+    vcBub.classList.remove("vc-x", "vc-out"); vcRip.classList.remove("vc-x");
+    vcSay(S.cfg.voice && S.cfg.voice.lang === "en" ? "Listening…" : "在听…", true); vcTime.textContent = "0:00";
+    vcBub.classList.add("on"); vcRip.classList.add("on");
+  }
+  vcTick();
+  return true;
+}
+// 停止录音，返回录到的音频（取消时不要）
+function vcStopRec(me) {
+  me.stopped = true; cancelAnimationFrame(me.raf);
+  body.classList.remove("vc-rec"); body.style.removeProperty("--vc-l"); vcRip.classList.remove("on");
+  const done = new Promise((r) => {
+    if (!me.rec || me.rec.state === "inactive") return r();
+    me.rec.onstop = () => r(); me.rec.stop();
+  });
+  return done.then(() => {
+    me.stream && me.stream.getTracks().forEach((t) => t.stop());
+    me.ctx && me.ctx.close().catch(() => {});
+    return new Blob(me.chunks, { type: (me.mime || "audio/webm").split(";")[0] });
+  });
+}
+function vcHideBub() {
+  vcBub.classList.add("vc-out");
+  return new Promise((r) => setTimeout(() => { vcBub.classList.remove("on", "vc-out", "vc-x"); vcRip.classList.remove("vc-x"); r(); }, 220));
+}
+// 取消：气泡缩小淡出，小球「嗯？」眯一下眼
+async function vcCancel(msg) {
+  const me = vc; if (!me || me.mode === "dict") return false;
+  vc = null;
+  vcStopRec(me);
+  body.classList.add("vc-eh"); setTimeout(() => body.classList.remove("vc-eh"), 450);
+  mood("idle");
+  await vcHideBub(); await vcCloseBox();
+  if (msg) { toast(msg); if (!S.open) showPeek(msg); }
+  return true;
+}
+function blobB64(b) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = rej; r.readAsDataURL(b); });
+}
+async function vcRecognize(blob) {
+  const audio = await blobB64(blob);
+  return invoke("transcribe", { audio, mime: blob.type || "audio/webm" });
+}
+// 松开：录音交给服务商识别，识别完按「松开后」的设置直接发送或放进输入框
+async function vcRelease() {
+  const me = vc; if (!me || me.mode === "dict" || me.stopped) return;
+  if (me.cancel) return vcCancel();
+  const el = performance.now() - me.t0;
+  if (el < VC_MIN) return vcCancel("说话时间太短");
+  const blob = await vcStopRec(me);
+  vcSay("识别中…", true); vcPlaceBub();
+  mood("think");
+  let text = "", err = "";
+  try { text = (await vcRecognize(blob)).trim(); } catch (e) { err = String(e); }
+  if (vc !== me) return; // 识别途中按了 Esc
+  vc = null;
+  if (!err && text) { vcSay(text); vcPlaceBub(); await new Promise((r) => setTimeout(r, 450)); }
+  await vcHideBub(); await vcCloseBox();
+  if (err || !text) { mood(err ? "error" : "idle", 2400); const m = err || "没听清，再说一次"; toast(m); if (!S.open) showPeek(m); return; }
+  mood("idle");
+  await expand("chat");
+  if (vcCfg().after === "box") {
+    ask.value = text; autosize(); ask.focus(); ask.setSelectionRange(text.length, text.length);
+  } else send(text);
+}
+// 胶囊麦克风：听写进输入框；点第二下停止，回车停止并发送
+async function vcDictStop(thenSend) {
+  const me = vc; if (!me || me.mode !== "dict" || me.stopped) return;
+  const blob = await vcStopRec(me);
+  vcMic.classList.remove("vc-on"); vcMic.setAttribute("aria-pressed", "false"); vcMic.setAttribute("aria-label", "语音输入：听写到输入框");
+  vcMic.classList.add("vc-busy"); ask.placeholder = "识别中…";
+  let text = "", err = "";
+  try { if (performance.now() - me.t0 >= VC_MIN) text = (await vcRecognize(blob)).trim(); } catch (e) { err = String(e); }
+  vcMic.classList.remove("vc-busy"); ask.placeholder = vcAsk0 || "有什么可以帮你？";
+  if (vc === me) vc = null;
+  if (err) { toastErr(err); return; }
+  if (text) {
+    const base = ask.value.replace(/\s+$/, "");
+    ask.value = base + (base && /[A-Za-z0-9]$/.test(base) && /^[A-Za-z0-9]/.test(text) ? " " : "") + text;
+    autosize();
+  } else if (!thenSend) toast("没听清，再说一次");
+  ask.focus(); ask.setSelectionRange(ask.value.length, ask.value.length);
+  if (thenSend) send();
+}
+vcMic.addEventListener("mousedown", (e) => e.preventDefault()); // 不抢输入框焦点
+vcMic.addEventListener("click", () => { if (vc && vc.mode === "dict") vcDictStop(); else if (!vc) vcStart("dict"); });
+// 听写时回车：先停听写、识别完再发送
+ask.addEventListener("keydown", (e) => {
+  if (vc && vc.mode === "dict" && !vc.stopped && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); e.stopImmediatePropagation(); vcDictStop(true); }
+}, true);
+// Esc：取消录音 / 停止听写（先于其他 Esc 逻辑）
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !vc) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (vc.mode === "dict") vcDictStop(); else vcCancel();
+}, true);
+// 长按小球：按住 350ms 不动开始说话；拖开 48 像素「松开取消」，拖回来恢复
+function vcPressMove(e) {
+  if (!vc || vc.mode !== "press" || !press) return;
+  const far = Math.hypot(e.screenX - press.x, e.screenY - press.y) >= VC_CANCEL;
+  if (far === vc.cancel) return;
+  vc.cancel = far;
+  vcBub.classList.toggle("vc-x", far); vcRip.classList.toggle("vc-x", far);
+}
+// 快捷键「按住说话」：按下超过 300ms 才开始（单独按一下右 Alt 不算），松开结束
+listen("voice:key", ({ payload: down }) => {
+  if (down) {
+    if (vc || vcKeyT) return;
+    vcKeyT = setTimeout(() => { vcKeyT = 0; vcStart("key"); }, VC_LEAD);
+  } else {
+    clearTimeout(vcKeyT); vcKeyT = 0;
+    if (vc && vc.mode === "key") vcRelease();
+  }
+});
+
+// 朗读回复：开着时每条新回复读完后用系统语音读出来，回复下面出现「朗读中 · 停止」
+const VC_SPK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/></svg>';
+function vcSpeak(el, text) {
+  if (!vcCfg().tts || !window.speechSynthesis || !text) return;
+  const plain = text.replace(/```[\s\S]*?```/g, "（代码）").replace(/[#*_`>|]/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
+  if (!plain) return;
+  speechSynthesis.cancel();
+  document.querySelectorAll(".vc-tts:not(.vc-end)").forEach((c) => c._end("已停止"));
+  const c = document.createElement("div"), lb = document.createElement("span"), b = document.createElement("button");
+  c.className = "vc-tts"; b.type = "button"; b.textContent = "停止"; b.setAttribute("aria-label", "停止朗读");
+  const set = (t) => { lb.innerHTML = VC_SPK; lb.append(t); };
+  set("朗读中");
+  c._end = (t) => { if (c.classList.contains("vc-end")) return; set(t); c.classList.add("vc-end"); };
+  b.onclick = () => { speechSynthesis.cancel(); c._end("已停止"); };
+  c.append(lb, b);
+  el.appendChild(c); scrollEnd();
+  const u = new SpeechSynthesisUtterance(plain.slice(0, 4000));
+  const lang = vcCfg().lang;
+  u.lang = lang === "en" ? "en-US" : lang === "yue" ? "zh-HK" : hasZh(plain) ? "zh-CN" : "en-US";
+  u.onend = () => c._end("已读完"); u.onerror = () => c._end("已停止");
+  speechSynthesis.speak(u);
+}
 
 /* ───────── 启动 ───────── */
 (async () => {

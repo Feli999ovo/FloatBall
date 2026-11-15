@@ -91,6 +91,8 @@ pub struct Pointer {
     pub alt: bool,
     pub esc: bool,
     pub ibeam: bool,
+    /// 单独按着右 Alt（右 ⌥）：语音的「按住说话」
+    pub ralt: bool,
     pub x: f64,
     pub y: f64,
 }
@@ -98,7 +100,7 @@ pub struct Pointer {
 #[cfg(windows)]
 mod plat {
     use super::Pointer;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_MENU, VK_RBUTTON};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_LMENU, VK_LWIN, VK_MENU, VK_RBUTTON, VK_RMENU, VK_RWIN, VK_SHIFT};
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorInfo, GetSystemMetrics, LoadCursorW, CURSORINFO, IDC_IBEAM, SM_SWAPBUTTON};
 
     pub const PHYSICAL: bool = true;
@@ -113,7 +115,9 @@ mod plat {
             let ibeam = !ci.hCursor.is_null() && ci.hCursor == LoadCursorW(std::ptr::null_mut(), IDC_IBEAM);
             let left = if GetSystemMetrics(SM_SWAPBUTTON) != 0 { VK_RBUTTON } else { VK_LBUTTON };
             let held = |vk: u16| (GetAsyncKeyState(vk as i32) as u16) & 0x8000 != 0;
-            Some(Pointer { down: held(left), alt: held(VK_MENU), esc: held(VK_ESCAPE), ibeam, x: ci.ptScreenPos.x as f64, y: ci.ptScreenPos.y as f64 })
+            // AltGr 等于 Ctrl + 右 Alt：按着 Ctrl 不算
+            let ralt = held(VK_RMENU) && !held(VK_LMENU) && !held(VK_CONTROL) && !held(VK_SHIFT) && !held(VK_LWIN) && !held(VK_RWIN);
+            Some(Pointer { down: held(left), alt: held(VK_MENU), esc: held(VK_ESCAPE), ibeam, ralt, x: ci.ptScreenPos.x as f64, y: ci.ptScreenPos.y as f64 })
         }
     }
 
@@ -153,6 +157,10 @@ mod plat {
     const COMBINED: i32 = 0;
     const ALT_MASK: u64 = 0x0008_0000;
     const KEY_ESC: u16 = 53;
+    const KEY_RALT: u16 = 61;
+    const KEY_LALT: u16 = 58;
+    /// ⌘、⌃、⇧
+    const OTHER_MASK: u64 = 0x0010_0000 | 0x0004_0000 | 0x0002_0000;
 
     pub fn pointer() -> Option<Pointer> {
         unsafe {
@@ -167,6 +175,7 @@ mod plat {
                 alt: CGEventSourceFlagsState(COMBINED) & ALT_MASK != 0,
                 esc: CGEventSourceKeyState(COMBINED, KEY_ESC),
                 ibeam: true,
+                ralt: CGEventSourceKeyState(COMBINED, KEY_RALT) && !CGEventSourceKeyState(COMBINED, KEY_LALT) && CGEventSourceFlagsState(COMBINED) & OTHER_MASK == 0,
                 x: p.x,
                 y: p.y,
             })
@@ -224,11 +233,18 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     let mut was_down = false;
     let mut press_ibeam = false;
     let own_pid = std::process::id() as u64;
+    let mut was_talk = false;
     loop {
         std::thread::sleep(Duration::from_millis(25));
         let Some(p) = plat::pointer() else { continue };
         let st = app.state::<crate::AppState>();
-        let sel = st.cfg.lock().unwrap().sel.clone();
+        let (sel, talk_on) = { let c = st.cfg.lock().unwrap(); (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT) };
+        // 按住说话（默认的右 Alt）：按下、松开都告诉小球，小球自己判断按够 300ms 才开始
+        let talk = talk_on && p.ralt;
+        if talk != was_talk {
+            was_talk = talk;
+            let _ = app.emit_to("main", "voice:key", talk);
+        }
         let bar = app.get_webview_window("selbar");
         let shown = bar.as_ref().map(|b| b.is_visible().unwrap_or(false)).unwrap_or(false);
         if !sel.on {

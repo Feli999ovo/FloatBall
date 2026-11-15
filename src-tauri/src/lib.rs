@@ -236,6 +236,10 @@ struct Prefs {
     screen_slide: Option<bool>,
     #[serde(default)]
     sel: Option<config::Sel>,
+    #[serde(default)]
+    voice: Option<config::Voice>,
+    #[serde(default)]
+    talk_shortcut: Option<String>,
 }
 
 /// 多显示器：鼠标位置和所有屏幕（都是物理像素），给小球判断该待在哪块屏幕
@@ -272,6 +276,8 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     if let Some(v) = prefs.calm { next.calm = v; }
     if let Some(v) = prefs.hover { next.hover = v.normalized(); }
     if let Some(v) = prefs.sel { next.sel = v.normalized(); }
+    if let Some(v) = prefs.voice { next.voice = v.normalized(); }
+    if let Some(v) = prefs.talk_shortcut { next.talk_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.screen { if matches!(v.as_str(), "mouse" | "main" | "last") { next.screen = v; } }
     if let Some(v) = prefs.screen_slide { next.screen_slide = v; }
     let busy = register_shortcuts(&app, &state, &next)?;
@@ -307,6 +313,25 @@ fn save_position(state: State<'_, AppState>, x: f64, y: f64) -> Result<(), Strin
     let mut c = state.cfg.lock().unwrap();
     c.position = Some((x, y));
     c.save(&state.cfg_dir)
+}
+
+/// 语音识别：录音（base64）交给语音设置里选的模型的服务商。返回识别出的文字
+#[tauri::command]
+async fn transcribe(state: State<'_, AppState>, audio: String, mime: String) -> Result<String, String> {
+    use base64::Engine;
+    let (m, v) = {
+        let c = state.cfg.lock().unwrap();
+        let v = c.voice.clone();
+        let m = c.models.iter().find(|m| m.id == v.model).or_else(|| c.models.iter().find(|m| m.id == c.default_model)).or(c.models.first()).cloned();
+        (m, v)
+    };
+    let m = m.ok_or("还没有配置模型。右键小球 → 设置 → 模型")?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(audio.trim()).map_err(|_| "录音数据不对".to_string())?;
+    if bytes.len() > 24 * 1024 * 1024 {
+        return Err("录音太长了，请分几次说".into());
+    }
+    let key = if m.no_key { None } else { config::get_api_key(m.id) };
+    llm::transcribe(&m.base(), key.as_deref(), &v.stt, &v.lang, bytes, &mime).await
 }
 
 /// 表单里填了 Key 就用填的；没填就用这个模型已经存的
@@ -745,7 +770,9 @@ fn register_shortcuts<R: Runtime>(app: &AppHandle<R>, state: &AppState, cfg: &Co
     };
     // 原型的快捷键页：唤起/收起、新对话、截屏提问、打开任务
     let mut list: Vec<(Shortcut, &'static str)> = vec![];
-    for (v, act) in [(&cfg.shortcut, "toggle"), (&cfg.new_shortcut, "new_chat"), (&cfg.capture_shortcut, "capture"), (&cfg.tasks_shortcut, "tasks")] {
+    // 按住说话：默认的右 Alt 由划词的后台线程读按键状态，不在这里注册；改成组合键时才注册
+    let talk = if cfg.talk_shortcut == config::TALK_RALT { "" } else { cfg.talk_shortcut.as_str() };
+    for (v, act) in [(&cfg.shortcut, "toggle"), (&cfg.new_shortcut, "new_chat"), (&cfg.capture_shortcut, "capture"), (&cfg.tasks_shortcut, "tasks"), (&talk.to_string(), "talk")] {
         if let Some(sc) = parse(v)? {
             if list.iter().any(|(o, _)| *o == sc) {
                 return Err(format!("快捷键「{v}」重复了，每个只能用一次"));
@@ -803,11 +830,18 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, sc, ev| {
+                    let st = app.state::<AppState>();
+                    let act = st.shortcuts.lock().unwrap().iter().find(|(s, _)| s == sc).map(|(_, a)| *a);
+                    // 按住说话：按下开始、松开结束
+                    if act == Some("talk") {
+                        let down = ev.state() == ShortcutState::Pressed;
+                        if down { show_ball(app); }
+                        let _ = app.emit_to("main", "voice:key", down);
+                        return;
+                    }
                     if ev.state() != ShortcutState::Pressed {
                         return;
                     }
-                    let st = app.state::<AppState>();
-                    let act = st.shortcuts.lock().unwrap().iter().find(|(s, _)| s == sc).map(|(_, a)| *a);
                     if let Some(act) = act {
                         show_ball(app);
                         let _ = app.emit_to("main", "menu", act.to_string());
@@ -892,7 +926,8 @@ pub fn run() {
             read_text_file,
             show_context_menu,
             hide_ball,
-            js_log
+            js_log,
+            transcribe
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

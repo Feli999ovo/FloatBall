@@ -131,6 +131,55 @@ pub fn client(endpoint: &str) -> reqwest::Client {
     b.build().expect("http client")
 }
 
+/// 语音识别：OpenAI 兼容的 /audio/transcriptions（multipart 上传录音）。
+/// lang：auto 不传、zh / en 直接传；粤语（yue）不是 ISO-639-1，不传 language，改用提示词说明是粤语
+pub fn transcription_form(model: &str, lang: &str, audio: &[u8], mime: &str, boundary: &str) -> Vec<u8> {
+    let ext = match mime.split(';').next().unwrap_or("").trim() {
+        "audio/mp4" | "audio/x-m4a" | "audio/aac" => "m4a",
+        "audio/ogg" => "ogg",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/mpeg" => "mp3",
+        _ => "webm",
+    };
+    let mut fields: Vec<(&str, &str)> = vec![("model", model), ("response_format", "json")];
+    match lang {
+        "zh" | "en" => fields.push(("language", lang)),
+        "yue" => fields.push(("prompt", "以下是粤语。")),
+        _ => {}
+    }
+    let mut b = Vec::with_capacity(audio.len() + 512);
+    for (k, v) in fields {
+        b.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n").as_bytes());
+    }
+    let ct = mime.split(';').next().unwrap_or("audio/webm").trim();
+    b.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"voice.{ext}\"\r\nContent-Type: {ct}\r\n\r\n").as_bytes());
+    b.extend_from_slice(audio);
+    b.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    b
+}
+
+pub async fn transcribe(base: &str, api_key: Option<&str>, model: &str, lang: &str, audio: Vec<u8>, mime: &str) -> Result<String, String> {
+    let url = format!("{base}/audio/transcriptions");
+    let boundary = format!("fbvoice{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+    let body = transcription_form(model, lang, &audio, mime, &boundary);
+    let mut req = client(&url)
+        .post(&url)
+        .timeout(Duration::from_secs(60))
+        .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+        .body(body);
+    if let Some(k) = api_key {
+        req = req.bearer_auth(k);
+    }
+    let resp = req.send().await.map_err(|e| if e.is_connect() { format!("连不上接口地址：{e}") } else if e.is_timeout() { "识别超时".into() } else { e.to_string() })?;
+    let code = resp.status().as_u16();
+    let text = resp.text().await.unwrap_or_default();
+    if !(200..300).contains(&code) {
+        return Err(if code == 404 { format!("这个服务商没有语音识别接口，或识别模型名不对（404）：{}", text.chars().take(160).collect::<String>()) } else { friendly_status(code, &text) });
+    }
+    let v: Value = serde_json::from_str(&text).map_err(|_| format!("识别结果看不懂：{}", text.chars().take(160).collect::<String>()))?;
+    Ok(v.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string())
+}
+
 fn friendly_status(code: u16, body: &str) -> String {
     let detail = serde_json::from_str::<Value>(body)
         .ok()
@@ -431,6 +480,15 @@ mod tests {
     }
 
     #[test]
+    fn transcription_form_fields() {
+        let f = String::from_utf8_lossy(&transcription_form("m", "yue", b"A", "audio/mp4", "B")).to_string();
+        assert!(f.contains("name=\"prompt\"\r\n\r\n以下是粤语。") && !f.contains("name=\"language\""));
+        assert!(f.contains("filename=\"voice.m4a\"\r\nContent-Type: audio/mp4\r\n\r\nA\r\n--B--\r\n"));
+        let f = String::from_utf8_lossy(&transcription_form("m", "auto", b"A", "audio/ogg;codecs=opus", "B")).to_string();
+        assert!(!f.contains("language") && !f.contains("prompt") && f.contains("voice.ogg"));
+    }
+
+    #[test]
     fn friendly_errors() {
         let m = friendly_status(401, r#"{"error":{"message":"Incorrect API key"}}"#);
         assert!(m.contains("API Key") && m.contains("Incorrect API key"));
@@ -489,6 +547,28 @@ mod http_tests {
         assert!(req.contains("authorization: Bearer sk-x") || req.contains("Authorization: Bearer sk-x"));
         assert!(req.contains("\"stream\":true"));
         assert_eq!(evs, vec![ChatEvent::Delta { text: "你".into() }, ChatEvent::Delta { text: "好".into() }, ChatEvent::Done]);
+    }
+
+    #[tokio::test]
+    async fn transcribes_audio() {
+        let (addr, h) = serve("200 OK", "application/json", "{\"text\":\" 帮我整理周报 \"}");
+        let audio = b"\x1aE\xdf\xa3fake-webm".to_vec();
+        let t = transcribe(&format!("{addr}/v1"), Some("sk-v"), "whisper-1", "zh", audio, "audio/webm;codecs=opus").await;
+        let req = h.join().unwrap();
+        assert_eq!(t.unwrap(), "帮我整理周报");
+        assert!(req.starts_with("POST /v1/audio/transcriptions "));
+        assert!(req.to_lowercase().contains("authorization: bearer sk-v"));
+        assert!(req.contains("multipart/form-data; boundary=fbvoice"));
+        assert!(req.contains("name=\"model\"\r\n\r\nwhisper-1\r\n") && req.contains("name=\"language\"\r\n\r\nzh\r\n"));
+        assert!(req.contains("filename=\"voice.webm\"\r\nContent-Type: audio/webm\r\n\r\n\u{1a}E"));
+    }
+
+    #[tokio::test]
+    async fn transcribe_404_explains() {
+        let (addr, h) = serve("404 Not Found", "application/json", "{\"error\":{\"message\":\"not found\"}}");
+        let e = transcribe(&format!("{addr}/v1"), None, "x", "auto", vec![1, 2], "audio/mp4").await.unwrap_err();
+        h.join().unwrap();
+        assert!(e.contains("没有语音识别接口") && e.contains("404"), "{e}");
     }
 
     #[tokio::test]

@@ -408,3 +408,37 @@ html.calm .x-hvb, html.calm .x-hvq.on .x-hvb { transition: opacity .12s linear, 
 .x-sel-q{display:block;margin:0 0 6px;padding:2px 0 2px 8px;border-left:2px solid rgba(255,241,220,.6);color:rgba(255,255,255,.78);white-space:pre-line;
   display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .x-sel-qa{display:block}
+
+/* ───────── 语音（原型的 x-vc-*） ───────── */
+#vcMic.vc-on { color: #ffe2a8; background: rgba(255, 190, 110, 0.24); box-shadow: 0 0 0 1px rgba(255, 214, 160, 0.6), 0 0 14px rgba(255, 170, 90, 0.6); animation: vcglow 1.2s ease-in-out infinite; }
+#vcMic.vc-busy { opacity: 0.5; pointer-events: none; }
+@keyframes vcglow { 50% { box-shadow: 0 0 0 1px rgba(255, 214, 160, 0.8), 0 0 24px rgba(255, 170, 90, 0.9); } }
+/* 录音时眼睛跟着音量变高变矮 */
+body.vc-rec .eye { transform: translate(var(--lx, 0), var(--ly, 0)) scaleY(var(--vc-l, 1)); transition: transform 60ms linear; animation: none; }
+body.vc-eh .eye { transform: translate(var(--lx, 0), var(--ly, 0)) scaleY(0.35); transition: transform 0.12s; }
+#vcRip { position: fixed; left: 0; top: 0; z-index: 4; width: 0; height: 0; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+#vcRip.on { opacity: 1; }
+#vcRip i { position: absolute; left: 0; top: 0; border-radius: 50%; box-sizing: border-box; border: 1px solid rgba(255, 241, 220, 0.5);
+  background: radial-gradient(closest-side, transparent 82%, rgba(255, 255, 255, 0.07)); box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.16), 0 0 10px rgba(255, 200, 150, 0.14); transition: border-color 0.2s, box-shadow 0.2s; }
+#vcRip.vc-x i { border-color: rgba(255, 150, 150, 0.65); box-shadow: inset 0 0 8px rgba(255, 140, 140, 0.2), 0 0 12px rgba(255, 110, 110, 0.25); }
+#vcBub { position: fixed; left: 0; top: 0; z-index: 7; width: max-content; min-width: 150px; max-width: 260px; box-sizing: border-box; margin: 0; padding: 10px 14px 24px; border-radius: 16px;
+  /* 原型 x-glassy：rgba(14,12,40,.58)+背景模糊；透明窗口没有背景模糊，底色加深到 .74 保证字看得清 */
+  border: 0; background: rgba(14, 12, 40, 0.74); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 18px 44px rgba(0, 0, 0, 0.42); color: #fff;
+  pointer-events: none; visibility: hidden; opacity: 0; transform: scale(0.9); transition: opacity 0.16s ease-out, transform 0.16s ease-out, background 0.2s, visibility 0s 0.2s; }
+#vcBub.on { visibility: visible; opacity: 1; transform: none; transition: opacity 0.16s ease-out, transform 0.16s ease-out, background 0.2s, visibility 0s; }
+#vcBub.on.vc-out { opacity: 0; transform: scale(0.35); transition: opacity 0.2s ease-in, transform 0.2s ease-in; }
+#vcBub.vc-x { background: rgba(110, 28, 48, 0.8); box-shadow: inset 0 0 0 1px rgba(255, 150, 150, 0.55), 0 18px 44px rgba(0, 0, 0, 0.42); }
+#vcBub .vc-txt { margin: 0; font-size: 13px; line-height: 1.55; color: #fff; word-break: break-word; }
+#vcBub .vc-txt i { font-style: normal; color: rgba(255, 255, 255, 0.5); }
+#vcBub .vc-time { position: absolute; right: 12px; bottom: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.62); }
+#vcBub .vc-cx { position: absolute; left: 14px; bottom: 6px; font-size: 11px; color: #ffc9c9; opacity: 0; transition: opacity 0.15s; }
+#vcBub.vc-x .vc-cx { opacity: 1; }
+body:not(.collapsed) #vcBub, body:not(.collapsed) #vcRip { display: none; }
+/* 朗读回复的小标签 */
+.vc-tts { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 3px 3px 3px 10px; border-radius: 99px; background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); font-size: 12px; color: var(--eye); }
+.vc-tts svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; margin-right: 4px; }
+.vc-tts button { min-height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 99px; background: rgba(255, 255, 255, 0.06); color: inherit; font-size: 12px; cursor: pointer; }
+.vc-tts.vc-end { padding-right: 10px; color: var(--mut); }
+.vc-tts.vc-end button { display: none; }
+@media (prefers-reduced-motion: reduce) { #vcMic.vc-on { animation: none; } }
