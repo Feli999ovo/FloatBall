@@ -232,12 +232,21 @@ fn read_selection(own_pid: u64, ibeam: bool) -> Option<(String, String)> {
     #[cfg(windows)]
     {
         match uia::selected_text() {
-            Ok(t) if !t.trim().is_empty() => {
+            Ok((t, _)) if !t.trim().is_empty() => {
                 log::info!("前台程序 {exe}：无障碍接口读到了");
                 return Some((who, t));
             }
-            Ok(_) => log::info!("前台程序 {exe}：无障碍接口没有选中文字"),
+            Ok((_, why)) => log::info!("前台程序 {exe}：无障碍接口没读到（{why}）"),
             Err(e) => log::info!("前台程序 {exe}：无障碍接口读不了（{e}）"),
+        }
+        // 老式文本框（经典记事本等 Win32 Edit/RichEdit）：直接问控件选区，也不碰剪贴板
+        match edit::selected_text() {
+            Ok(t) if !t.trim().is_empty() => {
+                log::info!("前台程序 {exe}：文本框接口读到了");
+                return Some((who, t));
+            }
+            Ok(_) => log::info!("前台程序 {exe}：文本框里没有选中文字"),
+            Err(why) => log::info!("前台程序 {exe}：不是老式文本框（{why}）"),
         }
         if !ibeam {
             return None;
@@ -261,15 +270,18 @@ mod uia {
     /// 最多读这么多字（工具栏本来也会截断）
     const MAX: i32 = 20_000;
 
-    pub fn selected_text() -> windows::core::Result<String> {
+    /// 返回（文字，没读到时的原因）
+    pub fn selected_text() -> windows::core::Result<(String, &'static str)> {
         unsafe {
             // 每次都在新开的后台线程里调用：自己初始化 COM（MTA，不占用任何窗口线程）
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             let ua: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
             let walker = ua.RawViewWalker()?;
             let mut el = ua.GetFocusedElement()?;
+            let mut why = "焦点和上层都没有文本接口";
             for _ in 0..8 {
                 if let Ok(tp) = el.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) {
+                    why = "有文本接口，选区为空";
                     let ranges = tp.GetSelection()?;
                     let mut out = String::new();
                     for i in 0..ranges.Length()? {
@@ -280,7 +292,7 @@ mod uia {
                         out.push_str(&t);
                     }
                     if !out.trim().is_empty() {
-                        return Ok(out);
+                        return Ok((out, ""));
                     }
                 }
                 match walker.GetParentElement(&el) {
@@ -288,7 +300,62 @@ mod uia {
                     Err(_) => break,
                 }
             }
-            Ok(String::new())
+            Ok((String::new(), why))
+        }
+    }
+}
+
+/// 老式 Win32 文本框：找到前台线程的焦点控件，类名是 Edit / RichEdit 时用 EM_GETSEL + WM_GETTEXT 取选区。
+#[cfg(windows)]
+mod edit {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId, SendMessageTimeoutW, GUITHREADINFO,
+        SMTO_ABORTIFHUNG, WM_GETTEXT, WM_GETTEXTLENGTH,
+    };
+    const EM_GETSEL: u32 = 0x00B0;
+    /// 文本太长就不读（选区下标只有 16 位能直接拿到）
+    const MAX_LEN: usize = 2_000_000;
+
+    fn send(h: windows_sys::Win32::Foundation::HWND, msg: u32, w: usize, l: isize) -> Option<usize> {
+        let mut r = 0usize;
+        let ok = unsafe { SendMessageTimeoutW(h, msg, w, l, SMTO_ABORTIFHUNG, 300, &mut r) };
+        (ok != 0).then_some(r)
+    }
+
+    pub fn selected_text() -> Result<String, &'static str> {
+        unsafe {
+            let fg = GetForegroundWindow();
+            if fg.is_null() {
+                return Err("没有前台窗口");
+            }
+            let tid = GetWindowThreadProcessId(fg, std::ptr::null_mut());
+            let mut gi: GUITHREADINFO = std::mem::zeroed();
+            gi.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+            if GetGUIThreadInfo(tid, &mut gi) == 0 || gi.hwndFocus.is_null() {
+                return Err("找不到焦点控件");
+            }
+            let h = gi.hwndFocus;
+            let mut cls = [0u16; 64];
+            let n = GetClassNameW(h, cls.as_mut_ptr(), cls.len() as i32).max(0) as usize;
+            let cls = String::from_utf16_lossy(&cls[..n]).to_ascii_lowercase();
+            if !(cls == "edit" || cls.starts_with("richedit")) {
+                return Err("焦点控件不是 Edit/RichEdit");
+            }
+            // 选区起止（按 UTF-16 下标）：传指针让系统跨进程带回 32 位值
+            let (mut a, mut b) = (0u32, 0u32);
+            send(h, EM_GETSEL, &mut a as *mut u32 as usize, &mut b as *mut u32 as isize).ok_or("控件没响应")?;
+            let (a, b) = (a as usize, b as usize);
+            if b <= a {
+                return Ok(String::new());
+            }
+            let len = send(h, WM_GETTEXTLENGTH, 0, 0).ok_or("控件没响应")?;
+            if len > MAX_LEN || b > len {
+                return Err("文本太长或选区不对");
+            }
+            let mut buf = vec![0u16; len + 1];
+            let got = send(h, WM_GETTEXT, buf.len(), buf.as_mut_ptr() as isize).ok_or("控件没响应")?;
+            let got = got.min(len);
+            Ok(String::from_utf16_lossy(&buf[a.min(got)..b.min(got)]))
         }
     }
 }
