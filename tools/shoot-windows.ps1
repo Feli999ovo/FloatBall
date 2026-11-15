@@ -63,6 +63,18 @@ function Say([string]$label) {
   $r = WinRect
   if ($r) { Write-Host "$label：窗口 x=$($r.Left) y=$($r.Top) 宽=$($r.Right - $r.Left) 高=$($r.Bottom - $r.Top)" } else { Write-Host "$label：没找到窗口" }
 }
+function ProbeBall([string]$label) {
+  # 点一下小球看能不能展开，再点一下收起来：二分找出哪一步之后点不开
+  $r = WinRect
+  if (-not $r) { return }
+  $cx = [int](($r.Left + $r.Right) / 2); $cy = [int](($r.Top + $r.Bottom) / 2)
+  Click $cx $cy; Start-Sleep -Milliseconds 1200; Say "试点小球-$label"
+  $r2 = WinRect
+  if ($r2 -and ($r2.Right - $r2.Left) -gt 200) {
+    Click $cx $cy
+    Start-Sleep -Milliseconds 1200
+  }
+}
 function DoubleClick([int]$x, [int]$y) {
   [void][FloatBall.Desk]::SetCursorPos($x, $y)
   Start-Sleep -Milliseconds 300
@@ -93,7 +105,9 @@ if ($Wallpaper) {
 }
 
 # 划词默认关：截图要看划词工具栏，先在配置里打开（只改这台云端构建机上的配置）
-$cfgDir = Join-Path $env:APPDATA 'com.floatball.desktop'
+# 程序旁边有 data 目录时是便携模式，配置在那里（CI 里就是这样），否则在 %APPDATA%
+$cfgDir = Join-Path (Split-Path (Resolve-Path $Exe)) 'data'
+if (-not (Test-Path $cfgDir)) { $cfgDir = Join-Path $env:APPDATA 'com.floatball.desktop' }
 New-Item -ItemType Directory -Force $cfgDir | Out-Null
 $cfgFile = Join-Path $cfgDir 'config.json'
 $cfg = if (Test-Path $cfgFile) { Get-Content $cfgFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
@@ -159,6 +173,7 @@ try {
   if ($sr) { Click ($sr.Right - 41) ($sr.Top + 31); Start-Sleep -Milliseconds 800 }   # 点右上角关掉设置
 
   # 语音：按住右 Alt 说话（构建机没有麦克风，看的是没麦克风/授权时怎么提示）
+  ProbeBall '设置之后'
   Write-Host "$([DateTimeOffset]::Now.ToUnixTimeMilliseconds()) 步骤 按右Alt"
   [void][FloatBall.Desk]::SetCursorPos(200, 200)
   [FloatBall.Desk]::keybd_event(0xA5, 0, 0x0001, [UIntPtr]::Zero)          # 右 Alt 按下
@@ -168,6 +183,7 @@ try {
   Start-Sleep -Milliseconds 1500
   Shot '10_松开右Alt'
   Start-Sleep -Seconds 6   # 等提示消失
+  ProbeBall '右Alt之后'
 
   # 划词：在记事本里双击选中一个词，看工具栏出现在哪
   $txt = Join-Path $env:RUNNER_TEMP '划词测试.txt'
