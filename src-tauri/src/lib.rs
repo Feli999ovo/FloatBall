@@ -481,10 +481,10 @@ async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option<Sel
     log::info!("sel_place 开始 {w}x{h} @ {x},{y}");
     let win = app.get_webview_window("selbar")?;
     #[cfg(windows)]
-    let was = win.is_visible().unwrap_or(false);
+    let was = selection::bar_shown();
     #[cfg(windows)]
     if was {
-        let _ = win.hide(); // 截图时别把上一次的工具栏截进去
+        selection::bar_hide(&win); // 截图时别把上一次的工具栏截进去
     }
     let placed = selection::place(&win, x, y, w, h);
     #[cfg(windows)]
@@ -506,7 +506,7 @@ async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option<Sel
         None
     };
     log::info!("sel_place 显示工具栏，底图 {}", bd.is_some());
-    let _ = win.show();
+    selection::bar_show(&win);
     log::info!("sel_place 完成");
     bd
 }
@@ -521,6 +521,7 @@ fn sel_resize(app: AppHandle, w: f64, h: f64) {
         let bottom = m.position().y + m.size().height as i32 - 8;
         let y = if pos.y + hp as i32 > bottom { (bottom - hp as i32).max(m.position().y) } else { pos.y };
         let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, y));
+        selection::bar_rect((pos.x, y, wp, hp));
     }
     let _ = win.set_size(tauri::PhysicalSize::new(wp, hp));
 }
@@ -528,7 +529,7 @@ fn sel_resize(app: AppHandle, w: f64, h: f64) {
 #[tauri::command]
 fn sel_hide(app: AppHandle) {
     if let Some(win) = app.get_webview_window("selbar") {
-        let _ = win.hide();
+        selection::bar_hide(&win);
     }
 }
 
@@ -536,7 +537,7 @@ fn sel_hide(app: AppHandle) {
 #[tauri::command]
 fn sel_act(app: AppHandle, act: String, text: String) {
     if let Some(win) = app.get_webview_window("selbar") {
-        let _ = win.hide();
+        selection::bar_hide(&win);
     }
     show_ball(&app);
     let _ = app.emit_to("main", "sel:act", serde_json::json!({ "act": act, "text": text }));

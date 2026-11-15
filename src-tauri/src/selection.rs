@@ -268,9 +268,9 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
         let (sel, talk_on) = { let c = st.cfg.lock().unwrap(); (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT) };
         if idle(sel.on, talk_on) {
             // 两样都关：收起工具栏，停住线程，不再读鼠标和键盘，直到设置改了被 wake 叫醒
-            if let Some(b) = app.get_webview_window("selbar") {
-                if b.is_visible().unwrap_or(false) {
-                    let _ = b.hide();
+            if bar_shown() {
+                if let Some(b) = app.get_webview_window("selbar") {
+                    bar_hide(&b);
                 }
             }
             if was_talk {
@@ -289,28 +289,29 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
             was_talk = talk;
             let _ = app.emit_to("main", "voice:key", talk);
         }
-        let bar = app.get_webview_window("selbar");
-        let shown = bar.as_ref().map(|b| b.is_visible().unwrap_or(false)).unwrap_or(false);
+        let shown = bar_shown();
+        let bar = if shown { app.get_webview_window("selbar") } else { None };
+        let shown = shown && bar.is_some();
         if !sel.on {
             if shown {
-                let _ = bar.as_ref().unwrap().hide();
+                bar_hide(bar.as_ref().unwrap());
             }
             was_down = p.down;
             continue;
         }
         if shown && p.esc {
-            let _ = bar.as_ref().unwrap().hide();
+            bar_hide(bar.as_ref().unwrap());
         }
         let now = Instant::now();
         if p.down && !was_down {
             // 在工具栏上按下：交给工具栏自己；在别处按下：收起
-            let on_bar = shown && bar.as_ref().map(|b| inside(b, p.x, p.y)).unwrap_or(false);
+            let on_bar = shown && inside(p.x, p.y, f64::from_bits(BAR_SF.load(std::sync::atomic::Ordering::Relaxed)));
             if on_bar {
                 was_down = true;
                 continue;
             }
             if shown {
-                let _ = bar.as_ref().unwrap().hide();
+                bar_hide(bar.as_ref().unwrap());
             }
             rec.down(p.x, p.y, now);
             press_ibeam = p.ibeam;
@@ -349,12 +350,35 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     }
 }
 
+/// 工具栏现在是否显示、放在哪（物理像素）。后台线程每 25 毫秒要看一次：
+/// 不去问窗口（那要等主线程回话，主线程一忙整个程序就跟着卡），只读这里记下的。
+static BAR_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// 工具栏所在屏幕的缩放（f64 的位）
+static BAR_SF: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x3FF0000000000000);
+static BAR_RECT: std::sync::Mutex<Option<(i32, i32, u32, u32)>> = std::sync::Mutex::new(None);
+
+pub fn bar_shown() -> bool {
+    BAR_SHOWN.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn bar_rect(r: (i32, i32, u32, u32)) {
+    *BAR_RECT.lock().unwrap() = Some(r);
+}
+pub fn bar_show<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>) {
+    BAR_SHOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = w.show();
+}
+pub fn bar_hide<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>) {
+    BAR_SHOWN.store(false, std::sync::atomic::Ordering::Relaxed);
+    let _ = w.hide();
+}
+
 #[cfg(any(windows, target_os = "macos"))]
-fn inside<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64) -> bool {
-    let (Ok(pos), Ok(size)) = (w.outer_position(), w.outer_size()) else { return false };
-    let s = if plat::PHYSICAL { 1.0 } else { w.scale_factor().unwrap_or(1.0) };
+/// 点 (x, y)（Windows 物理像素；其他系统逻辑像素，乘这块屏幕的缩放）落在工具栏上没有
+fn inside(x: f64, y: f64, sf: f64) -> bool {
+    let Some((l, t, w, h)) = *BAR_RECT.lock().unwrap() else { return false };
+    let s = if plat::PHYSICAL { 1.0 } else { sf };
     let (x, y) = (x * s, y * s);
-    x >= pos.x as f64 && y >= pos.y as f64 && x < (pos.x + size.width as i32) as f64 && y < (pos.y + size.height as i32) as f64
+    x >= l as f64 && y >= t as f64 && x < (l + w as i32) as f64 && y < (t + h as i32) as f64
 }
 
 /// 把工具栏放在松开点上方（放不下放下方），水平居中，夹在那块屏幕里。w、h 是工具栏的逻辑尺寸
@@ -388,6 +412,8 @@ pub fn place<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64, bw:
     let (l, t, ww, hh) = (left.round() as i32, top.round() as i32, w_px.round() as u32, h_px.round() as u32);
     let _ = w.set_size(PhysicalSize::new(ww, hh));
     let _ = w.set_position(PhysicalPosition::new(l, t));
+    bar_rect((l, t, ww, hh));
+    BAR_SF.store(sf.to_bits(), std::sync::atomic::Ordering::Relaxed);
     Some(Placed { left: l, top: t, w: ww, h: hh, mx: mp.x, my: mp.y, mw: mz.width, mh: mz.height, sf })
 }
 
