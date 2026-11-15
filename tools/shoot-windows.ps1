@@ -103,7 +103,8 @@ Write-Host "配置：$cfgFile 打开划词"
 (New-Object -ComObject Shell.Application).MinimizeAll()
 Start-Sleep -Seconds 1
 
-$p = Start-Process -FilePath $Exe -PassThru
+# 程序自己的输出（含界面里的报错 [前端]）一起放进截图产物，方便查问题
+$p = Start-Process -FilePath $Exe -PassThru -RedirectStandardError (Join-Path $Out 'floatball-stderr.txt') -RedirectStandardOutput (Join-Path $Out 'floatball-stdout.txt')
 $script:appPid = $p.Id
 try {
   $r = $null
@@ -137,6 +138,24 @@ try {
   Say '收起后'
   Shot '07_收起后'
 
+  # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
+  Start-Process -FilePath $Exe -ArgumentList '--settings'
+  Start-Sleep -Seconds 8
+  Say '打开设置后（面积最大的窗口）'
+  Shot '08_设置窗口'
+
+  # 设置的 7 页：左边一列按钮，从上往下每 36 像素一个（100% 缩放）
+  $sr = WinRect
+  if ($sr) {
+    $tabs = '模型', 'Agents', '权限', '外观', '快捷键', '划词', '语音'
+    for ($i = 0; $i -lt $tabs.Count; $i++) {
+      Click ($sr.Left + 48) ($sr.Top + 73 + 36 * $i)
+      Start-Sleep -Milliseconds 900
+      Shot ('12_设置_{0}_{1}' -f ($i + 1), $tabs[$i])
+    }
+  }
+  if ($sr) { Click ($sr.Right - 41) ($sr.Top + 31); Start-Sleep -Milliseconds 800 }   # 点右上角关掉设置
+
   # 语音：按住右 Alt 说话（构建机没有麦克风，看的是没麦克风/授权时怎么提示）
   [void][FloatBall.Desk]::SetCursorPos(200, 200)
   [FloatBall.Desk]::keybd_event(0xA5, 0, 0x0001, [UIntPtr]::Zero)          # 右 Alt 按下
@@ -167,22 +186,9 @@ try {
   Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue
   Start-Sleep -Seconds 1
 
-  # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
-  Start-Process -FilePath $Exe -ArgumentList '--settings'
-  Start-Sleep -Seconds 8
-  Say '打开设置后（面积最大的窗口）'
-  Shot '08_设置窗口'
-
-  # 设置的 7 页：左边一列按钮，从上往下每 36 像素一个（100% 缩放）
-  $sr = WinRect
-  if ($sr) {
-    $tabs = '模型', 'Agents', '权限', '外观', '快捷键', '划词', '语音'
-    for ($i = 0; $i -lt $tabs.Count; $i++) {
-      Click ($sr.Left + 48) ($sr.Top + 73 + 36 * $i)
-      Start-Sleep -Milliseconds 900
-      Shot ('12_设置_{0}_{1}' -f ($i + 1), $tabs[$i])
-    }
-  }
+  # 划词之后小球还能不能正常点开（看主线程有没有卡住）
+  $r = WinRect
+  if ($r) { Click ([int](($r.Left + $r.Right) / 2)) ([int](($r.Top + $r.Bottom) / 2)); Start-Sleep -Milliseconds 1500; Say '划词后点小球'; Shot '13_划词后点小球' }
 } finally {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
   Get-Process -Name floatball -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
