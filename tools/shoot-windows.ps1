@@ -159,8 +159,8 @@ try {
     $nr = New-Object FloatBall.Desk+RECT
     [void][FloatBall.Desk]::GetWindowRect($nh, [ref]$nr)
     Write-Host "记事本：x=$($nr.Left) y=$($nr.Top) 宽=$($nr.Right - $nr.Left) 高=$($nr.Bottom - $nr.Top)"
-    # 第一行第二个词 selection：标题栏和菜单下面一点
-    DoubleClick ($nr.Left + 130) ($nr.Top + 110)
+    # 第一行的「FloatBall」：标题栏和菜单下面第一行（100% 缩放，上一次截图量出来在窗口顶下 60 像素）
+    DoubleClick ($nr.Left + 40) ($nr.Top + 62)
     Start-Sleep -Milliseconds 1200
     Shot '11_划词工具栏'
   } else { Write-Host '记事本窗口没找到' }
@@ -169,7 +169,7 @@ try {
 
   # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
   Start-Process -FilePath $Exe -ArgumentList '--settings'
-  Start-Sleep -Seconds 5
+  Start-Sleep -Seconds 8
   Say '打开设置后（面积最大的窗口）'
   Shot '08_设置窗口'
 
