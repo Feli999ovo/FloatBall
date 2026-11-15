@@ -192,7 +192,13 @@ try {
 
   # 划词之后小球还能不能正常点开（看主线程有没有卡住）
   $r = WinRect
-  if ($r) { Click ([int](($r.Left + $r.Right) / 2)) ([int](($r.Top + $r.Bottom) / 2)); Start-Sleep -Milliseconds 1500; Say '划词后点小球'; Shot '13_划词后点小球' }
+  if ($r) {
+    $cx = [int](($r.Left + $r.Right) / 2); $cy = [int](($r.Top + $r.Bottom) / 2)
+    Click $cx $cy; Start-Sleep -Milliseconds 1500; Say '划词后点小球'; Shot '13_划词后点小球'
+    # 第一下没展开就再点一下：分清是「第一下只用来激活窗口」还是程序真卡住了
+    $r2 = WinRect
+    if ($r2 -and ($r2.Right - $r2.Left) -lt 200) { Click $cx $cy; Start-Sleep -Milliseconds 1500; Say '再点一下小球'; Shot '14_再点一下小球' }
+  }
 } finally {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
   Get-Process -Name floatball -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

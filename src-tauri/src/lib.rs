@@ -960,7 +960,9 @@ pub fn run() {
             }
             let cfg_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
+            log::info!("数据目录 {}", data_dir.display());
             let cfg = Config::load(&cfg_dir);
+            log::info!("配置目录 {}，划词 {}", cfg_dir.display(), cfg.sel.on);
             let store = store::Store::open(&data_dir).map_err(|e| log::error!("history db: {e}")).ok();
             app.manage(AppState {
                 cfg: Mutex::new(cfg.clone()),

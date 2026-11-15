@@ -261,11 +261,11 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     loop {
         // 每 5 秒记一次，看线程有没有卡住（下面读窗口状态要等主线程）
         beat = beat.wrapping_add(1);
-        if beat % 200 == 0 {
-            log::info!("划词线程在跑");
-        }
         let st = app.state::<crate::AppState>();
         let (sel, talk_on) = { let c = st.cfg.lock().unwrap(); (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT) };
+        if beat % 200 == 0 {
+            log::info!("划词线程在跑（划词 {}，右 Alt 说话 {talk_on}）", if sel.on { "开" } else { "关" });
+        }
         if idle(sel.on, talk_on) {
             // 两样都关：收起工具栏，停住线程，不再读鼠标和键盘，直到设置改了被 wake 叫醒
             if bar_shown() {
