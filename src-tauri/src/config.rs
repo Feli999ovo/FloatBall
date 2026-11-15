@@ -277,7 +277,8 @@ impl Default for Sel {
     fn default() -> Self {
         let apps: &[&str] = if cfg!(target_os = "macos") { &["1Password", "钥匙串访问", "终端"] } else { &["1Password", "KeePass", "Bitwarden"] };
         Self {
-            on: true,
+            // 默认关：Windows 上读选中文字要模拟 Ctrl+C，会动剪贴板，由用户自己在设置里打开
+            on: false,
             mode: "instant".into(),
             order: SEL_IDS.iter().enumerate().map(|(i, id)| HoverItem { id: id.to_string(), show: i < SEL_MAX }).collect(),
             tr: "auto".into(),
@@ -571,6 +572,9 @@ mod tests {
         assert!(!s.excluded("Microsoft Edge", "msedge.exe"));
         let d = Sel::default();
         assert_eq!(d.order.iter().filter(|o| o.show).count(), SEL_MAX);
+        // 划词默认关（会动剪贴板，由用户自己打开）；新配置也一样
+        assert!(!d.on);
+        assert!(!Config::default().sel.on);
     }
 
     #[test]

@@ -154,7 +154,8 @@
     </div>
     <div class="x-pane" id="paneSel" hidden>
       <p class="x-note" id="selNo" hidden style="margin:0 0 14px">这个系统上还不支持划词，目前只有 Windows 和 macOS 能用。</p>
-      <div class="x-ar" style="margin:0 0 14px"><span id="selOnL">启用划词工具栏<small>在其他应用里选中文字时，旁边出现快捷操作</small></span><button type="button" class="x-sw" id="selOn" role="switch" aria-checked="true" aria-labelledby="selOnL"></button></div>
+      <div class="x-ar" style="margin:0 0 14px"><span id="selOnL">启用划词工具栏<small>在其他应用里选中文字时，旁边出现快捷操作</small></span><button type="button" class="x-sw" id="selOn" role="switch" aria-checked="false" aria-labelledby="selOnL"></button></div>
+      <p class="x-note" id="selClip" hidden style="margin:-6px 0 14px">打开后会动剪贴板：每次选中文字，会模拟按一次 Ctrl+C 读出来，再把原来的内容放回去。只放得回纯文字或图片，刚复制的文件、带格式的内容（如网页或 Word 里的样式）会丢掉；剪贴板历史（Win+V）里也会多出选中的文字。</p>
       <div class="x-field"><span id="selModeL">出现方式</span>
         <div class="x-seg x-lkseg" id="selMode" role="radiogroup" aria-labelledby="selModeL">
           <button type="button" role="radio" aria-checked="true" data-v="instant">选中后立即出现</button><button type="button" role="radio" aria-checked="false" data-v="alt" id="selModeAlt">按住 ⌥ 再选中</button>
@@ -172,7 +173,7 @@
         <div class="x-selapps" id="selApps" role="list" aria-labelledby="selAppsL"></div>
       </div>
       <p class="x-note" id="selMacNote" style="margin:0">macOS 需要在 系统设置 → 隐私与安全性 → 辅助功能 里允许本应用读取选中文字。<button type="button" class="x-sb" id="selPriv" hidden>去开启</button></p>
-      <p class="x-note" id="selWinNote" hidden style="margin:0">选中文字靠模拟一次 Ctrl+C 读取，读完会把剪贴板原来的内容放回去。终端和资源管理器里不出现。</p>
+      <p class="x-note" id="selWinNote" hidden style="margin:0">终端和资源管理器里不出现。</p>
     </div>
     <div class="x-pane" id="paneVoice" hidden>
       <label class="x-field"><span>识别语言</span>

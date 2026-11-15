@@ -110,6 +110,7 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
 fn commit(app: &AppHandle, state: &AppState, next: Config) -> Result<(), String> {
     next.save(&state.cfg_dir)?;
     *state.cfg.lock().unwrap() = next;
+    selection::wake();
     let _ = app.emit_to("main", "config", ());
     Ok(())
 }

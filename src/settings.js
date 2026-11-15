@@ -729,7 +729,7 @@ async function selStatus() {
   selRecent = st.recent || [];
   const mac = cfg.platform === "macos", winp = cfg.platform === "windows";
   $("selNo").hidden = st.supported;
-  $("selMacNote").hidden = !mac; $("selWinNote").hidden = !winp;
+  $("selMacNote").hidden = !mac; $("selWinNote").hidden = !winp; $("selClip").hidden = !winp;
   $("selPriv").hidden = !mac || st.trusted;
   $("selModeAlt").textContent = `按住 ${mac ? "⌥" : "Alt"} 再选中`;
 }

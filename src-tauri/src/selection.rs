@@ -218,10 +218,28 @@ fn read_selection(own_pid: u64) -> Option<(String, String)> {
     Some((format!("{}\u{1}{}", w.app_name, exe), get_selected_text::get_selected_text().ok()?))
 }
 
+/// 后台线程的句柄：划词和右 Alt 说话都关时线程停住不读键鼠，设置改了用 wake 叫醒它
+static WATCHER: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
+
+/// 设置变了：叫醒后台线程重新看一遍要不要读键鼠
+pub fn wake() {
+    if let Some(t) = WATCHER.get() {
+        t.unpark();
+    }
+}
+
+/// 划词和按住右 Alt 说话都关时，后台线程完全不运行
+pub fn idle(sel_on: bool, talk_on: bool) -> bool {
+    !sel_on && !talk_on
+}
+
 /// 后台线程：认手势、读文字、通知工具栏窗口；别处按下或按 Esc 时收起
 pub fn spawn<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     #[cfg(any(windows, target_os = "macos"))]
-    std::thread::spawn(move || watch(app));
+    {
+        let h = std::thread::spawn(move || watch(app));
+        let _ = WATCHER.set(h.thread().clone());
+    }
     #[cfg(not(any(windows, target_os = "macos")))]
     let _ = app;
 }
@@ -235,10 +253,25 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     let own_pid = std::process::id() as u64;
     let mut was_talk = false;
     loop {
-        std::thread::sleep(Duration::from_millis(25));
-        let Some(p) = plat::pointer() else { continue };
         let st = app.state::<crate::AppState>();
         let (sel, talk_on) = { let c = st.cfg.lock().unwrap(); (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT) };
+        if idle(sel.on, talk_on) {
+            // 两样都关：收起工具栏，停住线程，不再读鼠标和键盘，直到设置改了被 wake 叫醒
+            if let Some(b) = app.get_webview_window("selbar") {
+                if b.is_visible().unwrap_or(false) {
+                    let _ = b.hide();
+                }
+            }
+            if was_talk {
+                was_talk = false;
+                let _ = app.emit_to("main", "voice:key", false);
+            }
+            was_down = false;
+            std::thread::park();
+            continue;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+        let Some(p) = plat::pointer() else { continue };
         // 按住说话（默认的右 Alt）：按下、松开都告诉小球，小球自己判断按够 300ms 才开始
         let talk = talk_on && p.ralt;
         if talk != was_talk {
@@ -356,6 +389,17 @@ pub fn backdrop_rect(p: &Placed, extra_down: f64) -> (i32, i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watcher_idles_only_when_both_off() {
+        assert!(idle(false, false));
+        // 只关划词：还要读右 Alt
+        assert!(!idle(false, true));
+        assert!(!idle(true, false));
+        assert!(!idle(true, true));
+        // 还没起线程时叫醒不出错
+        wake();
+    }
 
     #[test]
     fn recognizes_drag_and_double_click() {

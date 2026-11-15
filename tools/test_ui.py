@@ -812,8 +812,15 @@ async def main():
             # S10 划词（原型 paneSel）
             await sp.click(".x-tabs button:has-text('划词')"); await sp.wait_for_timeout(200)
             await sp_shot(f"27a_settings_sel_{plat}")
-            check(await sp.get_attribute("#selOn", "aria-checked") == "true" and await txt("#selModeAlt") == ("按住 ⌥ 再选中" if plat == "macos" else "按住 Alt 再选中"), P + "划词：默认开启，Alt 写法随系统")
+            check(await sp.get_attribute("#selOn", "aria-checked") == "false" and await txt("#selModeAlt") == ("按住 ⌥ 再选中" if plat == "macos" else "按住 Alt 再选中"), P + "划词：默认关闭，Alt 写法随系统")
             check(await vis("#selMacNote") == (plat == "macos") and await vis("#selWinNote") == (plat == "windows") and not await vis("#selNo"), P + "说明随系统")
+            clip = await txt("#selClip")
+            check(await vis("#selClip") == (plat == "windows") and all(w in clip for w in ("剪贴板", "Ctrl+C", "文件", "格式")), P + "Windows：开关下写明会动剪贴板、哪些放不回")
+            if plat == "windows":
+                cb = await sp.eval_on_selector("#selOn", "e => e.closest('.x-ar').getBoundingClientRect().bottom"); nt = await sp.eval_on_selector("#selClip", "e => e.getBoundingClientRect().top")
+                check(0 <= nt - cb < 20, P + f"剪贴板说明紧挨开关 {cb} {nt}")
+            await sp.click("#selOn"); await sp.wait_for_timeout(150)
+            check((await mock())["cfg"]["sel"]["on"] is True and await sp.get_attribute("#selOn", "aria-checked") == "true", P + "手动打开划词并保存")
             ords = await sp.eval_on_selector_all("#selOrd li", "x => x.map(l => l.querySelector('b').firstChild.textContent + (l.querySelector('input').checked ? '✓' : ''))")
             check(ords == ["问问它✓", "解释✓", "翻译✓", "总结✓", "改写✓", "复制✓", "朗读", "搜索", "扩写", "缩写"], P + f"工具栏按钮列表同原型 {ords}")
             await sp.click("#selOrd [data-id=read] input"); await sp.wait_for_timeout(150)
@@ -821,6 +828,7 @@ async def main():
             await sp.click("#selOrd [data-id=read] [data-d=up]"); await sp.wait_for_timeout(150)
             o = [x["id"] for x in (await mock())["cfg"]["sel"]["order"]]
             check(o[5] == "read" and o[6] == "copy" and "放在「⋯」" in await txt("#selOrd [data-id=copy] b") and await sp.evaluate("document.activeElement.dataset.d") == "up", P + "上移：保存顺序，焦点留在上移按钮")
+            await sp.evaluate("document.getElementById('selOrd').scrollIntoView({ block: 'start' })"); await sp.wait_for_timeout(100)
             h = await sp.query_selector("#selOrd [data-id=shrink] .x-selh"); bb = await h.bounding_box()
             t = await (await sp.query_selector("#selOrd [data-id=ask]")).bounding_box()
             await sp.mouse.move(bb["x"] + 10, bb["y"] + 10); await sp.mouse.down(); await sp.mouse.move(bb["x"] + 10, t["y"] + 3, steps=6); await sp.mouse.up(); await sp.wait_for_timeout(150)
