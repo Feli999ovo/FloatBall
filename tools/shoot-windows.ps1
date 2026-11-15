@@ -33,6 +33,8 @@ public static IntPtr MainWindowOf(uint pid) {
 [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
 [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SystemParametersInfoW(uint action, uint param, string value, uint flags);
 '@
 [void][FloatBall.Desk]::SetProcessDPIAware()
@@ -60,6 +62,14 @@ function Say([string]$label) {
   $r = WinRect
   if ($r) { Write-Host "$label：窗口 x=$($r.Left) y=$($r.Top) 宽=$($r.Right - $r.Left) 高=$($r.Bottom - $r.Top)" } else { Write-Host "$label：没找到窗口" }
 }
+function DoubleClick([int]$x, [int]$y) {
+  [void][FloatBall.Desk]::SetCursorPos($x, $y)
+  Start-Sleep -Milliseconds 300
+  for ($k = 0; $k -lt 2; $k++) {
+    [FloatBall.Desk]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30
+    [FloatBall.Desk]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 60
+  }
+}
 function Click([int]$x, [int]$y) {
   [void][FloatBall.Desk]::SetCursorPos($x, $y)
   Start-Sleep -Milliseconds 120
@@ -79,6 +89,15 @@ if ($Wallpaper) {
   Write-Host "壁纸：$w 设置结果 $([FloatBall.Desk]::SystemParametersInfoW(0x0014, 0, $w, 3))"
   Start-Sleep -Seconds 2
 }
+
+# 划词默认关：截图要看划词工具栏，先在配置里打开（只改这台云端构建机上的配置）
+$cfgDir = Join-Path $env:APPDATA 'com.floatball.desktop'
+New-Item -ItemType Directory -Force $cfgDir | Out-Null
+$cfgFile = Join-Path $cfgDir 'config.json'
+$cfg = if (Test-Path $cfgFile) { Get-Content $cfgFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
+$cfg | Add-Member -Force -NotePropertyName sel -NotePropertyValue ([pscustomobject]@{ on = $true; mode = 'instant' })
+$cfg | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 $cfgFile
+Write-Host "配置：$cfgFile 打开划词"
 
 # 把桌面上别的窗口都最小化，免得挡住小球后面的壁纸
 (New-Object -ComObject Shell.Application).MinimizeAll()
@@ -118,11 +137,52 @@ try {
   Say '收起后'
   Shot '07_收起后'
 
+  # 语音：按住右 Alt 说话（构建机没有麦克风，看的是没麦克风/授权时怎么提示）
+  [void][FloatBall.Desk]::SetCursorPos(200, 200)
+  [FloatBall.Desk]::keybd_event(0xA5, 0, 0x0001, [UIntPtr]::Zero)          # 右 Alt 按下
+  Start-Sleep -Milliseconds 1500
+  Shot '09_按住右Alt'
+  [FloatBall.Desk]::keybd_event(0xA5, 0, 0x0003, [UIntPtr]::Zero)          # 右 Alt 松开
+  Start-Sleep -Milliseconds 1500
+  Shot '10_松开右Alt'
+  Start-Sleep -Seconds 6   # 等提示消失
+
+  # 划词：在记事本里双击选中一个词，看工具栏出现在哪
+  $txt = Join-Path $env:RUNNER_TEMP '划词测试.txt'
+  Set-Content -Encoding utf8 $txt "FloatBall selection test`r`n悬浮球划词测试：双击选中一个词"
+  $np = Start-Process notepad.exe -ArgumentList "`"$txt`"" -PassThru
+  Start-Sleep -Seconds 3
+  $nh = (Get-Process -Id $np.Id).MainWindowHandle
+  if ($nh -eq [IntPtr]::Zero) { $nh = [FloatBall.Desk]::MainWindowOf([uint32]$np.Id) }
+  if ($nh -ne [IntPtr]::Zero) {
+    [void][FloatBall.Desk]::SetForegroundWindow($nh)
+    $nr = New-Object FloatBall.Desk+RECT
+    [void][FloatBall.Desk]::GetWindowRect($nh, [ref]$nr)
+    Write-Host "记事本：x=$($nr.Left) y=$($nr.Top) 宽=$($nr.Right - $nr.Left) 高=$($nr.Bottom - $nr.Top)"
+    # 第一行第二个词 selection：标题栏和菜单下面一点
+    DoubleClick ($nr.Left + 130) ($nr.Top + 110)
+    Start-Sleep -Milliseconds 1200
+    Shot '11_划词工具栏'
+  } else { Write-Host '记事本窗口没找到' }
+  Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 1
+
   # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
   Start-Process -FilePath $Exe -ArgumentList '--settings'
   Start-Sleep -Seconds 5
   Say '打开设置后（面积最大的窗口）'
   Shot '08_设置窗口'
+
+  # 设置的 7 页：左边一列按钮，从上往下每 36 像素一个（100% 缩放）
+  $sr = WinRect
+  if ($sr) {
+    $tabs = '模型', 'Agents', '权限', '外观', '快捷键', '划词', '语音'
+    for ($i = 0; $i -lt $tabs.Count; $i++) {
+      Click ($sr.Left + 48) ($sr.Top + 73 + 36 * $i)
+      Start-Sleep -Milliseconds 900
+      Shot ('12_设置_{0}_{1}' -f ($i + 1), $tabs[$i])
+    }
+  }
 } finally {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
   Get-Process -Name floatball -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

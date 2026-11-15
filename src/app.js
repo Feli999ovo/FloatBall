@@ -132,7 +132,7 @@ function grabBackdrop(r, a) {
   return Promise.race([shot, new Promise((res) => setTimeout(() => res(null), 250))]);
 }
 async function expand(view) {
-  if (hv.shown) await hvHide();
+  if (hv.shown || hv.hiding) await hvHide();
   if (peekBox) await hidePeek();
   // 贴边的球刚滑出来（或别的短动画）时点下去：等它停稳再展开，不要吞掉这次点击
   for (let i = 0; morphing && i < 20; i++) await new Promise((r) => setTimeout(r, 25));
@@ -408,17 +408,22 @@ async function hvShow() {
     hv.shown = true;
   } finally { morphing = false; }
 }
-async function hvHide() {
-  if (!hv.shown) return;
+// 正在收起时再调用，返回同一个收起过程：点小球展开时要等小泡收完，
+// 否则收起晚 200ms 才把窗口缩回小球大小，会把刚展开的卡片截掉（Windows 真机截图里见过）
+function hvHide() {
+  if (!hv.shown) return hv.hiding || Promise.resolve();
   hv.shown = false; clearTimeout(hv.hideT);
   hvQ.classList.remove("on"); hvQ.setAttribute("aria-hidden", "true"); hvTip.classList.remove("on");
-  await new Promise((r) => setTimeout(r, 200));
-  morphing = true;
-  try {
-    await reshape(SMALL, SMALL, hv.box.p.x, hv.box.p.y, true, () => { body.classList.remove("hovering"); $("#app").style.padding = ""; hvQ.innerHTML = ""; });
-  } finally { morphing = false; }
-  // 贴边时露出来的球：指针已经不在球上就贴回去
-  if (docked && orb.classList.contains("peel") && !orb.matches(":hover")) peel(false);
+  hv.hiding = (async () => {
+    await new Promise((r) => setTimeout(r, 200));
+    morphing = true;
+    try {
+      await reshape(SMALL, SMALL, hv.box.p.x, hv.box.p.y, true, () => { body.classList.remove("hovering"); $("#app").style.padding = ""; hvQ.innerHTML = ""; });
+    } finally { morphing = false; }
+    // 贴边时露出来的球：指针已经不在球上就贴回去
+    if (docked && orb.classList.contains("peel") && !orb.matches(":hover")) peel(false);
+  })().finally(() => { hv.hiding = null; });
+  return hv.hiding;
 }
 
 /* ───────── 气泡：卡片收起时回复完成，在小球旁冒一句（取自参考版本） ─────────
@@ -1141,7 +1146,7 @@ async function vcStart(mode) {
   if (nr) { toast(nr); if (!S.open) showPeek(nr, true); mood("error", 2400); return false; }
   const me = { mode, t0: performance.now(), cancel: false, stopped: false, lv: 0, chunks: [], raf: 0 };
   vc = me;
-  if (hv.shown) await hvHide();
+  if (hv.shown || hv.hiding) await hvHide();
   if (peekBox) await hidePeek();
   if (mode === "key" && S.open) await collapse();
   try {
