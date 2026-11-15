@@ -194,7 +194,7 @@ try {
   Get-Process -Name floatball -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 # 程序自己的日志（只记做到哪一步、出了什么错）。cargo test 也会在临时目录写一份，跳过
-$logs = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter floatball.log -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'fblog-' }
+$logs = Get-ChildItem (Split-Path (Resolve-Path $Exe)), $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter floatball.log -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'fblog-' }
 if (-not $logs) { Write-Host "没有找到程序日志" }
 $n = 0
 foreach ($f in $logs) { $n++; Write-Host "日志 $($f.FullName)"; Copy-Item $f.FullName (Join-Path $Out "floatball-$n.log"); Get-Content $f.FullName | ForEach-Object { Write-Host "LOG $_" } }
