@@ -195,5 +195,6 @@ try {
 }
 # 程序自己的日志（只记做到哪一步、出了什么错）
 $log = Join-Path $env:LOCALAPPDATA 'com.floatball.desktop\logs\floatball.log'
+if (-not (Test-Path $log)) { $f = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter floatball.log -ErrorAction SilentlyContinue | Select-Object -First 1; if ($f) { $log = $f.FullName } }
 if (Test-Path $log) { Copy-Item $log (Join-Path $Out 'floatball.log'); Get-Content $log | Write-Host } else { Write-Host "没有日志：$log" }
 Write-Host "截图在 $Out，共 $((Get-ChildItem $Out -Filter *.png).Count) 张"
