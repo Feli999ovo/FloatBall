@@ -216,7 +216,10 @@ pub use plat::trusted;
 pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 
 #[cfg(any(windows, target_os = "macos"))]
-fn read_selection(own_pid: u64) -> Option<(String, String)> {
+/// 读选中的文字。和 SnipDo、PopClip、Easydict 的做法一样分两步：
+/// 1. 先问系统的无障碍接口（Windows 的 UI Automation，mac 的辅助功能）：不碰剪贴板，也不管光标是什么形状；
+/// 2. 读不到再模拟复制（Ctrl+C / ⌘C）读剪贴板，再放回去。Windows 上只在 I 形光标下做这一步，免得在按钮、图标上乱复制。
+fn read_selection(own_pid: u64, ibeam: bool) -> Option<(String, String)> {
     let w = active_win_pos_rs::get_active_window().ok()?;
     if w.process_id == own_pid {
         return None;
@@ -225,12 +228,69 @@ fn read_selection(own_pid: u64) -> Option<(String, String)> {
     if cfg!(windows) && never_read(&exe) {
         return None;
     }
-    log::info!("前台程序 {exe}，模拟 Ctrl+C 读选中文字");
+    let who = format!("{}\u{1}{}", w.app_name, exe);
+    #[cfg(windows)]
+    {
+        match uia::selected_text() {
+            Ok(t) if !t.trim().is_empty() => {
+                log::info!("前台程序 {exe}：无障碍接口读到了");
+                return Some((who, t));
+            }
+            Ok(_) => log::info!("前台程序 {exe}：无障碍接口没有选中文字"),
+            Err(e) => log::info!("前台程序 {exe}：无障碍接口读不了（{e}）"),
+        }
+        if !ibeam {
+            return None;
+        }
+    }
+    let _ = ibeam;
+    log::info!("前台程序 {exe}，模拟复制读选中文字");
     let t = get_selected_text::get_selected_text();
     if let Err(e) = &t {
-        log::warn!("读选中文字失败：{e}");
+        log::warn!("模拟复制失败：{e}");
     }
-    Some((format!("{}\u{1}{}", w.app_name, exe), t.ok()?))
+    Some((who, t.ok()?))
+}
+
+/// Windows UI Automation：取有焦点的控件（找不到文字就往上找几层，网页里焦点常在子元素上）的文本选区。
+#[cfg(windows)]
+mod uia {
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId};
+
+    /// 最多读这么多字（工具栏本来也会截断）
+    const MAX: i32 = 20_000;
+
+    pub fn selected_text() -> windows::core::Result<String> {
+        unsafe {
+            // 每次都在新开的后台线程里调用：自己初始化 COM（MTA，不占用任何窗口线程）
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let ua: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+            let walker = ua.RawViewWalker()?;
+            let mut el = ua.GetFocusedElement()?;
+            for _ in 0..8 {
+                if let Ok(tp) = el.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) {
+                    let ranges = tp.GetSelection()?;
+                    let mut out = String::new();
+                    for i in 0..ranges.Length()? {
+                        let t = ranges.GetElement(i)?.GetText(MAX)?.to_string();
+                        if !out.is_empty() && !t.is_empty() {
+                            out.push('\n');
+                        }
+                        out.push_str(&t);
+                    }
+                    if !out.trim().is_empty() {
+                        return Ok(out);
+                    }
+                }
+                match walker.GetParentElement(&el) {
+                    Ok(p) => el = p,
+                    Err(_) => break,
+                }
+            }
+            Ok(String::new())
+        }
+    }
 }
 
 /// 后台线程的句柄：划词和右 Alt 说话都关时线程停住不读键鼠，设置改了用 wake 叫醒它
@@ -331,7 +391,9 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
             press_ibeam = p.ibeam;
         } else if !p.down && was_down {
             if let Some(_g) = rec.up(p.x, p.y, now) {
-                let want = (sel.mode != "alt" || p.alt) && (press_ibeam || p.ibeam);
+                // Windows 不再要求 I 形光标才读：先走无障碍接口，光标只决定要不要退到模拟复制
+                let ibeam = press_ibeam || p.ibeam;
+                let want = (sel.mode != "alt" || p.alt) && (cfg!(windows) || ibeam);
                 log::info!("认出划词手势，读不读：{want}");
                 if want {
                     let app2 = app.clone();
@@ -344,7 +406,7 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
                             return;
                         }
                         log::info!("开始读选中文字");
-                        let got = read_selection(own_pid);
+                        let got = read_selection(own_pid, ibeam);
                         log::info!("读完：{}", got.as_ref().map(|(_, t)| format!("{} 字", t.chars().count())).unwrap_or_else(|| "没读到".into()));
                         let Some((who, text)) = got else { return };
                         let (name, exe) = who.split_once('\u{1}').unwrap_or((&who, ""));

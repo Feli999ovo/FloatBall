@@ -859,7 +859,7 @@ async def main():
             check(await sp.get_attribute("#selOn", "aria-checked") == "false" and await txt("#selModeAlt") == ("按住 ⌥ 再选中" if plat == "macos" else "按住 Alt 再选中"), P + "划词：默认关闭，Alt 写法随系统")
             check(await vis("#selMacNote") == (plat == "macos") and await vis("#selWinNote") == (plat == "windows") and not await vis("#selNo"), P + "说明随系统")
             clip = await txt("#selClip")
-            check(await vis("#selClip") == (plat == "windows") and all(w in clip for w in ("剪贴板", "Ctrl+C", "文件", "格式")), P + "Windows：开关下写明会动剪贴板、哪些放不回")
+            check(await vis("#selClip") == (plat == "windows") and all(w in clip for w in ("不碰剪贴板", "复制", "文件", "格式")), P + "Windows：开关下写明一般不碰剪贴板、退到复制时哪些放不回")
             if plat == "windows":
                 cb = await sp.eval_on_selector("#selOn", "e => e.closest('.x-ar').getBoundingClientRect().bottom"); nt = await sp.eval_on_selector("#selClip", "e => e.getBoundingClientRect().top")
                 check(0 <= nt - cb < 20, P + f"剪贴板说明紧挨开关 {cb} {nt}")
