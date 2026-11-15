@@ -404,12 +404,41 @@ fn sel_status(state: State<'_, AppState>) -> SelStatus {
 }
 
 /// 工具栏量好自己的大小后调用：放到松开点旁边并显示（不抢焦点，原应用的选区保持不变）
+/// 返回毛玻璃底图（和对话卡片同一种：截下工具栏将要盖住的桌面、模糊）。只有 Windows 有，拿不到就是 None，前端用不透明的底。
+#[derive(serde::Serialize)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct SelBackdrop { url: String, w: f64, h: f64 }
+
 #[tauri::command]
-fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) {
-    if let Some(win) = app.get_webview_window("selbar") {
-        selection::place(&win, x, y, w, h);
-        let _ = win.show();
+async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option<SelBackdrop> {
+    let win = app.get_webview_window("selbar")?;
+    #[cfg(windows)]
+    let was = win.is_visible().unwrap_or(false);
+    #[cfg(windows)]
+    if was {
+        let _ = win.hide(); // 截图时别把上一次的工具栏截进去
     }
+    let placed = selection::place(&win, x, y, w, h);
+    #[cfg(windows)]
+    let bd = match placed {
+        Some(p) => {
+            let (bx, by, bw, bh) = selection::backdrop_rect(&p, 220.0);
+            let (px, py) = (p.left + p.w as i32 / 2, p.top + p.h as i32 / 2);
+            let shot = tauri::async_runtime::spawn_blocking(move || capture::backdrop_at(px, py, bx, by, bw, bh));
+            match tokio::time::timeout(std::time::Duration::from_millis(250), shot).await {
+                Ok(Ok(Ok(url))) => Some(SelBackdrop { url, w: bw as f64 / p.sf, h: bh as f64 / p.sf }),
+                _ => None,
+            }
+        }
+        None => None,
+    };
+    #[cfg(not(windows))]
+    let bd = {
+        let _ = placed;
+        None
+    };
+    let _ = win.show();
+    bd
 }
 
 /// 展开或收起「⋯」时只改大小，左上角不动（底部超出屏幕时往上挪）

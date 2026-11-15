@@ -309,7 +309,12 @@ fn inside<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64) -> boo
 }
 
 /// 把工具栏放在松开点上方（放不下放下方），水平居中，夹在那块屏幕里。w、h 是工具栏的逻辑尺寸
-pub fn place<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64, bw: f64, bh: f64) {
+/// 工具栏放好的位置（物理像素）：窗口左上角和大小、所在屏幕的左上角和大小、缩放。毛玻璃底图按它截。
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub struct Placed { pub left: i32, pub top: i32, pub w: u32, pub h: u32, pub mx: i32, pub my: i32, pub mw: u32, pub mh: u32, pub sf: f64 }
+
+pub fn place<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64, bw: f64, bh: f64) -> Option<Placed> {
     use tauri::{PhysicalPosition, PhysicalSize};
     // 先找到点所在的屏幕，算出它的缩放
     let mons = w.available_monitors().unwrap_or_default();
@@ -319,7 +324,7 @@ pub fn place<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64, bw:
         let (px, py) = (x * s, y * s);
         px >= p.x as f64 && py >= p.y as f64 && px < p.x as f64 + z.width as f64 && py < p.y as f64 + z.height as f64
     });
-    let Some(m) = pick.or(mons.first()) else { return };
+    let m = pick.or(mons.first())?;
     let sf = m.scale_factor();
     let (px, py) = if plat::PHYSICAL { (x, y) } else { (x * sf, y * sf) };
     let (w_px, h_px) = (bw * sf, bh * sf);
@@ -331,8 +336,21 @@ pub fn place<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64, bw:
     }
     let left = (px - w_px / 2.0).clamp(mp.x as f64 + 8.0, (mp.x as f64 + mz.width as f64 - w_px - 8.0).max(mp.x as f64 + 8.0));
     let top = top.clamp(mp.y as f64 + 8.0, (mp.y as f64 + mz.height as f64 - h_px - 8.0).max(mp.y as f64 + 8.0));
-    let _ = w.set_size(PhysicalSize::new(w_px.round() as u32, h_px.round() as u32));
-    let _ = w.set_position(PhysicalPosition::new(left.round() as i32, top.round() as i32));
+    let (l, t, ww, hh) = (left.round() as i32, top.round() as i32, w_px.round() as u32, h_px.round() as u32);
+    let _ = w.set_size(PhysicalSize::new(ww, hh));
+    let _ = w.set_position(PhysicalPosition::new(l, t));
+    Some(Placed { left: l, top: t, w: ww, h: hh, mx: mp.x, my: mp.y, mw: mz.width, mh: mz.height, sf })
+}
+
+/// 底图截多大：工具栏往下多截一块（「⋯」展开的菜单会往下长），但不超出屏幕
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn backdrop_rect(p: &Placed, extra_down: f64) -> (i32, i32, u32, u32) {
+    let x = p.left - p.mx;
+    let y = p.top - p.my;
+    let w = p.w.min(p.mw.saturating_sub(x.max(0) as u32));
+    let want = p.h + (extra_down * p.sf).round() as u32;
+    let h = want.min(p.mh.saturating_sub(y.max(0) as u32));
+    (x, y, w, h)
 }
 
 #[cfg(test)]
@@ -376,5 +394,20 @@ mod tests {
         assert_eq!(clip("  \n "), None);
         assert_eq!(clip(" 你好 ").as_deref(), Some("你好"));
         assert_eq!(clip(&"字".repeat(30000)).unwrap().chars().count(), 20000);
+    }
+}
+
+#[cfg(test)]
+mod backdrop_tests {
+    use super::*;
+    #[test]
+    fn backdrop_rect_clips_to_screen() {
+        let p = Placed { left: 1900, top: 1000, w: 300, h: 44, mx: 1920, my: 0, mw: 1920, mh: 1080, sf: 1.0 };
+        // 屏幕左边是另一块屏：x 为负，交给 blur_region 判断不完全在屏幕里
+        assert_eq!(backdrop_rect(&p, 220.0).0, -20);
+        let p = Placed { left: 2000, top: 900, w: 300, h: 44, mx: 1920, my: 0, mw: 1920, mh: 1080, sf: 2.0 };
+        assert_eq!(backdrop_rect(&p, 220.0), (80, 900, 300, 180));
+        let p = Placed { left: 2000, top: 100, w: 300, h: 44, mx: 1920, my: 0, mw: 1920, mh: 1080, sf: 1.5 };
+        assert_eq!(backdrop_rect(&p, 220.0), (80, 100, 300, 44 + 330));
     }
 }

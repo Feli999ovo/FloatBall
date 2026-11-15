@@ -414,7 +414,8 @@ html.calm .x-hvb, html.calm .x-hvq.on .x-hvb { transition: opacity .12s linear, 
 #vcMic.vc-busy { opacity: 0.5; pointer-events: none; }
 @keyframes vcglow { 50% { box-shadow: 0 0 0 1px rgba(255, 214, 160, 0.8), 0 0 24px rgba(255, 170, 90, 0.9); } }
 /* 录音时眼睛跟着音量变高变矮 */
-body.vc-rec .eye { transform: translate(var(--lx, 0), var(--ly, 0)) scaleY(var(--vc-l, 1)); transition: transform 60ms linear; animation: none; }
+/* 原型 #orb.x-vc-rec .x-e：录音时眼睛回到平时的形状（不用「聆听」的矮眼睛），只跟着音量拉伸 */
+body.vc-rec .eye { height: 21px; top: 25px; transform: translate(var(--lx, 0), var(--ly, 0)) scaleY(var(--vc-l, 1)); transition: transform 60ms linear; animation: none; }
 body.vc-eh .eye { transform: translate(var(--lx, 0), var(--ly, 0)) scaleY(0.35); transition: transform 0.12s; }
 #vcRip { position: fixed; left: 0; top: 0; z-index: 4; width: 0; height: 0; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
 #vcRip.on { opacity: 1; }
@@ -422,12 +423,16 @@ body.vc-eh .eye { transform: translate(var(--lx, 0), var(--ly, 0)) scaleY(0.35);
   background: radial-gradient(closest-side, transparent 82%, rgba(255, 255, 255, 0.07)); box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.16), 0 0 10px rgba(255, 200, 150, 0.14); transition: border-color 0.2s, box-shadow 0.2s; }
 #vcRip.vc-x i { border-color: rgba(255, 150, 150, 0.65); box-shadow: inset 0 0 8px rgba(255, 140, 140, 0.2), 0 0 12px rgba(255, 110, 110, 0.25); }
 #vcBub { position: fixed; left: 0; top: 0; z-index: 7; width: max-content; min-width: 150px; max-width: 260px; box-sizing: border-box; margin: 0; padding: 10px 14px 24px; border-radius: 16px;
-  /* 原型 x-glassy：rgba(14,12,40,.58)+背景模糊；透明窗口没有背景模糊，底色加深到 .74 保证字看得清 */
-  border: 0; background: rgba(14, 12, 40, 0.74); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 18px 44px rgba(0, 0, 0, 0.42); color: #fff;
+  /* 和对话卡片同一种玻璃（#card）：拿到桌面底图时用 ::before 垫模糊底图 + 同一层墨色（--tint 跟外观的透明度走）；拿不到时用卡片同款不透明底 */
+  isolation: isolate; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(34, 30, 58, 0.94), rgba(23, 20, 42, 0.95)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 9px rgba(8, 6, 20, 0.3); color: #fff;
   pointer-events: none; visibility: hidden; opacity: 0; transform: scale(0.9); transition: opacity 0.16s ease-out, transform 0.16s ease-out, background 0.2s, visibility 0s 0.2s; }
+#vcBub::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0; transition: opacity 0.2s;
+  background: linear-gradient(180deg, rgba(34, 30, 58, var(--tint, 0.75)), rgba(23, 20, 42, calc(var(--tint, 0.75) + 0.08))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
+#vcBub.glassy::before { opacity: 1; }
+#vcBub.vc-x::before { opacity: 0; }
 #vcBub.on { visibility: visible; opacity: 1; transform: none; transition: opacity 0.16s ease-out, transform 0.16s ease-out, background 0.2s, visibility 0s; }
 #vcBub.on.vc-out { opacity: 0; transform: scale(0.35); transition: opacity 0.2s ease-in, transform 0.2s ease-in; }
-#vcBub.vc-x { background: rgba(110, 28, 48, 0.8); box-shadow: inset 0 0 0 1px rgba(255, 150, 150, 0.55), 0 18px 44px rgba(0, 0, 0, 0.42); }
+#vcBub.vc-x { background: rgba(110, 28, 48, 0.94); border-color: rgba(255, 150, 150, 0.55); }
 #vcBub .vc-txt { margin: 0; font-size: 13px; line-height: 1.55; color: #fff; word-break: break-word; }
 #vcBub .vc-txt i { font-style: normal; color: rgba(255, 255, 255, 0.5); }
 #vcBub .vc-time { position: absolute; right: 12px; bottom: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.62); }

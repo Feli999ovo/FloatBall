@@ -1055,6 +1055,9 @@ async function vcOpenBox() {
   vcBox = { p, right, lx, ly, R: ORB / 2 };
   morphing = true;
   try {
+    // 气泡和对话卡片用同一种毛玻璃：扩开前截下窗口将要盖住的那块桌面（见 grabBackdrop）
+    vcBub.classList.remove("glassy");
+    const bd = await grabBackdrop({ x, y, w, h }, a);
     await reshape(w, h, x, y, true, () => {
       body.classList.add("voicing");
       $("#app").style.padding = `${ly - ORB / 2}px 0 0 ${lx - ORB / 2}px`;
@@ -1062,12 +1065,18 @@ async function vcOpenBox() {
       vcBub.style.borderRadius = right ? "4px 16px 16px 16px" : "16px 4px 16px 16px";
       vcBub.style.left = right ? lx + ORB / 2 + 16 + "px" : "auto";
       vcBub.style.right = right ? "auto" : w - lx + ORB / 2 + 16 + "px";
+      if (bd) {
+        vcBub.style.setProperty("--bd", 'url("' + bd + '")');
+        vcBub.style.setProperty("--bd-size", w + "px " + h + "px");
+        vcBub.classList.add("glassy");
+      }
     });
   } finally { morphing = false; }
 }
 async function vcCloseBox() {
   const b = vcBox; if (!b) return;
   vcBox = null;
+  vcBub.classList.remove("glassy");
   if (S.open) { body.classList.remove("voicing"); return; } // 已经展开：展开时会自己排版
   morphing = true;
   try {
@@ -1078,6 +1087,7 @@ function vcPlaceBub() {
   if (!vcBox) return;
   const bh = vcBub.offsetHeight;
   vcBub.style.top = Math.max(4, Math.min(innerHeight - bh - 4, vcBox.ly - bh / 2)) + "px";
+  vcBub.style.setProperty("--bd-pos", -vcBub.offsetLeft + "px " + -vcBub.offsetTop + "px"); // 底图按窗口截的，挪到气泡自己的位置
 }
 function vcTick() {
   if (!vc || vc.stopped) return;

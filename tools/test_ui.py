@@ -408,6 +408,22 @@ async def main():
         check(await lastu() == "帮我把备忘录整理成周报" and "帮我把备忘录整理成周报" in lu(m.get("lastMessages") or [{"role": "user", "content": ""}]), "识别出的文字直接发送（默认「直接发送」）")
         check(not await pg.evaluate("document.querySelector('#vcBub').classList.contains('on')") and not await pg.evaluate("document.body.classList.contains('voicing')"), "气泡收起")
         await pg.wait_for_timeout(1600)
+        # 毛玻璃：录音气泡和对话卡片同一种
+        await pg.evaluate("collapse()"); await pg.wait_for_timeout(700)
+        await pg.evaluate("""(() => { const c = document.createElement('canvas'); c.width = 60; c.height = 25; const g = c.getContext('2d');
+            const gr = g.createLinearGradient(0, 0, 60, 25); gr.addColorStop(0, '#f3a26b'); gr.addColorStop(1, '#7c3a6e'); g.fillStyle = gr; g.fillRect(0, 0, 60, 25);
+            __mock.backdrop = c.toDataURL('image/jpeg'); })()""")
+        n1 = await sttn()
+        await pg.mouse.move(o[0], o[1]); await pg.mouse.down(); await pg.wait_for_timeout(1300)
+        gv = await pg.evaluate("""(() => { const e = document.querySelector('#vcBub'), eye = document.querySelector('.eye');
+            return { glassy: e.classList.contains('glassy'), pos: e.style.getPropertyValue('--bd-pos'), want: -e.offsetLeft + 'px ' + -e.offsetTop + 'px',
+                     args: __mock.backdropArgs, size: __mock.size, eyeH: eye.offsetHeight, mood: document.querySelector('#orb').className }; })()""")
+        check(gv["glassy"] and gv["pos"] == gv["want"] and gv["args"]["w"] == gv["size"]["w"] * 2 and gv["args"]["h"] == gv["size"]["h"] * 2, f"录音气泡：扩开前截下桌面，垫成和对话卡片同一种毛玻璃 {gv}")
+        check(gv["eyeH"] == 21, f"录音时眼睛保持平时的形状（同原型），只跟音量拉伸 {gv['eyeH']} {gv['mood']}")
+        await shot("16_voice_glass")
+        await pg.keyboard.press("Escape"); await pg.wait_for_timeout(300); await pg.mouse.up(); await pg.wait_for_timeout(700)
+        check(await sttn() == n1 and not await pg.evaluate("document.querySelector('#vcBub').classList.contains('glassy')"), "收起后去掉底图（下次重新截）")
+        await pg.evaluate("__mock.backdrop = null")
         # 太短
         await pg.evaluate("collapse()"); await pg.wait_for_timeout(700)
         n0 = await sttn()
@@ -529,6 +545,26 @@ async def main():
         await bp.evaluate("__emit('sel:show', {text: 'x', app: 'Word', x: 10, y: 10})"); await bp.wait_for_timeout(200)
         labels = await bp.eval_on_selector_all("#selBar button", "x => x.map(b => b.textContent || b.getAttribute('aria-label'))")
         check(labels == ["悬浮球 · 问问它", "翻译", "复制", "⋯"], f"按设置里的勾选和顺序排按钮 {labels}")
+        # 毛玻璃：和对话卡片同一种（程序截下工具栏后面的桌面传回来）
+        mkbd = """(wh) => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; const g = c.getContext('2d');
+            const gr = g.createLinearGradient(0, 0, 40, 30); gr.addColorStop(0, '#f3a26b'); gr.addColorStop(1, '#7c3a6e'); g.fillStyle = gr; g.fillRect(0, 0, 40, 30);
+            __mock.selBackdrop = { url: c.toDataURL('image/jpeg'), w: wh[0], h: wh[1] }; }"""
+        check(not await bp.evaluate("document.querySelector('#selBar').classList.contains('glassy')"), "拿不到底图（macOS/Linux）：用卡片同款不透明底")
+        bgc = await bp.evaluate("getComputedStyle(document.querySelector('#selBar')).backgroundImage")
+        check("rgba(34, 30, 58, 0.94)" in bgc, f"不透明底和对话卡片同色 {bgc[:60]}")
+        await bp.evaluate(mkbd, [420, 300]); await bp.evaluate("__mock.cfg.glass = 40")
+        await bp.evaluate("__emit('sel:show', {text: '海外支付', app: 'Word', x: 300, y: 300})"); await bp.wait_for_timeout(400)
+        gs = await bp.evaluate("""(() => { const e = document.querySelector('#selBar'), r = e.getBoundingClientRect();
+            return [e.classList.contains('glassy'), e.style.getPropertyValue('--bd-pos'), -Math.round(r.left) + 'px ' + -Math.round(r.top) + 'px', getComputedStyle(document.documentElement).getPropertyValue('--tint').trim()]; })()""")
+        check(gs[0] and gs[1] == gs[2] and gs[3] == "0.6", f"拿到底图：工具栏垫上模糊的桌面，对齐自己的位置，透明度跟设置·外观 {gs}")
+        await bp.click(".x-selmore"); await bp.wait_for_timeout(250)
+        check(await bp.evaluate("document.querySelector('#selDd').classList.contains('glassy')"), "⋯ 菜单也是同一种玻璃")
+        await bp.screenshot(path=f"{OUT}/26_selbar_glass.png", omit_background=True)
+        await bp.evaluate(mkbd, [420, 50])
+        await bp.evaluate("__emit('sel:show', {text: '海外支付', app: 'Word', x: 300, y: 300})"); await bp.wait_for_timeout(250)
+        await bp.click(".x-selmore"); await bp.wait_for_timeout(250)
+        check(await bp.evaluate("document.querySelector('#selBar').classList.contains('glassy') && !document.querySelector('#selDd').classList.contains('glassy')"), "底图不够高（贴着屏幕底）：菜单用不透明底，不露出半截")
+        await bp.evaluate("delete __mock.selBackdrop; __mock.cfg.glass = 25")
         await bp.evaluate("__emit('sel:hint', {text: '', app: '', x: 10, y: 10})"); await bp.wait_for_timeout(200)
         check(await bp.is_visible("#selHint") and await bp.is_hidden("#selBar"), "macOS 没开辅助功能：只显示权限提示")
         await bp.click("#selHintGo"); await bp.wait_for_timeout(100)

@@ -23,6 +23,28 @@ function render() {
   }
   dd.hidden = true;
 }
+// 毛玻璃：和对话卡片同一种（Rust 截下工具栏后面的桌面、模糊后传回来，垫在一层墨色下面）。拿不到就是不透明的底。
+let bd = null;
+const glassEls = () => [bar, dd, hint];
+function glassOff() { bd = null; glassEls().forEach((e) => e.classList.remove("glassy")); }
+function glassPlace() {
+  if (!bd) return;
+  glassEls().forEach((e) => {
+    if (e.hidden) return;
+    // 用排版位置（不含出场动画的位移），动画结束后底图正好对齐
+    const L = e.offsetLeft, T = e.offsetTop;
+    e.style.setProperty("--bd", 'url("' + bd.url + '")');
+    e.style.setProperty("--bd-size", bd.w + "px " + bd.h + "px");
+    e.style.setProperty("--bd-pos", -L + "px " + -T + "px");
+    e.classList.toggle("glassy", T + e.offsetHeight <= bd.h + 0.5); // 底图不够高（屏幕底部）就别垫，免得露出一截
+  });
+}
+async function place(p) {
+  glassOff();
+  try { bd = await invoke("sel_place", { ...size(), x: p.x, y: p.y }); } catch (_) { bd = null; }
+  glassPlace();
+}
+function applyTint(c) { document.documentElement.style.setProperty("--tint", String(1 - (c && c.glass != null ? c.glass : 25) / 100)); }
 const size = () => { const r = $("wrap").getBoundingClientRect(); return { w: Math.ceil(r.width), h: Math.ceil(r.height) }; };
 function ddToggle(open) {
   const m = bar.querySelector(".x-selmore"); if (!m) return;
@@ -30,19 +52,20 @@ function ddToggle(open) {
   if (open) ddActs().forEach((id) => { const b = btn(id); b.setAttribute("role", "menuitem"); dd.appendChild(b); });
   dd.hidden = !open; m.setAttribute("aria-expanded", String(open));
   invoke("sel_resize", size());
+  glassPlace();
 }
 listen("sel:show", async ({ payload }) => {
-  try { sel = (await invoke("get_config")).sel; } catch (_) { return; }
+  try { const c = await invoke("get_config"); sel = c.sel; applyTint(c); } catch (_) { return; }
   text = payload.text; document.body.classList.remove("hint"); hint.hidden = true; clearTimeout(hintT);
   render();
   bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = "";
-  invoke("sel_place", { ...size(), x: payload.x, y: payload.y });
+  place(payload);
 });
 // macOS 还没给「辅助功能」权限：本次运行只提示一次，4 秒后自动收起
 listen("sel:hint", ({ payload }) => {
   if (hinted) return; hinted = true;
   document.body.classList.add("hint"); hint.hidden = false; dd.hidden = true;
-  invoke("sel_place", { ...size(), x: payload.x, y: payload.y });
+  place(payload);
   hintT = setTimeout(() => invoke("sel_hide"), 4000);
 });
 $("selHintGo").addEventListener("click", () => { invoke("sel_open_privacy"); invoke("sel_hide"); });
