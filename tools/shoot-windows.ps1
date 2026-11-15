@@ -105,15 +105,15 @@ if ($Wallpaper) {
 }
 
 # 划词默认关：截图要看划词工具栏，先在配置里打开（只改这台云端构建机上的配置）
-# 程序旁边有 data 目录时是便携模式，配置在那里（CI 里就是这样），否则在 %APPDATA%
-$cfgDir = Join-Path (Split-Path (Resolve-Path $Exe)) 'data'
-if (-not (Test-Path $cfgDir)) { $cfgDir = Join-Path $env:APPDATA 'com.floatball.desktop' }
-New-Item -ItemType Directory -Force $cfgDir | Out-Null
-$cfgFile = Join-Path $cfgDir 'config.json'
-$cfg = if (Test-Path $cfgFile) { Get-Content $cfgFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
-$cfg | Add-Member -Force -NotePropertyName sel -NotePropertyValue ([pscustomobject]@{ on = $true; mode = 'instant' })
-$cfg | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 $cfgFile
-Write-Host "配置：$cfgFile 打开划词"
+# 配置可能在程序旁边的 data（CI 里直接跑 target\release 下的程序就是这样），也可能在 %APPDATA%：两处都写
+foreach ($cfgDir in @((Join-Path (Split-Path (Resolve-Path $Exe)) 'data'), (Join-Path $env:APPDATA 'com.floatball.desktop'))) {
+  New-Item -ItemType Directory -Force $cfgDir | Out-Null
+  $cfgFile = Join-Path $cfgDir 'config.json'
+  $cfg = if (Test-Path $cfgFile) { Get-Content $cfgFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
+  $cfg | Add-Member -Force -NotePropertyName sel -NotePropertyValue ([pscustomobject]@{ on = $true; mode = 'instant' })
+  $cfg | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 $cfgFile
+  Write-Host "配置：$cfgFile 打开划词"
+}
 
 # 把桌面上别的窗口都最小化，免得挡住小球后面的壁纸
 (New-Object -ComObject Shell.Application).MinimizeAll()

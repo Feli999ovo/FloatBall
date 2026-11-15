@@ -124,6 +124,16 @@ mod plat {
     pub fn trusted(_prompt: bool) -> bool {
         true
     }
+
+    /// 只按一下 Alt 再松开，Windows 会让前台窗口进菜单模式（记事本的菜单栏被选中、下一次点击被吃掉）。
+    /// 按住说话一开始就补一个没有用途的键（0xE8，系统没分配），Alt 就不算「单按」了。
+    pub fn mask_alt() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP};
+        unsafe {
+            keybd_event(0xE8, 0, 0, 0);
+            keybd_event(0xE8, 0, KEYEVENTF_KEYUP, 0);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -287,6 +297,10 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
         let talk = talk_on && p.ralt;
         if talk != was_talk {
             was_talk = talk;
+            #[cfg(windows)]
+            if talk {
+                plat::mask_alt();
+            }
             let _ = app.emit_to("main", "voice:key", talk);
         }
         let shown = bar_shown();
