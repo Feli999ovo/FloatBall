@@ -953,8 +953,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            if let Ok(d) = app.path().app_log_dir() {
-                applog::init(&d);
+            match app.path().app_log_dir() {
+                Ok(d) => applog::init(&d),
+                Err(e) => eprintln!("拿不到日志目录：{e}"),
             }
             let cfg_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;

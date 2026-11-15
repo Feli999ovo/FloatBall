@@ -38,10 +38,12 @@ impl log::Log for FileLog {
 }
 
 pub fn init(dir: &Path) {
-    if std::fs::create_dir_all(dir).is_err() {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        eprintln!("建不了日志目录 {}：{e}", dir.display());
         return;
     }
     let path = dir.join("floatball.log");
+    eprintln!("日志：{}", path.display());
     let big = std::fs::metadata(&path).map(|m| m.len() > 1 << 20).unwrap_or(false);
     let f = if big { File::create(&path) } else { OpenOptions::new().create(true).append(true).open(&path) };
     let Ok(f) = f else { return };

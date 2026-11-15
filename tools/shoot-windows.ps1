@@ -193,8 +193,9 @@ try {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
   Get-Process -Name floatball -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
-# 程序自己的日志（只记做到哪一步、出了什么错）
-$log = Join-Path $env:LOCALAPPDATA 'com.floatball.desktop\logs\floatball.log'
-if (-not (Test-Path $log)) { $f = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter floatball.log -ErrorAction SilentlyContinue | Select-Object -First 1; if ($f) { $log = $f.FullName } }
-if (Test-Path $log) { Copy-Item $log (Join-Path $Out 'floatball.log'); Get-Content $log | Write-Host } else { Write-Host "没有日志：$log" }
+# 程序自己的日志（只记做到哪一步、出了什么错）。cargo test 也会在临时目录写一份，跳过
+$logs = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter floatball.log -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'fblog-' }
+if (-not $logs) { Write-Host "没有找到程序日志" }
+$n = 0
+foreach ($f in $logs) { $n++; Write-Host "日志 $($f.FullName)"; Copy-Item $f.FullName (Join-Path $Out "floatball-$n.log"); Get-Content $f.FullName | ForEach-Object { Write-Host "LOG $_" } }
 Write-Host "截图在 $Out，共 $((Get-ChildItem $Out -Filter *.png).Count) 张"
