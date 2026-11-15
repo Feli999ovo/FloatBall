@@ -21,6 +21,7 @@
       <ul class="x-lib" id="libList" aria-label="模型库"></ul>
       <p class="x-soon" id="libEmpty" hidden>还没有模型</p>
       <p class="x-note x-src" id="libSrc"></p>
+      <div class="x-ar" style="margin:0"><span id="libAutoL">每天自动更新模型资料<small>会连接 models.dev 下载模型列表，只下载不上传，但对方能看到你的 IP。关掉时只用安装包自带的那份</small></span><button type="button" class="x-sw" id="libAuto" role="switch" aria-checked="false" aria-labelledby="libAutoL"></button></div>
     </div>
 
     <!-- 添加 / 编辑模型 -->
@@ -184,6 +185,12 @@
           <button type="button" role="radio" aria-checked="true" data-v="send">直接发送</button><button type="button" role="radio" aria-checked="false" data-v="box">先放进输入框</button>
         </div>
       </div>
+      <div class="x-field"><span id="vcEngL">识别方式</span>
+        <div class="x-seg x-lkseg" id="vcEng" role="radiogroup" aria-labelledby="vcEngL">
+          <button type="button" role="radio" aria-checked="true" data-v="system">系统自带（免费）</button><button type="button" role="radio" aria-checked="false" data-v="provider">模型服务商</button>
+        </div>
+      </div>
+      <p class="x-note" id="vcSysNote" style="margin:-6px 0 14px"></p>
       <div class="x-g2 x-vcsvc">
         <label class="x-field"><span>识别用哪个服务商</span><select class="x-in" id="vcModel"></select></label>
         <label class="x-field"><span>识别模型</span><input class="x-in" id="vcStt" list="vcSttList" spellcheck="false" autocomplete="off" placeholder="whisper-1" /></label>
@@ -194,7 +201,7 @@
         <div class="x-ar" style="margin:0"><span id="vcTtsL">朗读回复<small>每条新回复读出来（用系统自带的语音）</small></span><button type="button" class="x-sw" id="vcTts" role="switch" aria-checked="false" aria-labelledby="vcTtsL"></button></div>
         <div class="x-ar x-vc-wake" style="margin-top:12px"><span id="vcWakeL">唤醒词「嘿，小球」<small>还没做：需要在本机一直听唤醒词，下一版再加。</small></span><button type="button" class="x-sw" id="vcWake" role="switch" aria-checked="false" aria-disabled="true" disabled aria-labelledby="vcWakeL"></button></div>
       </div>
-      <p class="x-note" style="margin:14px 0 0">长按小球、按住「按住说话」快捷键（默认右 <span id="vcAltK">Alt</span>），或点输入框旁的麦克风。只在按住或听写时录音，录完发给上面选的服务商识别。</p>
+      <p class="x-note" style="margin:14px 0 0">长按小球、按住「按住说话」快捷键（默认右 <span id="vcAltK">Alt</span>），或点输入框旁的麦克风。只在按住或听写时录音。</p>
     </div>
   </div>
 </div>

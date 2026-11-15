@@ -92,7 +92,13 @@ function lookupCaps(delay = 250) {
     } catch (e) { jslog(e); }
   }, delay);
 }
-function logoOf(id) { return id && window.FB_LOGOS && window.FB_LOGOS.has(id) ? id : "_default"; }
+// 有 models.dev 的 logo 就用；没有就用服务商名字的第一个字代替（不放来源说不清的图）
+function logoOf(id) { return id && window.FB_LOGOS && window.FB_LOGOS.has(id) ? id : ""; }
+function setLogo(el, m) {
+  const id = logoOf(m.logo);
+  if (id) { el.style.setProperty("--logo", `url("assets/logos/${id}.svg")`); return; }
+  el.classList.add("x-logo-t"); el.textContent = ((m.provider || m.name || m.model || "?").trim()[0] || "?").toUpperCase();
+}
 
 /* ───────── 模型库 ───────── */
 function renderLib() {
@@ -102,7 +108,7 @@ function renderLib() {
     const li = document.createElement("li"); li.className = "x-mc" + (def ? " def" : "");
     li.innerHTML = `<p class="x-mcn"><i class="x-logo" aria-hidden="true"></i><b></b>${def ? '<span class="x-star">★ 默认</span>' : ""}</p><p class="x-mcp"></p><div class="x-caps">${capsHTML(capsOf(m))}</div>` +
       `<div class="x-mca">${def ? "" : '<button type="button" data-a="def">设为默认</button>'}<button type="button" data-a="edit">编辑</button><button type="button" class="x-del" data-a="del">删除</button></div>`;
-    li.querySelector(".x-logo").style.setProperty("--logo", `url("assets/logos/${logoOf(m.logo)}.svg")`);
+    setLogo(li.querySelector(".x-logo"), m);
     li.querySelector("b").textContent = m.name || m.model;
     const noKey = !m.no_key && !m.has_key;
     li.querySelector(".x-mcp").textContent = provLabel(m).replace("（本地）", "") + " · " + m.model + (noKey ? " · 还没填 Key" : "");
@@ -123,7 +129,8 @@ function renderLib() {
     });
     ul.appendChild(li);
   });
-  $("libSrc").textContent = cfg && cfg.catalog_date ? `能力资料来自 models.dev（${cfg.catalog_date}），联网时每天自动更新` : "";
+  $("libSrc").textContent = cfg && cfg.catalog_date ? `能力资料来自 models.dev（${cfg.catalog_date}）` + (cfg.catalog_auto ? "，每天自动更新" : "，用的是安装包自带的那份") : "";
+  $("libAuto").setAttribute("aria-checked", !!(cfg && cfg.catalog_auto));
 }
 // 早期版本存的模型没有服务商和能力字段：按地址认服务商，能力当场查资料（只用来显示，保存时才写进配置）
 const HOST_PROV = { "api.openai.com": "OpenAI", "api.deepseek.com": "DeepSeek", "dashscope.aliyuncs.com": "通义千问", "api.moonshot.cn": "Kimi", "openrouter.ai": "OpenRouter" };
@@ -500,6 +507,7 @@ function prefs() {
     ...(selCfg ? { sel: selCfg } : {}),
     ...(vcCfg ? { voice: vcCfg } : {}),
     screen: on("mdsWhere") || "mouse", screen_slide: sw("mdsSlide"),
+    catalog_auto: sw("libAuto"),
   };
 }
 async function savePrefs() {
@@ -733,6 +741,7 @@ async function selStatus() {
   $("selPriv").hidden = !mac || st.trusted;
   $("selModeAlt").textContent = `按住 ${mac ? "⌥" : "Alt"} 再选中`;
 }
+$("libAuto").addEventListener("click", () => { $("libAuto").setAttribute("aria-checked", !sw("libAuto")); savePrefs(); });
 $("selOn").addEventListener("click", () => { selCfg.on = !sw("selOn"); $("selOn").setAttribute("aria-checked", selCfg.on); savePrefs(); });
 $("selMode").addEventListener("click", (e) => { const b = e.target.closest("[role=radio]"); if (!b) return; radio("selMode", b.dataset.v); selCfg.mode = b.dataset.v; savePrefs(); });
 $("selMode").addEventListener("keydown", (e) => {
@@ -748,6 +757,13 @@ let vcCfg = null;
 function renderVoice() {
   const a = document.activeElement && document.activeElement.id;
   $("vcLang").value = vcCfg.lang; radio("vcAfter", vcCfg.after);
+  const prov = vcCfg.engine === "provider";
+  radio("vcEng", prov ? "provider" : "system");
+  $("vcSysNote").textContent = prov ? "录音会发给下面选的模型服务商识别。"
+    : cfg.platform === "windows" ? "用 Windows 自带的听写，不用配模型。要先打开 Windows 设置 → 隐私和安全性 → 语音里的「联机语音识别」，录音可能经微软云端处理。"
+    : cfg.platform === "macos" ? "用 macOS 自带的本机识别，不用配模型，录音不离开这台 Mac。第一次用会弹系统授权；没下载对应语言时去 系统设置 → 键盘 → 听写 下载。"
+    : "这个系统没有自带语音识别，请改用模型服务商。";
+  document.querySelector(".x-vcsvc").hidden = !prov; $("vcSvcNote").hidden = !prov;
   const sel = $("vcModel"), ms = cfg.models || [];
   sel.innerHTML = "";
   const def = ms.find((m) => m.id === cfg.default_model);
@@ -761,6 +777,12 @@ function renderVoice() {
   $("vcSvcNote").textContent = ms.length ? "用这个模型的接口地址和 Key，调用它的语音识别接口。DeepSeek 等没有语音识别的服务商用不了。" : "先在「模型」里添加一个模型，语音识别用它的接口地址和 Key。";
 }
 $("vcLang").addEventListener("change", (e) => { vcCfg.lang = e.target.value; savePrefs(); });
+$("vcEng").addEventListener("click", (e) => { const b = e.target.closest("[role=radio]"); if (!b) return; radio("vcEng", b.dataset.v); vcCfg.engine = b.dataset.v; renderVoice(); savePrefs(); });
+$("vcEng").addEventListener("keydown", (e) => {
+  const bs = [...$("vcEng").querySelectorAll("[role=radio]")], i = bs.indexOf(document.activeElement);
+  const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+  if (!d || i < 0) return; e.preventDefault(); const n = bs[(i + d + bs.length) % bs.length]; n.focus(); n.click();
+});
 $("vcAfter").addEventListener("click", (e) => { const b = e.target.closest("[role=radio]"); if (!b) return; radio("vcAfter", b.dataset.v); vcCfg.after = b.dataset.v; savePrefs(); });
 $("vcAfter").addEventListener("keydown", (e) => {
   const bs = [...$("vcAfter").querySelectorAll("[role=radio]")], i = bs.indexOf(document.activeElement);

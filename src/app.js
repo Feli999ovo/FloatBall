@@ -425,9 +425,12 @@ async function hvHide() {
    收起时窗口只有小球那么大，放不下气泡：冒泡时临时把窗口扩大，小球留在原地，消失后再缩回。 */
 const PEEK_W = 260, PEEK_H = 60;
 let peekTimer = 0, peekBox = null;
-async function showPeek(text) {
+// err：出错提示。小泡只放得下 20 个字，点开后把整句（去哪设置）完整显示出来
+let peekFull = "";
+async function showPeek(text, err) {
   const t = String(text).replace(/\s+/g, " ").trim();
   if (!t || S.open || morphing || peekBox || hv.shown) return;
+  peekFull = err && t.length > 20 ? t : "";
   morphing = true;
   try {
     const p = await winPos(), a = await monitorArea();
@@ -472,7 +475,9 @@ $("#peek").onclick = async () => {
     try { await reshape(SMALL, SMALL, box.p.x, box.p.y, false, () => { body.classList.remove("peeking"); $("#app").style.padding = ""; }); }
     finally { morphing = false; peekBox = null; }
   }
-  expand("chat");
+  const full = peekFull; peekFull = "";
+  await expand("chat");
+  if (full) toast(full);
 };
 $("#newBtn").onclick = () => { newChat(); showView("chat"); focusAsk(); };
 $("#histBtn").onclick = () => showView($("#vHist").hidden ? "hist" : "chat");
@@ -487,7 +492,8 @@ let toastTimer = 0;
 function toast(t) {
   const el = $("#toast");
   el.textContent = t; el.classList.add("on");
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), 2600);
+  // 长的提示（比如告诉你去哪设置）多留一会儿，够读完
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), Math.max(2600, String(t).length * 150));
 }
 function toastErr(e) { toast(String(e)); mood("error", 2400); }
 
@@ -1035,9 +1041,20 @@ const vcBub = $("#vcBub"), vcRip = $("#vcRip"), vcMic = $("#vcMic");
 const vcTxt = vcBub.querySelector(".vc-txt"), vcTime = vcBub.querySelector(".vc-time");
 const vcRings = [...vcRip.children];
 let vc = null, vcBox = null, vcKeyT = 0, vcAsk0 = "";
-const vcCfg = () => (S.cfg && S.cfg.voice) || { lang: "auto", after: "send", tts: false };
+const vcCfg = () => (S.cfg && S.cfg.voice) || { lang: "auto", after: "send", tts: false, engine: "system" };
+const vcSys = () => vcCfg().engine !== "provider";
+// 按住说话之前先看识别能不能用：系统识别要 Windows / macOS；服务商识别要有模型、有 Key。不能用就说清楚去哪改
+function vcNotReady() {
+  if (vcSys()) return S.cfg && ["windows", "macos"].includes(S.cfg.platform) ? "" : "这个系统没有自带语音识别，请在设置 → 语音里改用服务商识别";
+  const ms = (S.cfg && S.cfg.models) || [];
+  const v = vcCfg(), m = ms.find((x) => x.id === v.model) || ms.find((x) => x.id === S.cfg.default_model) || ms[0];
+  if (!m) return "语音识别选的是服务商，但还没有添加模型：设置 → 模型里添加，或在设置 → 语音里改用系统识别";
+  if (!m.no_key && !m.has_key) return "语音识别选的服务商还没填 API Key：设置 → 模型里补上，或在设置 → 语音里改用系统识别";
+  return "";
+}
 const vcFmt = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
-const vcMime = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+// macOS 系统识别读不了 webm，录成 mp4（m4a）
+const vcMime = () => (vcSys() && S.cfg.platform === "macos" ? ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"] : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]).find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
 function vcSay(t, dim) {
   vcTxt.textContent = "";
   if (dim) { const i = document.createElement("i"); i.textContent = t; vcTxt.appendChild(i); } else vcTxt.textContent = t;
@@ -1120,7 +1137,8 @@ function vcTick() {
 // 开始录音。mode：press 长按小球 / key 快捷键 / dict 胶囊麦克风
 async function vcStart(mode) {
   if (vc || S.busy || morphing) return false;
-  if (!S.cfg || !(S.cfg.models || []).length) { toast("先在设置 → 模型里添加一个模型，语音识别要用它的接口"); if (!S.open) showPeek("先在设置里添加模型，才能用语音"); return false; }
+  const nr = vcNotReady();
+  if (nr) { toast(nr); if (!S.open) showPeek(nr, true); mood("error", 2400); return false; }
   const me = { mode, t0: performance.now(), cancel: false, stopped: false, lv: 0, chunks: [], raf: 0 };
   vc = me;
   if (hv.shown) await hvHide();
@@ -1131,10 +1149,20 @@ async function vcStart(mode) {
   } catch (e) {
     vc = null;
     const msg = e && e.name === "NotAllowedError" ? "没有麦克风权限。macOS：系统设置 → 隐私与安全性 → 麦克风；Windows：设置 → 隐私 → 麦克风" : e && e.name === "NotFoundError" ? "没找到麦克风" : "打不开麦克风：" + (e && e.message || e);
-    toast(msg); if (!S.open) showPeek(msg); mood("error", 2400);
+    toast(msg); if (!S.open) showPeek(msg, true); mood("error", 2400);
     return false;
   }
   if (vc !== me) { me.stream.getTracks().forEach((t) => t.stop()); return false; } // 等权限时已经松手、取消了
+  // 系统识别：Windows 从这里开始听（macOS 松开后识别录音文件）
+  if (vcSys()) {
+    try { await invoke("stt_begin"); } catch (e) {
+      me.stream.getTracks().forEach((t) => t.stop());
+      if (vc === me) vc = null;
+      const msg = String(e); toast(msg); if (!S.open) showPeek(msg, true); mood("error", 2400);
+      return false;
+    }
+    if (vc !== me) { me.stream.getTracks().forEach((t) => t.stop()); invoke("stt_cancel").catch(() => {}); return false; }
+  }
   me.mime = vcMime();
   me.rec = new MediaRecorder(me.stream, me.mime ? { mimeType: me.mime } : undefined);
   me.rec.ondataavailable = (e) => { if (e.data && e.data.size) me.chunks.push(e.data); };
@@ -1183,10 +1211,11 @@ async function vcCancel(msg) {
   const me = vc; if (!me || me.mode === "dict") return false;
   vc = null;
   vcStopRec(me);
+  if (vcSys()) invoke("stt_cancel").catch(() => {});
   body.classList.add("vc-eh"); setTimeout(() => body.classList.remove("vc-eh"), 450);
   mood("idle");
   await vcHideBub(); await vcCloseBox();
-  if (msg) { toast(msg); if (!S.open) showPeek(msg); }
+  if (msg) { toast(msg); if (!S.open) showPeek(msg, true); }
   return true;
 }
 function blobB64(b) {
@@ -1211,7 +1240,7 @@ async function vcRelease() {
   vc = null;
   if (!err && text) { vcSay(text); vcPlaceBub(); await new Promise((r) => setTimeout(r, 450)); }
   await vcHideBub(); await vcCloseBox();
-  if (err || !text) { mood(err ? "error" : "idle", 2400); const m = err || "没听清，再说一次"; toast(m); if (!S.open) showPeek(m); return; }
+  if (err || !text) { mood(err ? "error" : "idle", 2400); const m = err || "没听清，再说一次"; toast(m); if (!S.open) showPeek(m, true); return; }
   mood("idle");
   await expand("chat");
   if (vcCfg().after === "box") {
@@ -1225,7 +1254,7 @@ async function vcDictStop(thenSend) {
   vcMic.classList.remove("vc-on"); vcMic.setAttribute("aria-pressed", "false"); vcMic.setAttribute("aria-label", "语音输入：听写到输入框");
   vcMic.classList.add("vc-busy"); ask.placeholder = "识别中…";
   let text = "", err = "";
-  try { if (performance.now() - me.t0 >= VC_MIN) text = (await vcRecognize(blob)).trim(); } catch (e) { err = String(e); }
+  try { if (performance.now() - me.t0 >= VC_MIN) text = (await vcRecognize(blob)).trim(); else if (vcSys()) invoke("stt_cancel").catch(() => {}); } catch (e) { err = String(e); }
   vcMic.classList.remove("vc-busy"); ask.placeholder = vcAsk0 || "有什么可以帮你？";
   if (vc === me) vc = null;
   if (err) { toastErr(err); return; }

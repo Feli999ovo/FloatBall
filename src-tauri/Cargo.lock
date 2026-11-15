@@ -1445,11 +1445,15 @@ dependencies = [
  "active-win-pos-rs",
  "arboard",
  "base64 0.22.1",
+ "block2 0.6.2",
  "futures-util",
  "get-selected-text",
  "image",
  "keyring",
  "log",
+ "objc2 0.6.5",
+ "objc2-foundation",
+ "objc2-speech",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
@@ -1461,6 +1465,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "tokio",
+ "windows 0.61.3",
  "windows-sys 0.59.0",
  "xcap",
 ]
@@ -3422,6 +3427,19 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-security",
+]
+
+[[package]]
+name = "objc2-speech"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9eb609f9d2a25e0f8b76954f3acaa58348ce2a91285fe867643b2224ac4d263"
+dependencies = [
+ "block2 0.6.2",
+ "objc2 0.6.5",
+ "objc2-avf-audio",
+ "objc2-core-media",
+ "objc2-foundation",
 ]
 
 [[package]]

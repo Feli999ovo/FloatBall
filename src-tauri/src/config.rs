@@ -94,7 +94,7 @@ impl Default for Agent {
 
 impl Agent {
     pub fn lead(prompt: &str) -> Self {
-        Self { id: LEAD.into(), name: "主控".into(), role: "拆解与分派".into(), prompt: prompt.into(), tint: "#C9B8F2".into(), tools: vec!["搜索网页".into(), "读文件".into(), "写文件".into()], ..Self::default() }
+        Self { id: LEAD.into(), name: "主控".into(), role: "拆解与分派".into(), prompt: prompt.into(), tint: "#C9B8F2".into(), tools: vec!["读文件".into(), "写文件".into()], ..Self::default() }
     }
 }
 
@@ -175,6 +175,8 @@ pub struct Config {
     pub screen: String,
     /// 跟着鼠标换屏时滑过去而不是闪现
     pub screen_slide: bool,
+    /// 每天联网从 models.dev 更新模型资料。默认关：只用安装包自带的那份，不连别的服务器
+    pub catalog_auto: bool,
 }
 
 /// 悬停快捷入口（原型的 hoverEntries）。order 里 show 的前 4 个按顺序排开
@@ -235,11 +237,13 @@ pub struct Voice {
     pub model: u32,
     /// 识别模型名，例如 whisper-1、gpt-4o-mini-transcribe、whisper-large-v3、FunAudioLLM/SenseVoiceSmall
     pub stt: String,
+    /// 识别引擎：system 系统自带（默认，免费）/ provider 用上面选的模型服务商
+    pub engine: String,
 }
 
 impl Default for Voice {
     fn default() -> Self {
-        Self { lang: "auto".into(), after: "send".into(), tts: false, model: 0, stt: "whisper-1".into() }
+        Self { lang: "auto".into(), after: "send".into(), tts: false, model: 0, stt: "whisper-1".into(), engine: "system".into() }
     }
 }
 
@@ -249,6 +253,7 @@ impl Voice {
         if self.after != "box" { self.after = "send".into(); }
         self.stt = self.stt.trim().to_string();
         if self.stt.is_empty() { self.stt = "whisper-1".into(); }
+        if self.engine != "provider" { self.engine = "system".into(); }
         self
     }
 }
@@ -340,6 +345,7 @@ impl Default for Config {
             talk_shortcut: TALK_RALT.into(),
             screen: "mouse".into(),
             screen_slide: true,
+            catalog_auto: false,
         }
     }
 }
@@ -549,8 +555,11 @@ mod tests {
 
     #[test]
     fn voice_normalizes() {
-        let v = Voice { lang: "fr".into(), after: "x".into(), tts: true, model: 3, stt: "  ".into() }.normalized();
-        assert_eq!(v, Voice { lang: "auto".into(), after: "send".into(), tts: true, model: 3, stt: "whisper-1".into() });
+        let v = Voice { lang: "fr".into(), after: "x".into(), tts: true, model: 3, stt: "  ".into(), engine: "x".into() }.normalized();
+        assert_eq!(v, Voice { lang: "auto".into(), after: "send".into(), tts: true, model: 3, stt: "whisper-1".into(), engine: "system".into() });
+        assert_eq!(Voice { engine: "provider".into(), ..Voice::default() }.normalized().engine, "provider");
+        // 默认用系统自带识别
+        assert_eq!(Voice::default().engine, "system");
         let v = Voice { lang: "yue".into(), after: "box".into(), stt: " whisper-large-v3 ".into(), ..Voice::default() }.normalized();
         assert_eq!((v.lang.as_str(), v.after.as_str(), v.stt.as_str()), ("yue", "box", "whisper-large-v3"));
         // 旧配置里没有 voice、talk_shortcut：用默认值

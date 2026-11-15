@@ -679,9 +679,9 @@ mod tests {
         assert_eq!(out, "营收涨了 18%");
         assert_eq!(pills(&e), vec![("读取文件".into(), "报告.txt".into(), "run".into()), ("读取文件".into(), "报告.txt".into(), "done".into())]);
         let got = e.got.lock().unwrap();
-        // 第一次带上主控能用的工具（搜索、读文件、写文件），没有删除 / 发邮件 / 浏览器
+        // 第一次带上主控默认能用的工具（读文件、写文件）；搜索网页要用户自己勾，删除 / 发邮件 / 浏览器也不带
         let names: Vec<&str> = got[0]["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap()).collect();
-        assert_eq!(names, vec!["web_search", "fetch_page", "read_file", "list_dir", "write_file"]);
+        assert_eq!(names, vec!["read_file", "list_dir", "write_file"]);
         assert_eq!(got[0]["messages"][0]["role"], "system");
         // 第二次把工具结果带回去
         let m = got[1]["messages"].as_array().unwrap();
