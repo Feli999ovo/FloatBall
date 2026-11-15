@@ -215,7 +215,12 @@ fn read_selection(own_pid: u64) -> Option<(String, String)> {
     if cfg!(windows) && never_read(&exe) {
         return None;
     }
-    Some((format!("{}\u{1}{}", w.app_name, exe), get_selected_text::get_selected_text().ok()?))
+    log::info!("前台程序 {exe}，模拟 Ctrl+C 读选中文字");
+    let t = get_selected_text::get_selected_text();
+    if let Err(e) = &t {
+        log::warn!("读选中文字失败：{e}");
+    }
+    Some((format!("{}\u{1}{}", w.app_name, exe), t.ok()?))
 }
 
 /// 后台线程的句柄：划词和右 Alt 说话都关时线程停住不读键鼠，设置改了用 wake 叫醒它
@@ -237,7 +242,7 @@ pub fn idle(sel_on: bool, talk_on: bool) -> bool {
 pub fn spawn<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     #[cfg(any(windows, target_os = "macos"))]
     {
-        let h = std::thread::spawn(move || watch(app));
+        let h = std::thread::Builder::new().name("划词".into()).spawn(move || watch(app)).expect("划词线程");
         let _ = WATCHER.set(h.thread().clone());
     }
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -252,7 +257,13 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     let mut press_ibeam = false;
     let own_pid = std::process::id() as u64;
     let mut was_talk = false;
+    let mut beat = 0u32;
     loop {
+        // 每 5 秒记一次，看线程有没有卡住（下面读窗口状态要等主线程）
+        beat = beat.wrapping_add(1);
+        if beat % 200 == 0 {
+            log::info!("划词线程在跑");
+        }
         let st = app.state::<crate::AppState>();
         let (sel, talk_on) = { let c = st.cfg.lock().unwrap(); (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT) };
         if idle(sel.on, talk_on) {
@@ -306,6 +317,7 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
         } else if !p.down && was_down {
             if let Some(_g) = rec.up(p.x, p.y, now) {
                 let want = (sel.mode != "alt" || p.alt) && (press_ibeam || p.ibeam);
+                log::info!("认出划词手势，读不读：{want}");
                 if want {
                     let app2 = app.clone();
                     let (x, y) = (p.x, p.y);
@@ -316,14 +328,18 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
                             let _ = app2.emit_to("selbar", "sel:hint", Picked { text: String::new(), app: String::new(), x, y });
                             return;
                         }
-                        let Some((who, text)) = read_selection(own_pid) else { return };
+                        log::info!("开始读选中文字");
+                        let got = read_selection(own_pid);
+                        log::info!("读完：{}", got.as_ref().map(|(_, t)| format!("{} 字", t.chars().count())).unwrap_or_else(|| "没读到".into()));
+                        let Some((who, text)) = got else { return };
                         let (name, exe) = who.split_once('\u{1}').unwrap_or((&who, ""));
                         if st.cfg.lock().unwrap().sel.excluded(name, exe) {
                             return;
                         }
                         if let Some(text) = clip(&text) {
                             st.note_app(name);
-                            let _ = app2.emit_to("selbar", "sel:show", Picked { text, app: name.to_string(), x, y });
+                            let r = app2.emit_to("selbar", "sel:show", Picked { text, app: name.to_string(), x, y });
+                            log::info!("通知工具栏：{:?}", r.is_ok());
                         }
                     });
                 }

@@ -3,6 +3,7 @@
 //! 托盘、右键菜单、全局快捷键、开机启动、模型调用、钥匙串、历史记录、截屏。
 
 mod agent;
+mod applog;
 mod capture;
 mod catalog;
 mod stt;
@@ -477,6 +478,7 @@ struct SelBackdrop { url: String, w: f64, h: f64 }
 
 #[tauri::command]
 async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option<SelBackdrop> {
+    log::info!("sel_place 开始 {w}x{h} @ {x},{y}");
     let win = app.get_webview_window("selbar")?;
     #[cfg(windows)]
     let was = win.is_visible().unwrap_or(false);
@@ -503,7 +505,9 @@ async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option<Sel
         let _ = placed;
         None
     };
+    log::info!("sel_place 显示工具栏，底图 {}", bd.is_some());
     let _ = win.show();
+    log::info!("sel_place 完成");
     bd
 }
 
@@ -781,6 +785,7 @@ fn read_text_file(path: String) -> Result<TextFile, String> {
 #[tauri::command]
 fn js_log(msg: String) {
     eprintln!("[前端] {msg}");
+    log::warn!("[前端] {msg}");
 }
 
 // ───────── 菜单、托盘、快捷键 ─────────
@@ -948,6 +953,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            if let Ok(d) = app.path().app_log_dir() {
+                applog::init(&d);
+            }
             let cfg_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let cfg = Config::load(&cfg_dir);
