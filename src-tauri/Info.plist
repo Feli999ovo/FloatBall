@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>按住说话时录下你的声音，识别成文字。默认用 macOS 本机识别，也可以在设置里改用你选的模型服务商。</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>用 macOS 自带的本机语音识别把你说的话转成文字，录音不离开这台 Mac。</string>
+</dict>
+</plist>

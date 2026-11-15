@@ -5,7 +5,7 @@ const T = window.__TAURI__;
 const { invoke, Channel } = T.core;
 const { listen } = T.event;
 const appWin = T.window.getCurrentWindow();
-const { LogicalSize, LogicalPosition } = T.dpi;
+const { LogicalSize, LogicalPosition, PhysicalPosition } = T.dpi;
 
 // 前端出错时打到终端
 const jslog = (m) => invoke("js_log", { msg: String(m) }).catch(() => {});
@@ -57,12 +57,32 @@ document.addEventListener("mousemove", (e) => {
 });
 orb.addEventListener("mouseenter", () => { if (!S.open && !S.busy && /s-(idle|sleep)/.test(orb.className)) mood("curious"); });
 orb.addEventListener("mouseleave", () => { if (!S.open && orb.className.includes("s-curious")) mood("idle"); });
-// 10 分钟没动静就睡觉
+// 没动静一段时间就睡觉（设置 → 外观「空闲多久后睡觉」，0 = 从不）
 setInterval(() => {
-  if (!S.open && !S.busy && Date.now() - S.lastActive > 10 * 60 * 1000) mood("sleep");
-}, 30000);
+  const ms = S.cfg ? S.cfg.idle_ms : 600000;
+  if (ms && !S.open && !S.busy && !orb.className.includes("s-sleep") && Date.now() - S.lastActive > ms) mood("sleep");
+}, 5000);
 
 /* ───────── 窗口：收起 / 展开 / 拖动 / 贴边 ───────── */
+// 贴边：side -1 左、1 右、0 不贴。贴着时窗口有一截在屏幕外，小球外侧被裁平；指针移上去时滑出来露出整颗球
+let docked = 0;
+function setDock(side) {
+  docked = side;
+  orb.dataset.edge = side < 0 ? "l" : side > 0 ? "r" : "";
+  orb.classList.toggle("docked", !!side);
+}
+// 从贴边位置换算出完整露出来的位置（展开、指针移上来时用）
+const tuckShift = () => (SMALL - PAD * 2) * 0.1 + 2;
+async function peel(out) {
+  if (!docked || S.open || morphing || peekBox || hv.shown) return;
+  const p = await winPos();
+  morphing = true;
+  orb.classList.toggle("peel", out);
+  try { await appWin.setPosition(new LogicalPosition(p.x - docked * tuckShift() * (out ? 1 : -1), p.y)); }
+  finally { setTimeout(() => (morphing = false), 80); }
+}
+orb.addEventListener("pointerenter", () => { if (docked && !orb.classList.contains("peel")) peel(true); });
+orb.addEventListener("pointerleave", () => { if (docked && orb.classList.contains("peel") && !press) peel(false); });
 async function monitorArea() {
   // 拿不到显示器信息时（个别 Linux 环境）退回到网页的 screen 对象
   const fallback = () => ({ x: screen.availLeft || 0, y: screen.availTop || 0, w: Math.max(screen.availWidth || 0, 1280), h: Math.max(screen.availHeight || 0, 720) });
@@ -112,12 +132,20 @@ function grabBackdrop(r, a) {
   return Promise.race([shot, new Promise((res) => setTimeout(() => res(null), 250))]);
 }
 async function expand(view) {
+  if (hv.shown || hv.hiding) await hvHide();
   if (peekBox) await hidePeek();
-  if (morphing) return;
+  // 贴边的球刚滑出来（或别的短动画）时点下去：等它停稳再展开，不要吞掉这次点击
+  for (let i = 0; morphing && i < 20; i++) await new Promise((r) => setTimeout(r, 25));
+  if (morphing) { jslog("展开被动画挡住"); return; }
   if (S.open) { showView(view || "chat"); focusAsk(); return; }
   morphing = true;
   try {
     S.anchor = await winPos();
+    // 贴着边：先换算成完整露出来的位置，收起时再贴回去
+    if (docked) {
+      if (!orb.classList.contains("peel")) S.anchor.x -= docked * tuckShift();
+      S.redock = docked; orb.classList.remove("peel"); setDock(0);
+    }
     const a = await monitorArea();
     const cx = S.anchor.x + SMALL / 2;
     const flipX = cx > a.x + a.w / 2;
@@ -164,6 +192,7 @@ async function collapse() {
     await reshape(SMALL, SMALL, p.x, p.y, flipped, () => body.classList.remove("flip-x", "flip-y"));
     if (!S.busy) mood("idle");
   } finally { morphing = false; }
+  if (S.redock) { S.redock = 0; settle(); } // 展开前贴着边：缩回后贴回去
 }
 function toggle() { S.open ? collapse() : expand(); }
 function focusAsk() { if (!$("#vChat").hidden) setTimeout(() => ask.focus(), 30); }
@@ -172,21 +201,29 @@ function focusAsk() { if (!$("#vChat").hidden) setTimeout(() => ask.focus(), 30)
 let press = null;
 orb.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
-  press = { x: e.screenX, y: e.screenY, dragged: false };
+  press = { x: e.screenX, y: e.screenY, dragged: false, voice: false, lt: 0 };
+  try { orb.setPointerCapture(e.pointerId); } catch (_) {}
+  // 长按（收起时）：按住说话
+  if (!S.open && !vc) press.lt = setTimeout(() => { if (press && !press.dragged) { press.voice = true; vcStart("press"); } }, VC_HOLD);
 });
 window.addEventListener("pointermove", (e) => {
+  if (press && press.voice) return vcPressMove(e);
   if (!press || press.dragged) return;
   if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 4) {
-    press.dragged = true;
+    press.dragged = true; clearTimeout(press.lt);
     S.userMoved = true;
+    if (docked) { orb.classList.remove("peel"); setDock(0); }
     orb.classList.add("dragging");
     appWin.startDragging().catch(() => {});
   }
 });
+window.addEventListener("pointercancel", () => { if (press && press.voice && vc && vc.mode === "press") vcCancel(); if (press) clearTimeout(press.lt); press = null; });
 window.addEventListener("pointerup", () => {
   if (!press) return;
-  const wasDrag = press.dragged;
+  const wasDrag = press.dragged, wasVoice = press.voice;
+  clearTimeout(press.lt);
   press = null;
+  if (wasVoice) { orb.classList.remove("dragging"); if (vc && vc.mode === "press") vcRelease(); return; }
   orb.classList.remove("dragging");
   if (!wasDrag) { poke(); toggle(); }
 });
@@ -196,14 +233,14 @@ orb.addEventListener("contextmenu", (e) => { e.preventDefault(); invoke("show_co
 // 拖完停下 350ms 后：贴边吸附 + 记住位置
 let moveTimer = 0;
 appWin.onMoved(() => {
-  if (morphing) return;
+  if (morphing || hv.shown || orb.classList.contains("peel")) return; // 贴边滑出来露脸、弹出小泡不算拖动
   orb.classList.remove("dragging");
   if (S.open) $("#card").classList.remove("glassy"); // 窗口挪了，底图对不上了
   clearTimeout(moveTimer);
   moveTimer = setTimeout(settle, 350);
 });
 async function settle() {
-  if (morphing) return;
+  if (morphing || hv.shown) return;
   const p = await winPos();
   if (S.open) {
     // 只有用户在展开状态下亲手拖动时才更新收起位置；展开时程序自己挪窗口（贴着屏幕边缩回来）不算
@@ -220,9 +257,12 @@ async function settle() {
   S.userMoved = false;
   const a = await monitorArea();
   let { x, y } = p;
-  const SNAP = 24;
-  if (x - a.x < SNAP) x = a.x - PAD + 2;
-  if (a.x + a.w - (x + SMALL) < SNAP) x = a.x + a.w - SMALL + PAD - 2;
+  const SNAP = 24, ORB = SMALL - PAD * 2;
+  // 贴边（原型的 dock）：开了「贴边时自动收起」时，小球的一侧压平、平边贴住屏幕边；没开就只是吸到边上
+  let side = 0;
+  if (x - a.x < SNAP) { side = -1; x = S.cfg && S.cfg.auto_dock ? a.x - PAD - ORB * 0.1 : a.x - PAD + 2; }
+  else if (a.x + a.w - (x + SMALL) < SNAP) { side = 1; x = S.cfg && S.cfg.auto_dock ? a.x + a.w - PAD - ORB * 0.9 : a.x + a.w - SMALL + PAD - 2; }
+  setDock(S.cfg && S.cfg.auto_dock ? side : 0);
   y = Math.max(a.y - PAD + 2, Math.min(y, a.y + a.h - SMALL + PAD - 2));
   if (x !== p.x || y !== p.y) {
     morphing = true;
@@ -297,13 +337,105 @@ function renderTasks() {
 }
 setInterval(() => { if (S.busy && !$("#vTask").hidden) renderTasks(); }, 1000);
 
+/* ───────── 悬停快捷入口（原型的 hoverEntries）：指针停在球上，旁边沿弧线弹出几个小泡 ─────────
+   收起时窗口只有小球那么大，放不下小泡：弹出时把窗口扩成以小球为中心的方块，小球留在原地；收起时缩回。 */
+const HV_ACT = {
+  shot: ["截屏提问", '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/>', () => captureAsk()],
+  new: ["新对话", '<path d="M5 4.5h14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-7l-4.5 3.5V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z"/><path d="M12 8v5.5M9.25 10.75h5.5"/>', () => { newChat(); expand("chat"); }],
+  hist: ["历史记录", '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', () => expand("hist")],
+  tasks: ["任务列表", '<path d="M10 6.5h10M10 12h10M10 17.5h10M3.8 6.5l1.2 1.2 2.2-2.4M3.8 12l1.2 1.2 2.2-2.4M3.8 17.5l1.2 1.2 2.2-2.4"/>', () => expand("task")],
+};
+const hv = { shown: false, t: 0, hideT: 0, box: null };
+const hvQ = $("#hvq"), hvTip = $("#hvTip");
+const hvIds = () => { const h = S.cfg && S.cfg.hover; return h && h.on ? h.order.filter((o) => o.show && HV_ACT[o.id]).slice(0, 4).map((o) => o.id) : []; };
+const hvOk = () => hvIds().length && !vc && !vcBox && !S.open && !morphing && !peekBox && !press && !orb.className.includes("s-sleep");
+orb.addEventListener("pointerenter", () => {
+  clearTimeout(hv.hideT);
+  if (hv.shown || hv.t || !hvOk()) return;
+  hv.t = setTimeout(() => { hv.t = 0; if (hvOk() && orb.matches(":hover")) hvShow(); }, (S.cfg.hover.delay || 350) + (docked ? 120 : 0));
+});
+orb.addEventListener("pointerleave", () => { clearTimeout(hv.t); hv.t = 0; });
+orb.addEventListener("pointerdown", () => { clearTimeout(hv.t); hv.t = 0; if (hv.shown) hvHide(); }, true);
+// 指针离开窗口（小球和小泡以外的地方都在窗口外）就收起
+document.documentElement.addEventListener("pointerleave", () => { if (hv.shown) { clearTimeout(hv.hideT); hv.hideT = setTimeout(hvHide, 400); } });
+document.documentElement.addEventListener("pointerenter", () => clearTimeout(hv.hideT));
+addEventListener("keydown", (e) => { if (e.key === "Escape" && hv.shown) hvHide(); });
+async function hvShow() {
+  const ids = hvIds();
+  morphing = true;
+  try {
+    const p = await winPos(), a = await monitorArea();
+    const ORB = SMALL - PAD * 2, BS = 34, ring = ORB / 2 + 12 + BS / 2, E = Math.ceil(ring + BS / 2 + 6);
+    const side = E * 2, cxs = p.x + SMALL / 2, cys = p.y + SMALL / 2; // 小球中心（屏幕坐标）
+    hv.box = { p };
+    // 弧线朝屏幕中间；上下放不下就转一点
+    const right = cxs < a.x + a.w / 2, base = right ? 0 : Math.PI, sg = right ? 1 : -1, n = ids.length;
+    const step = 2 * Math.asin(Math.min(1, (BS + 8) / 2 / ring));
+    const tilts = [0]; for (let k = 1; k <= 7; k++) { const t = k * 0.18; tilts.push(cys < a.y + a.h / 2 ? t : -t, cys < a.y + a.h / 2 ? -t : t); }
+    let pts;
+    for (const t of tilts) {
+      pts = []; let fit = true;
+      for (let i = 0; i < n; i++) {
+        const ang = base + sg * (t + (i - (n - 1) / 2) * step), bx = Math.cos(ang) * ring, by = Math.sin(ang) * ring;
+        if (cys + by < a.y + 20 || cys + by > a.y + a.h - 20 || cxs + bx < a.x + 20 || cxs + bx > a.x + a.w - 20) fit = false;
+        pts.push({ x: bx, y: by });
+      }
+      if (fit) break;
+    }
+    await reshape(side, side, cxs - E, cys - E, true, () => {
+      body.classList.add("hovering");
+      $("#app").style.padding = `${E - ORB / 2}px 0 0 ${E - ORB / 2}px`;
+      hvQ.innerHTML = "";
+      ids.forEach((id, i) => {
+        const [label, path, run] = HV_ACT[id], b = document.createElement("button");
+        b.type = "button"; b.className = "x-hvb"; b.dataset.id = id; b.setAttribute("aria-label", label);
+        b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+        b.style.left = E + "px"; b.style.top = E + "px";
+        b.style.setProperty("--dx", pts[i].x.toFixed(1) + "px"); b.style.setProperty("--dy", pts[i].y.toFixed(1) + "px"); b.style.setProperty("--dl", i * 40 + "ms");
+        b.addEventListener("click", async () => { await hvHide(); run(); });
+        const tip = () => {
+          hvTip.textContent = label; const left = pts[i].x < 0, tw = hvTip.offsetWidth, th = hvTip.offsetHeight;
+          hvTip.style.left = Math.max(2, Math.min(side - tw - 2, left ? E + pts[i].x - 23 - tw : E + pts[i].x + 23)) + "px";
+          hvTip.style.top = Math.max(2, Math.min(side - th - 2, E + pts[i].y - th / 2)) + "px"; hvTip.classList.add("on");
+        };
+        b.addEventListener("pointerenter", tip); b.addEventListener("focus", tip);
+        b.addEventListener("pointerleave", () => hvTip.classList.remove("on")); b.addEventListener("blur", () => hvTip.classList.remove("on"));
+        hvQ.appendChild(b);
+      });
+    });
+    void hvQ.offsetWidth;
+    hvQ.classList.add("on"); hvQ.setAttribute("aria-hidden", "false");
+    hv.shown = true;
+  } finally { morphing = false; }
+}
+// 正在收起时再调用，返回同一个收起过程：点小球展开时要等小泡收完，
+// 否则收起晚 200ms 才把窗口缩回小球大小，会把刚展开的卡片截掉（Windows 真机截图里见过）
+function hvHide() {
+  if (!hv.shown) return hv.hiding || Promise.resolve();
+  hv.shown = false; clearTimeout(hv.hideT);
+  hvQ.classList.remove("on"); hvQ.setAttribute("aria-hidden", "true"); hvTip.classList.remove("on");
+  hv.hiding = (async () => {
+    await new Promise((r) => setTimeout(r, 200));
+    morphing = true;
+    try {
+      await reshape(SMALL, SMALL, hv.box.p.x, hv.box.p.y, true, () => { body.classList.remove("hovering"); $("#app").style.padding = ""; hvQ.innerHTML = ""; });
+    } finally { morphing = false; }
+    // 贴边时露出来的球：指针已经不在球上就贴回去
+    if (docked && orb.classList.contains("peel") && !orb.matches(":hover")) peel(false);
+  })().finally(() => { hv.hiding = null; });
+  return hv.hiding;
+}
+
 /* ───────── 气泡：卡片收起时回复完成，在小球旁冒一句（取自参考版本） ─────────
    收起时窗口只有小球那么大，放不下气泡：冒泡时临时把窗口扩大，小球留在原地，消失后再缩回。 */
 const PEEK_W = 260, PEEK_H = 60;
 let peekTimer = 0, peekBox = null;
-async function showPeek(text) {
+// err：出错提示。小泡只放得下 20 个字，点开后把整句（去哪设置）完整显示出来
+let peekFull = "";
+async function showPeek(text, err) {
   const t = String(text).replace(/\s+/g, " ").trim();
-  if (!t || S.open || morphing || peekBox) return;
+  if (!t || S.open || morphing || peekBox || hv.shown) return;
+  peekFull = err && t.length > 20 ? t : "";
   morphing = true;
   try {
     const p = await winPos(), a = await monitorArea();
@@ -348,7 +480,9 @@ $("#peek").onclick = async () => {
     try { await reshape(SMALL, SMALL, box.p.x, box.p.y, false, () => { body.classList.remove("peeking"); $("#app").style.padding = ""; }); }
     finally { morphing = false; peekBox = null; }
   }
-  expand("chat");
+  const full = peekFull; peekFull = "";
+  await expand("chat");
+  if (full) toast(full);
 };
 $("#newBtn").onclick = () => { newChat(); showView("chat"); focusAsk(); };
 $("#histBtn").onclick = () => showView($("#vHist").hidden ? "hist" : "chat");
@@ -363,7 +497,8 @@ let toastTimer = 0;
 function toast(t) {
   const el = $("#toast");
   el.textContent = t; el.classList.add("on");
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), 2600);
+  // 长的提示（比如告诉你去哪设置）多留一会儿，够读完
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), Math.max(2600, String(t).length * 150));
 }
 function toastErr(e) { toast(String(e)); mood("error", 2400); }
 
@@ -424,12 +559,18 @@ function applyLook() {
   if (warm) { root.removeProperty("--eye-near"); root.removeProperty("--eye-glow"); }
   else { root.setProperty("--eye-near", eye); root.setProperty("--eye-glow", eye + "BF"); }
   root.setProperty("--tint", String(1 - (c.glass == null ? 25 : c.glass) / 100));
+  // 减少动态效果；跟随系统深浅色（系统为深色时卡片玻璃更深）
+  const html = document.documentElement.classList;
+  html.toggle("calm", !!c.calm);
+  html.toggle("dark", !!c.follow_system && darkMQ.matches);
   if (small !== SMALL) {
     SMALL = small;
     // 收起着的时候窗口就是小球那么大，跟着改
     if (!S.open) appWin.setSize(new LogicalSize(SMALL, SMALL)).catch(() => {});
   }
 }
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+darkMQ.addEventListener("change", applyLook);
 const msgsEl = $("#msgs");
 function updateEmpty() {
   $("#empty").hidden = msgsEl.children.length > 0;
@@ -514,28 +655,41 @@ function run() {
   const task = { title: (S.msgs[S.msgs.length - 1] && historyText(lastText(), [])) || "提问", st: "run", t0: Date.now() };
   S.tasks.unshift(task); renderTasks();
   const el = addAiBubble();
-  const txt = el.querySelector(".txt"), think = el.querySelector(".think");
-  let out = "", reasoning = "", usage = null, raf = 0;
-  const paint = () => { raf = 0; const live = S.busy === id; txt.innerHTML = live ? md(out + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(out); scrollEnd(); };
+  const think = el.querySelector(".think");
+  let txt = el.querySelector(".txt");
+  // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
+  let out = "", seg = "", reasoning = "", usage = null, raf = 0;
+  const paint = () => { raf = 0; const live = S.busy === id; txt.innerHTML = live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
   const ch = new Channel();
   ch.onmessage = (ev) => {
     if (S.busy !== id) return;
     if (ev.type === "delta") {
       if (!out) mood("work");
-      out += ev.text;
+      out += ev.text; seg += ev.text;
       if (!raf) raf = requestAnimationFrame(paint);
-    } else if (ev.type === "reasoning") {
-      reasoning += ev.text; think.hidden = false; think.textContent = reasoning; think.scrollTop = think.scrollHeight;
+    } else if (ev.type === "tool") {
+      toolPill(el, ev);
+      if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
+      el.insertBefore(txt, el.querySelector(".meta"));
+      if (ev.status === "run") mood("work");
+      scrollEnd();
+    } else if (ev.type === "ask") {
+      askCard(el, ev);
+      mood("curious");
+      if (!S.open) showPeek("需要你确认：" + ev.desc);
+      scrollEnd();
     } else if (ev.type === "usage") {
       usage = ev;
     } else if (ev.type === "done") {
       finish();
       txt.classList.remove("cursor"); paint();
+      out = out.replace(/\n\n$/, "");
       if (!out) { txt.textContent = "（模型没有返回内容）"; }
       S.msgs.push({ role: "assistant", content: out });
       invoke("history_append", { convId: S.convId, role: "assistant", content: out }).catch(() => {});
-      setMeta(el, usage ? `${S.cfg?.model || ""} · ${usage.prompt + usage.completion} tokens` : S.cfg?.model || "", { copy: out });
+      setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
       mood("done", 1800);
+      vcSpeak(el, out);
       if (!S.open) { poke(); showPeek(out || "回复好了"); }
     } else if (ev.type === "error") {
       finish("err");
@@ -555,7 +709,8 @@ function run() {
   el._stop = () => {
     invoke("cancel_chat", { id }).catch(() => {});
     finish("stop"); txt.classList.remove("cursor");
-    if (out) { txt.innerHTML = md(out); S.msgs.push({ role: "assistant", content: out }); invoke("history_append", { convId: S.convId, role: "assistant", content: out + "\n\n（已停止）" }).catch(() => {}); }
+    el.querySelectorAll(".x-ap button, .x-ap input").forEach((b) => (b.disabled = true));
+    if (out) { txt.innerHTML = md(seg); S.msgs.push({ role: "assistant", content: out }); invoke("history_append", { convId: S.convId, role: "assistant", content: out + "\n\n（已停止）" }).catch(() => {}); }
     else txt.textContent = "（已停止）";
     setMeta(el, "已停止", out ? { copy: out } : {});
     mood("idle");
@@ -564,6 +719,89 @@ function run() {
   invoke("chat", { id, messages: S.msgs, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 function stop() { if (S.busy && S.stopFn) S.stopFn(); }
+
+// ───────── 工具药丸、确认卡片（照搬原型的 toolChip / askAppr） ─────────
+const TOOL_ICO = { 搜索网页: "search", 读取网页: "window", 读取文件: "doc", 查看文件夹: "pages", 写入文件: "write", 删除文件: "trash", 发送邮件: "mail", 打开网页: "window" };
+const ICO_PATH = {
+  doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 16.5h4"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.9-4.9"/>',
+  trash: '<path d="M4 7h16M9.5 7V4.5h5V7"/><path d="M6.5 7l.9 12.2a2 2 0 0 0 2 1.8h5.2a2 2 0 0 0 2-1.8L17.5 7"/><path d="M10 11v6M14 11v6"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.6 6.6 8.4 6.4 8.4-6.4"/>',
+  write: '<path d="M15 4.5a2.1 2.1 0 0 1 3 3L8.5 17l-4 1 1-4z"/><path d="M13 20h7M16.5 16h3.5"/>',
+  pages: '<path d="M8 7V5a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2h-2"/><rect x="4" y="7" width="12" height="14" rx="2"/><path d="M7.5 12h5M7.5 15.5h3"/>',
+  window: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9h18"/><circle cx="6" cy="6.8" r=".6" fill="currentColor"/><circle cx="8.6" cy="6.8" r=".6" fill="currentColor"/>',
+  pause: '<rect x="7" y="5.5" width="3" height="13" rx="1"/><rect x="14" y="5.5" width="3" height="13" rx="1"/>',
+  upload: '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/>',
+};
+const icoSvg = (n, cls) => `<svg class="x-ico${cls ? " " + cls : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO_PATH[n] || ""}</svg>`;
+const fmtTok = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + "K");
+function leadModelName() {
+  const c = S.cfg || {}, lead = (c.agents || [])[0] || {}, ms = c.models || [];
+  const m = ms.find((x) => x.id === lead.model) || ms.find((x) => x.id === c.default_model);
+  return m ? m.name || m.model : "";
+}
+function toolPill(el, ev) {
+  let w = el.querySelector(`.x-tw[data-call="${ev.call}"]`);
+  if (!w) {
+    w = document.createElement("div"); w.className = "x-tw"; w.dataset.call = ev.call;
+    w.innerHTML = '<button type="button" class="x-tool" aria-expanded="false"><span aria-hidden="true"></span><span class="x-tl"></span><span class="x-td" aria-hidden="true"><i></i><i></i><i></i></span><span class="x-tc" aria-hidden="true">✓</span><span class="x-tp">' + icoSvg("pause", "x-ico--in") + '等你确认</span></button><p class="x-tres" hidden><b>结果</b><span></span></p>';
+    const b = w.firstChild, r = w.lastChild;
+    b.addEventListener("click", () => {
+      if (!/\b(done|err)\b/.test(w.className)) return;
+      r.hidden = !r.hidden; b.setAttribute("aria-expanded", !r.hidden);
+    });
+    el.insertBefore(w, el.querySelector(".meta"));
+  }
+  const lead = ((S.cfg && S.cfg.agents) || [])[0];
+  const who = lead && ev.agent && ev.agent !== lead.name ? ev.agent + " · " : "";
+  w.firstChild.firstChild.innerHTML = icoSvg(ev.name.startsWith("交给") ? "upload" : TOOL_ICO[ev.name] || "pages");
+  w.querySelector(".x-tl").textContent = who + ev.name + (ev.arg ? " · " + ev.arg : "");
+  w.className = "x-tw" + ({ wait: " wait", done: " done", no: " no", err: " err" }[ev.status] || "");
+  if (ev.status === "no") w.querySelector(".x-tp").textContent = "✕ 已拒绝";
+  if (ev.status === "err") w.querySelector(".x-tc").textContent = "✕";
+  w.lastChild.querySelector("span").textContent = ev.result || "";
+  w.lastChild.querySelector("b").textContent = ev.status === "err" ? "出错" : "结果";
+}
+function askCard(el, ev) {
+  const w = el.querySelector(`.x-tw[data-call="${ev.call}"]`);
+  const c = document.createElement("div");
+  c.className = "x-ap" + (ev.hi ? " hi" : ""); c.setAttribute("role", "group"); c.setAttribute("aria-label", "需要你确认");
+  c.innerHTML = '<p class="x-aph"><span class="x-risk"></span>需要你确认</p><p class="x-apd"></p>' +
+    '<div class="x-ape" hidden><input class="x-in" spellcheck="false" aria-label="修改操作内容" /><button type="button" class="x-sb x-pri">确认</button></div>' +
+    '<div class="x-apb x-ap0"><button type="button" class="x-sb x-pri">允许一次</button><button type="button" class="x-sb">总是允许</button>' +
+    '<button type="button" class="x-sb">拒绝</button><button type="button" class="x-sb x-apx" aria-label="更多选项" aria-expanded="false">…</button></div>' +
+    '<div class="x-apb x-apm" hidden><button type="button" class="x-sb">修改后允许</button><button type="button" class="x-sb">拒绝并说明</button></div>' +
+    '<div class="x-apr x-ape" hidden><input class="x-in" placeholder="原因（会告诉 Agent）" aria-label="原因（会告诉 Agent）" /><button type="button" class="x-sb x-pri">发送</button></div>';
+  const apd = c.querySelector(".x-apd");
+  c.querySelector(".x-risk").textContent = ev.hi ? "高风险" : "中风险"; apd.textContent = ev.desc;
+  if (w && w.nextSibling) el.insertBefore(c, w.nextSibling); else el.insertBefore(c, el.querySelector(".meta"));
+  const row0 = c.querySelector(".x-ap0"), more = c.querySelector(".x-apm"), [edBox, rsBox] = c.querySelectorAll(".x-ape");
+  const edIn = edBox.querySelector("input"), rsIn = rsBox.querySelector("input");
+  const note = (t) => { const n = document.createElement("p"); n.className = "x-apn"; n.textContent = t; c.appendChild(n); };
+  let done = false;
+  const fin = (b, answer) => {
+    if (done) return; done = true;
+    c.querySelectorAll("button,input").forEach((x) => (x.disabled = true)); b.classList.add("on");
+    invoke("answer_ask", { ask: ev.ask, answer: { allow: false, always: false, reason: "", edit: "", ...answer } }).then((ok) => { if (!ok) note("这一步已经结束了"); }).catch(() => {});
+    if (answer.always) note(`以后「${ev.kind} · ${ev.scope}」不再询问`);
+    mood(answer.allow ? "work" : "think");
+    ask.focus({ preventScroll: true });
+  };
+  const [bOnce, bAlways, bNo, bMore] = row0.querySelectorAll("button");
+  bOnce.addEventListener("click", () => fin(bOnce, { allow: true }));
+  bAlways.addEventListener("click", () => fin(bAlways, { allow: true, always: true }));
+  bNo.addEventListener("click", () => fin(bNo, { allow: false }));
+  bMore.addEventListener("click", () => { more.hidden = !more.hidden; bMore.setAttribute("aria-expanded", !more.hidden); if (!more.hidden) more.querySelector("button").focus({ preventScroll: true }); scrollEnd(); });
+  const [bEdit, bWhy] = more.querySelectorAll("button");
+  bEdit.addEventListener("click", () => { edIn.value = ""; edIn.placeholder = ev.kind === "发送" ? "改过的邮件正文" : ev.kind === "写入" ? "改过的文件内容" : "改过的内容"; apd.hidden = false; edBox.hidden = false; row0.hidden = more.hidden = rsBox.hidden = true; edIn.focus(); });
+  bWhy.addEventListener("click", () => { rsBox.hidden = false; row0.hidden = more.hidden = true; rsIn.focus(); scrollEnd(); });
+  const edOk = edBox.querySelector("button"), rsOk = rsBox.querySelector("button");
+  edOk.addEventListener("click", () => { const v = edIn.value.trim(); if (!v) { edIn.focus(); return; } note("已按修改后的内容执行"); fin(edOk, { allow: true, edit: v }); });
+  rsOk.addEventListener("click", () => { const v = rsIn.value.trim(); if (!v) { rsIn.focus(); return; } fin(rsOk, { allow: false, reason: v }); });
+  edIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); edOk.click(); } });
+  rsIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); rsOk.click(); } });
+  bOnce.focus({ preventScroll: true });
+}
 // 最近一次提问的文字（任务列表里显示）
 function lastText() {
   const c = S.msgs[S.msgs.length - 1].content;
@@ -684,10 +922,53 @@ $("#clearHist").onclick = async () => {
 
 /* ───────── 菜单、快捷键 ───────── */
 // 设置窗口里改了东西
+// 设置窗口里「测试连接」成功时，小球开心一下（原型里的行为）
+listen("ball-state", ({ payload }) => mood(String(payload), 1800));
+/* ───────── 多显示器（原型的 mdsSet）─────────
+   mouse：小球跟着鼠标去它所在的屏幕；main：固定在主屏；last：待在上次的位置（拖到哪就是哪）。
+   换屏时按小球在原屏幕上的相对位置放到新屏幕，开了「滑过去」就几帧滑过去，减少动态时直接跳。全程用物理像素，免得两块屏缩放不同时算错。 */
+const inScr = (m, x, y) => x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + m.h;
+let scrBusy = false;
+async function screenCheck() {
+  const mode = S.cfg && S.cfg.screen;
+  if (!mode || mode === "last" || scrBusy || S.open || morphing || hv.shown || peekBox || press || orb.classList.contains("dragging") || orb.classList.contains("peel")) return;
+  scrBusy = true;
+  try {
+    const sc = await invoke("screens");
+    if (!sc || !sc.list || sc.list.length < 2) return;
+    const p = await appWin.outerPosition(), z = await appWin.outerSize();
+    const cx = p.x + z.width / 2, cy = p.y + z.height / 2;
+    const from = sc.list.find((m) => inScr(m, cx, cy)) || sc.list.find((m) => m.primary) || sc.list[0];
+    const to = mode === "main" ? sc.list.find((m) => m.primary) : sc.cursor && sc.list.find((m) => inScr(m, sc.cursor[0], sc.cursor[1]));
+    if (!to || (to.x === from.x && to.y === from.y)) return;
+    // 在原屏的相对位置 → 新屏；窗口在新屏上的物理尺寸按新屏的缩放算
+    const fx = (cx - from.x) / from.w, fy = (cy - from.y) / from.h, half = (SMALL * to.scale) / 2;
+    const tx = Math.round(Math.max(to.x, Math.min(to.x + fx * to.w - half, to.x + to.w - half * 2)));
+    const ty = Math.round(Math.max(to.y, Math.min(to.y + fy * to.h - half, to.y + to.h - half * 2)));
+    morphing = true; orb.classList.remove("peel"); setDock(0);
+    try {
+      const slide = S.cfg.screen_slide && !S.cfg.calm && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const n = slide ? 8 : 1;
+      for (let i = 1; i <= n; i++) {
+        const k = n === 1 ? 1 : 1 - Math.pow(1 - i / n, 3); // 缓出
+        await appWin.setPosition(new PhysicalPosition(Math.round(p.x + (tx - p.x) * k), Math.round(p.y + (ty - p.y) * k)));
+        if (i < n) await new Promise((r) => setTimeout(r, 30));
+      }
+    } finally { morphing = false; }
+    await settle(); // 新屏上照常吸边/贴边，并记住位置
+  } catch (e) { jslog("换屏失败：" + (e && e.message ? e.message : e)); }
+  finally { scrBusy = false; }
+}
+setInterval(() => { if (S.cfg && S.cfg.screen === "mouse") screenCheck(); }, 700);
+
 listen("config", async () => {
+  const was = S.cfg ? S.cfg.auto_dock + "|" + S.cfg.orb_size : "";
   try { S.cfg = await invoke("get_config"); } catch (_) { return; }
   applyLook();
   updateEmpty();
+  // 改了贴边开关或小球大小：重新贴一次
+  if (was !== S.cfg.auto_dock + "|" + S.cfg.orb_size && !S.open) setTimeout(settle, 60);
+  if (S.cfg.screen === "main") setTimeout(() => screenCheck(), 120);
 });
 listen("menu", async ({ payload }) => {
   switch (payload) {
@@ -696,8 +977,353 @@ listen("menu", async ({ payload }) => {
     case "new_chat": newChat(); expand("chat"); break;
     case "capture": captureAsk(); break;
     case "history": expand("hist"); break;
+    case "tasks": expand("task"); break;
   }
 });
+
+/* ───────── 划词：工具栏上点了某个动作 ───────── */
+const SEL_LABEL = { ask: "问问它", explain: "解释", tr: "翻译", sum: "总结", rew: "改写", read: "朗读", expand: "扩写", shrink: "缩写" };
+const hasZh = (t) => /[\u3400-\u9fff]/.test(t);
+function selPrompt(act, t) {
+  const tr = (S.cfg && S.cfg.sel && S.cfg.sel.tr) || "auto";
+  const to = { en: "英文", zh: "中文", ja: "日文" }[tr === "auto" ? (hasZh(t) ? "en" : "zh") : tr];
+  const P = {
+    explain: "解释下面这段文字在说什么，简洁清楚：",
+    tr: `把下面这段文字翻译成${to}，只给译文：`,
+    sum: "用一句话总结下面这段文字：",
+    rew: "改写下面这段文字，让它更通顺清楚，意思不变，只给改写后的文字：",
+    expand: "把下面这段文字扩写成更完整的一段，意思不变：",
+    shrink: "把下面这段文字缩写得更短，保留要点：",
+  };
+  return P[act] + "\n\n" + t;
+}
+// 用户消息：引用块 + 动作名（原型的 selBubble）
+function addSelBubble(t, label) {
+  const el = document.createElement("div");
+  el.className = "m user";
+  const q = document.createElement("span"); q.className = "x-sel-q"; q.textContent = t;
+  const a = document.createElement("span"); a.className = "x-sel-qa"; a.textContent = label;
+  el.append(q, a); msgsEl.appendChild(el);
+  updateEmpty(); scrollEnd();
+}
+async function selAct({ act, text }) {
+  const t = String(text || "").trim(); if (!t || !SEL_LABEL[act]) return;
+  if (act === "read") {
+    // 朗读：用系统语音读出来，不开对话
+    if (!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t.slice(0, 4000)); u.lang = hasZh(t) ? "zh-CN" : "en-US";
+    mood("work"); u.onend = u.onerror = () => mood("idle");
+    speechSynthesis.speak(u); return;
+  }
+  await expand("chat");
+  if (act === "ask") {
+    // 问问它：引用放进输入框，不自动发送
+    const flat = t.replace(/\s+/g, " ");
+    ask.value = "「" + (flat.length > 200 ? flat.slice(0, 200) + "…" : flat) + "」 ";
+    autosize(); ask.focus(); ask.setSelectionRange(ask.value.length, ask.value.length);
+    return;
+  }
+  if (S.busy) return;
+  showView("chat");
+  const label = SEL_LABEL[act];
+  addSelBubble(t, label);
+  S.msgs.push({ role: "user", content: selPrompt(act, t) });
+  try {
+    S.convId = await invoke("history_append", { convId: S.convId, role: "user", content: label + " · " + t });
+    if (S.msgs.length === 1) $("#title").textContent = (label + " · " + t.replace(/\s+/g, " ")).slice(0, 24);
+  } catch (_) {}
+  run();
+}
+listen("sel:act", ({ payload }) => selAct(payload));
+
+/* ───────── 语音（原型的 vcStart / vcRelease / vcDict） ─────────
+   三种开始方式：长按小球（按住说话，松开结束）· 「按住说话」快捷键（默认单独按住右 Alt）· 胶囊里的麦克风（听写进输入框）。
+   录音用网页的麦克风接口，松开后把整段录音交给语音设置里选的服务商识别（/audio/transcriptions）。
+   和原型不同：识别接口不是流式的，说话时气泡里显示「在听…」和时长，松开后显示「识别中…」，没有逐字出现。 */
+const VC_LEAD = 300, VC_MIN = 600, VC_CANCEL = 48, VC_HOLD = 350, VC_MAXMS = 120000;
+const vcBub = $("#vcBub"), vcRip = $("#vcRip"), vcMic = $("#vcMic");
+const vcTxt = vcBub.querySelector(".vc-txt"), vcTime = vcBub.querySelector(".vc-time");
+const vcRings = [...vcRip.children];
+let vc = null, vcBox = null, vcKeyT = 0, vcAsk0 = "";
+const vcCfg = () => (S.cfg && S.cfg.voice) || { lang: "auto", after: "send", tts: false, engine: "system" };
+const vcSys = () => vcCfg().engine !== "provider";
+// 按住说话之前先看识别能不能用：系统识别要 Windows / macOS；服务商识别要有模型、有 Key。不能用就说清楚去哪改
+function vcNotReady() {
+  if (vcSys()) return S.cfg && ["windows", "macos"].includes(S.cfg.platform) ? "" : "这个系统没有自带语音识别，请在设置 → 语音里改用服务商识别";
+  const ms = (S.cfg && S.cfg.models) || [];
+  const v = vcCfg(), m = ms.find((x) => x.id === v.model) || ms.find((x) => x.id === S.cfg.default_model) || ms[0];
+  if (!m) return "语音识别选的是服务商，但还没有添加模型：设置 → 模型里添加，或在设置 → 语音里改用系统识别";
+  if (!m.no_key && !m.has_key) return "语音识别选的服务商还没填 API Key：设置 → 模型里补上，或在设置 → 语音里改用系统识别";
+  return "";
+}
+const vcFmt = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+// macOS 系统识别读不了 webm，录成 mp4（m4a）
+const vcMime = () => (vcSys() && S.cfg.platform === "macos" ? ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"] : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]).find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+function vcSay(t, dim) {
+  vcTxt.textContent = "";
+  if (dim) { const i = document.createElement("i"); i.textContent = t; vcTxt.appendChild(i); } else vcTxt.textContent = t;
+}
+// 收起时窗口只有小球那么大：录音时扩成「小球 + 涟漪 + 一侧的气泡」，小球留在原地（同悬停小泡、回复气泡的做法）
+async function vcOpenBox() {
+  if (vcBox) return;
+  const p = await winPos(), a = await monitorArea();
+  const ORB = SMALL - PAD * 2, E = Math.ceil(ORB / 2 + 62), BW = 16 + 260, H = Math.max(E * 2, 132);
+  const cxs = p.x + SMALL / 2, cys = p.y + SMALL / 2, right = cxs < a.x + a.w / 2;
+  const w = E * 2 + BW, h = H;
+  let x = right ? cxs - E : cxs - E - BW, y = cys - h / 2;
+  x = Math.max(a.x, Math.min(x, a.x + a.w - w)); y = Math.max(a.y, Math.min(y, a.y + a.h - h));
+  const lx = cxs - x, ly = cys - y; // 小球中心在新窗口里的位置
+  vcBox = { p, right, lx, ly, R: ORB / 2 };
+  morphing = true;
+  try {
+    // 气泡和对话卡片用同一种毛玻璃：扩开前截下窗口将要盖住的那块桌面（见 grabBackdrop）
+    vcBub.classList.remove("glassy");
+    const bd = await grabBackdrop({ x, y, w, h }, a);
+    await reshape(w, h, x, y, true, () => {
+      body.classList.add("voicing");
+      $("#app").style.padding = `${ly - ORB / 2}px 0 0 ${lx - ORB / 2}px`;
+      vcBub.style.transformOrigin = right ? "0 50%" : "100% 50%";
+      vcBub.style.borderRadius = right ? "4px 16px 16px 16px" : "16px 4px 16px 16px";
+      vcBub.style.left = right ? lx + ORB / 2 + 16 + "px" : "auto";
+      vcBub.style.right = right ? "auto" : w - lx + ORB / 2 + 16 + "px";
+      if (bd) {
+        vcBub.style.setProperty("--bd", 'url("' + bd + '")');
+        vcBub.style.setProperty("--bd-size", w + "px " + h + "px");
+        vcBub.classList.add("glassy");
+      }
+    });
+  } finally { morphing = false; }
+}
+async function vcCloseBox() {
+  const b = vcBox; if (!b) return;
+  vcBox = null;
+  vcBub.classList.remove("glassy");
+  if (S.open) { body.classList.remove("voicing"); return; } // 已经展开：展开时会自己排版
+  morphing = true;
+  try {
+    await reshape(SMALL, SMALL, b.p.x, b.p.y, true, () => { body.classList.remove("voicing"); $("#app").style.padding = ""; });
+  } finally { morphing = false; }
+}
+function vcPlaceBub() {
+  if (!vcBox) return;
+  const bh = vcBub.offsetHeight;
+  vcBub.style.top = Math.max(4, Math.min(innerHeight - bh - 4, vcBox.ly - bh / 2)) + "px";
+  vcBub.style.setProperty("--bd-pos", -vcBub.offsetLeft + "px " + -vcBub.offsetTop + "px"); // 底图按窗口截的，挪到气泡自己的位置
+}
+function vcTick() {
+  if (!vc || vc.stopped) return;
+  const now = performance.now(), el = now - vc.t0;
+  let L = 0;
+  if (vc.an) {
+    vc.an.getByteTimeDomainData(vc.buf);
+    let sum = 0; for (const v of vc.buf) { const d = (v - 128) / 128; sum += d * d; }
+    L = Math.min(1, Math.sqrt(sum / vc.buf.length) * 5);
+  }
+  vc.lv += (L - vc.lv) * 0.35;
+  if (vc.mode === "dict") { vcMic.style.setProperty("--vc-l", vc.lv.toFixed(3)); }
+  else {
+    body.style.setProperty("--vc-l", (0.8 + 0.45 * vc.lv).toFixed(3));
+    vcTime.textContent = vcFmt(el);
+    if (vcBox) {
+      const { lx, ly, R } = vcBox;
+      vcRings.forEach((g, i) => {
+        const d = R + 8 + i * 13 + vc.lv * (5 + i * 4) + Math.sin(now / 260 - i * 0.9) * 1.5;
+        g.style.width = g.style.height = d * 2 + "px";
+        g.style.transform = `translate(${lx - d}px,${ly - d}px)`;
+        g.style.opacity = ((0.7 - i * 0.2) * (0.35 + 0.65 * vc.lv)).toFixed(3);
+      });
+      vcPlaceBub();
+    }
+  }
+  if (el > VC_MAXMS) return vc.mode === "dict" ? vcDictStop() : vcRelease(); // 最长 2 分钟
+  vc.raf = requestAnimationFrame(vcTick);
+}
+// 开始录音。mode：press 长按小球 / key 快捷键 / dict 胶囊麦克风
+async function vcStart(mode) {
+  if (vc || S.busy || morphing) return false;
+  const nr = vcNotReady();
+  if (nr) { toast(nr); if (!S.open) showPeek(nr, true); mood("error", 2400); return false; }
+  const me = { mode, t0: performance.now(), cancel: false, stopped: false, lv: 0, chunks: [], raf: 0 };
+  vc = me;
+  if (hv.shown || hv.hiding) await hvHide();
+  if (peekBox) await hidePeek();
+  if (mode === "key" && S.open) await collapse();
+  try {
+    me.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (e) {
+    vc = null;
+    const msg = e && e.name === "NotAllowedError" ? "没有麦克风权限。macOS：系统设置 → 隐私与安全性 → 麦克风；Windows：设置 → 隐私 → 麦克风" : e && e.name === "NotFoundError" ? "没找到麦克风" : "打不开麦克风：" + (e && e.message || e);
+    toast(msg); if (!S.open) showPeek(msg, true); mood("error", 2400);
+    return false;
+  }
+  if (vc !== me) { me.stream.getTracks().forEach((t) => t.stop()); return false; } // 等权限时已经松手、取消了
+  // 系统识别：Windows 从这里开始听（macOS 松开后识别录音文件）
+  if (vcSys()) {
+    try { await invoke("stt_begin"); } catch (e) {
+      me.stream.getTracks().forEach((t) => t.stop());
+      if (vc === me) vc = null;
+      const msg = String(e); toast(msg); if (!S.open) showPeek(msg, true); mood("error", 2400);
+      return false;
+    }
+    if (vc !== me) { me.stream.getTracks().forEach((t) => t.stop()); invoke("stt_cancel").catch(() => {}); return false; }
+  }
+  me.mime = vcMime();
+  me.rec = new MediaRecorder(me.stream, me.mime ? { mimeType: me.mime } : undefined);
+  me.rec.ondataavailable = (e) => { if (e.data && e.data.size) me.chunks.push(e.data); };
+  me.rec.start(250);
+  try {
+    me.ctx = new AudioContext(); me.an = me.ctx.createAnalyser(); me.an.fftSize = 512;
+    me.ctx.createMediaStreamSource(me.stream).connect(me.an); me.buf = new Uint8Array(me.an.fftSize);
+  } catch (_) { me.an = null; }
+  me.t0 = performance.now();
+  if (mode === "dict") {
+    vcAsk0 = ask.placeholder; ask.placeholder = "在听…再点一下麦克风结束";
+    vcMic.classList.add("vc-on"); vcMic.setAttribute("aria-pressed", "true"); vcMic.setAttribute("aria-label", "停止听写");
+    ask.focus();
+  } else {
+    if (!S.open) await vcOpenBox();
+    if (vc !== me) return true;
+    mood("listen");
+    body.classList.add("vc-rec");
+    vcBub.classList.remove("vc-x", "vc-out"); vcRip.classList.remove("vc-x");
+    vcSay(S.cfg.voice && S.cfg.voice.lang === "en" ? "Listening…" : "在听…", true); vcTime.textContent = "0:00";
+    vcBub.classList.add("on"); vcRip.classList.add("on");
+  }
+  vcTick();
+  return true;
+}
+// 停止录音，返回录到的音频（取消时不要）
+function vcStopRec(me) {
+  me.stopped = true; cancelAnimationFrame(me.raf);
+  body.classList.remove("vc-rec"); body.style.removeProperty("--vc-l"); vcRip.classList.remove("on");
+  const done = new Promise((r) => {
+    if (!me.rec || me.rec.state === "inactive") return r();
+    me.rec.onstop = () => r(); me.rec.stop();
+  });
+  return done.then(() => {
+    me.stream && me.stream.getTracks().forEach((t) => t.stop());
+    me.ctx && me.ctx.close().catch(() => {});
+    return new Blob(me.chunks, { type: (me.mime || "audio/webm").split(";")[0] });
+  });
+}
+function vcHideBub() {
+  vcBub.classList.add("vc-out");
+  return new Promise((r) => setTimeout(() => { vcBub.classList.remove("on", "vc-out", "vc-x"); vcRip.classList.remove("vc-x"); r(); }, 220));
+}
+// 取消：气泡缩小淡出，小球「嗯？」眯一下眼
+async function vcCancel(msg) {
+  const me = vc; if (!me || me.mode === "dict") return false;
+  vc = null;
+  vcStopRec(me);
+  if (vcSys()) invoke("stt_cancel").catch(() => {});
+  body.classList.add("vc-eh"); setTimeout(() => body.classList.remove("vc-eh"), 450);
+  mood("idle");
+  await vcHideBub(); await vcCloseBox();
+  if (msg) { toast(msg); if (!S.open) showPeek(msg, true); }
+  return true;
+}
+function blobB64(b) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = rej; r.readAsDataURL(b); });
+}
+async function vcRecognize(blob) {
+  const audio = await blobB64(blob);
+  return invoke("transcribe", { audio, mime: blob.type || "audio/webm" });
+}
+// 松开：录音交给服务商识别，识别完按「松开后」的设置直接发送或放进输入框
+async function vcRelease() {
+  const me = vc; if (!me || me.mode === "dict" || me.stopped) return;
+  if (me.cancel) return vcCancel();
+  const el = performance.now() - me.t0;
+  if (el < VC_MIN) return vcCancel("说话时间太短");
+  const blob = await vcStopRec(me);
+  vcSay("识别中…", true); vcPlaceBub();
+  mood("think");
+  let text = "", err = "";
+  try { text = (await vcRecognize(blob)).trim(); } catch (e) { err = String(e); }
+  if (vc !== me) return; // 识别途中按了 Esc
+  vc = null;
+  if (!err && text) { vcSay(text); vcPlaceBub(); await new Promise((r) => setTimeout(r, 450)); }
+  await vcHideBub(); await vcCloseBox();
+  if (err || !text) { mood(err ? "error" : "idle", 2400); const m = err || "没听清，再说一次"; toast(m); if (!S.open) showPeek(m, true); return; }
+  mood("idle");
+  await expand("chat");
+  if (vcCfg().after === "box") {
+    ask.value = text; autosize(); ask.focus(); ask.setSelectionRange(text.length, text.length);
+  } else send(text);
+}
+// 胶囊麦克风：听写进输入框；点第二下停止，回车停止并发送
+async function vcDictStop(thenSend) {
+  const me = vc; if (!me || me.mode !== "dict" || me.stopped) return;
+  const blob = await vcStopRec(me);
+  vcMic.classList.remove("vc-on"); vcMic.setAttribute("aria-pressed", "false"); vcMic.setAttribute("aria-label", "语音输入：听写到输入框");
+  vcMic.classList.add("vc-busy"); ask.placeholder = "识别中…";
+  let text = "", err = "";
+  try { if (performance.now() - me.t0 >= VC_MIN) text = (await vcRecognize(blob)).trim(); else if (vcSys()) invoke("stt_cancel").catch(() => {}); } catch (e) { err = String(e); }
+  vcMic.classList.remove("vc-busy"); ask.placeholder = vcAsk0 || "有什么可以帮你？";
+  if (vc === me) vc = null;
+  if (err) { toastErr(err); return; }
+  if (text) {
+    const base = ask.value.replace(/\s+$/, "");
+    ask.value = base + (base && /[A-Za-z0-9]$/.test(base) && /^[A-Za-z0-9]/.test(text) ? " " : "") + text;
+    autosize();
+  } else if (!thenSend) toast("没听清，再说一次");
+  ask.focus(); ask.setSelectionRange(ask.value.length, ask.value.length);
+  if (thenSend) send();
+}
+vcMic.addEventListener("mousedown", (e) => e.preventDefault()); // 不抢输入框焦点
+vcMic.addEventListener("click", () => { if (vc && vc.mode === "dict") vcDictStop(); else if (!vc) vcStart("dict"); });
+// 听写时回车：先停听写、识别完再发送
+ask.addEventListener("keydown", (e) => {
+  if (vc && vc.mode === "dict" && !vc.stopped && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); e.stopImmediatePropagation(); vcDictStop(true); }
+}, true);
+// Esc：取消录音 / 停止听写（先于其他 Esc 逻辑）
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !vc) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (vc.mode === "dict") vcDictStop(); else vcCancel();
+}, true);
+// 长按小球：按住 350ms 不动开始说话；拖开 48 像素「松开取消」，拖回来恢复
+function vcPressMove(e) {
+  if (!vc || vc.mode !== "press" || !press) return;
+  const far = Math.hypot(e.screenX - press.x, e.screenY - press.y) >= VC_CANCEL;
+  if (far === vc.cancel) return;
+  vc.cancel = far;
+  vcBub.classList.toggle("vc-x", far); vcRip.classList.toggle("vc-x", far);
+}
+// 快捷键「按住说话」：按下超过 300ms 才开始（单独按一下右 Alt 不算），松开结束
+listen("voice:key", ({ payload: down }) => {
+  if (down) {
+    if (vc || vcKeyT) return;
+    vcKeyT = setTimeout(() => { vcKeyT = 0; vcStart("key"); }, VC_LEAD);
+  } else {
+    clearTimeout(vcKeyT); vcKeyT = 0;
+    if (vc && vc.mode === "key") vcRelease();
+  }
+});
+
+// 朗读回复：开着时每条新回复读完后用系统语音读出来，回复下面出现「朗读中 · 停止」
+const VC_SPK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/></svg>';
+function vcSpeak(el, text) {
+  if (!vcCfg().tts || !window.speechSynthesis || !text) return;
+  const plain = text.replace(/```[\s\S]*?```/g, "（代码）").replace(/[#*_`>|]/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
+  if (!plain) return;
+  speechSynthesis.cancel();
+  document.querySelectorAll(".vc-tts:not(.vc-end)").forEach((c) => c._end("已停止"));
+  const c = document.createElement("div"), lb = document.createElement("span"), b = document.createElement("button");
+  c.className = "vc-tts"; b.type = "button"; b.textContent = "停止"; b.setAttribute("aria-label", "停止朗读");
+  const set = (t) => { lb.innerHTML = VC_SPK; lb.append(t); };
+  set("朗读中");
+  c._end = (t) => { if (c.classList.contains("vc-end")) return; set(t); c.classList.add("vc-end"); };
+  b.onclick = () => { speechSynthesis.cancel(); c._end("已停止"); };
+  c.append(lb, b);
+  el.appendChild(c); scrollEnd();
+  const u = new SpeechSynthesisUtterance(plain.slice(0, 4000));
+  const lang = vcCfg().lang;
+  u.lang = lang === "en" ? "en-US" : lang === "yue" ? "zh-HK" : hasZh(plain) ? "zh-CN" : "en-US";
+  u.onend = () => c._end("已读完"); u.onerror = () => c._end("已停止");
+  speechSynthesis.speak(u);
+}
 
 /* ───────── 启动 ───────── */
 (async () => {
@@ -705,6 +1331,8 @@ listen("menu", async ({ payload }) => {
   applyLook();
   updateEmpty();
   mood("idle");
+  settle(); // 上次贴着边：重新压平
+  if (S.cfg && S.cfg.screen === "main") setTimeout(screenCheck, 300); // 固定在主屏：上次在副屏也挪回来
   // 还没设置模型：小球露出好奇的表情提醒一下，不自动展开，免得挡住屏幕
   if (needsSetup()) mood("curious", 4000);
 })();

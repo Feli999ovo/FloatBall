@@ -33,6 +33,8 @@ public static IntPtr MainWindowOf(uint pid) {
 [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
 [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SystemParametersInfoW(uint action, uint param, string value, uint flags);
 '@
 [void][FloatBall.Desk]::SetProcessDPIAware()
@@ -57,14 +59,36 @@ function WinRect {
   return $r
 }
 function Say([string]$label) {
+  Write-Host "$([DateTimeOffset]::Now.ToUnixTimeMilliseconds()) 步骤 $label"
   $r = WinRect
   if ($r) { Write-Host "$label：窗口 x=$($r.Left) y=$($r.Top) 宽=$($r.Right - $r.Left) 高=$($r.Bottom - $r.Top)" } else { Write-Host "$label：没找到窗口" }
+}
+function ProbeBall([string]$label) {
+  # 点一下小球看能不能展开，再点一下收起来：二分找出哪一步之后点不开
+  $r = WinRect
+  if (-not $r) { return }
+  $cx = [int](($r.Left + $r.Right) / 2); $cy = [int](($r.Top + $r.Bottom) / 2)
+  Click $cx $cy; Start-Sleep -Milliseconds 1200; Say "试点小球-$label"
+  $r2 = WinRect
+  if ($r2 -and ($r2.Right - $r2.Left) -gt 200) {
+    Click $cx $cy
+    Start-Sleep -Milliseconds 1200
+  }
+}
+function DoubleClick([int]$x, [int]$y) {
+  [void][FloatBall.Desk]::SetCursorPos($x, $y)
+  Start-Sleep -Milliseconds 300
+  for ($k = 0; $k -lt 2; $k++) {
+    # 按住久一点：程序每 25 毫秒看一次鼠标，太快的点击会漏掉（真人点一下大约 80–120 毫秒）
+    [FloatBall.Desk]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 90
+    [FloatBall.Desk]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 110
+  }
 }
 function Click([int]$x, [int]$y) {
   [void][FloatBall.Desk]::SetCursorPos($x, $y)
   Start-Sleep -Milliseconds 120
   [FloatBall.Desk]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)   # 左键按下
-  Start-Sleep -Milliseconds 40
+  Start-Sleep -Milliseconds 90
   [FloatBall.Desk]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)   # 左键松开
 }
 # 连续截屏：看展开和收起的过程里有没有跳动
@@ -80,11 +104,23 @@ if ($Wallpaper) {
   Start-Sleep -Seconds 2
 }
 
+# 划词默认关：截图要看划词工具栏，先在配置里打开（只改这台云端构建机上的配置）
+# 配置可能在程序旁边的 data（CI 里直接跑 target\release 下的程序就是这样），也可能在 %APPDATA%：两处都写
+foreach ($cfgDir in @((Join-Path (Split-Path (Resolve-Path $Exe)) 'data'), (Join-Path $env:APPDATA 'com.floatball.desktop'))) {
+  New-Item -ItemType Directory -Force $cfgDir | Out-Null
+  $cfgFile = Join-Path $cfgDir 'config.json'
+  $cfg = if (Test-Path $cfgFile) { Get-Content $cfgFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
+  $cfg | Add-Member -Force -NotePropertyName sel -NotePropertyValue ([pscustomobject]@{ on = $true; mode = 'instant' })
+  $cfg | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 $cfgFile
+  Write-Host "配置：$cfgFile 打开划词"
+}
+
 # 把桌面上别的窗口都最小化，免得挡住小球后面的壁纸
 (New-Object -ComObject Shell.Application).MinimizeAll()
 Start-Sleep -Seconds 1
 
-$p = Start-Process -FilePath $Exe -PassThru
+# 程序自己的输出（含界面里的报错 [前端]）一起放进截图产物，方便查问题
+$p = Start-Process -FilePath $Exe -PassThru -RedirectStandardError (Join-Path $Out 'floatball-stderr.txt') -RedirectStandardOutput (Join-Path $Out 'floatball-stdout.txt')
 $script:appPid = $p.Id
 try {
   $r = $null
@@ -120,11 +156,72 @@ try {
 
   # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
   Start-Process -FilePath $Exe -ArgumentList '--settings'
-  Start-Sleep -Seconds 5
+  Start-Sleep -Seconds 8
   Say '打开设置后（面积最大的窗口）'
   Shot '08_设置窗口'
+
+  # 设置的 7 页：左边一列按钮，从上往下每 36 像素一个（100% 缩放）
+  $sr = WinRect
+  if ($sr) {
+    $tabs = '模型', 'Agents', '权限', '外观', '快捷键', '划词', '语音'
+    for ($i = 0; $i -lt $tabs.Count; $i++) {
+      Click ($sr.Left + 48) ($sr.Top + 73 + 36 * $i)
+      Start-Sleep -Milliseconds 900
+      Shot ('12_设置_{0}_{1}' -f ($i + 1), $tabs[$i])
+    }
+  }
+  if ($sr) { Click ($sr.Right - 41) ($sr.Top + 31); Start-Sleep -Milliseconds 800 }   # 点右上角关掉设置
+
+  # 语音：按住右 Alt 说话（构建机没有麦克风，看的是没麦克风/授权时怎么提示）
+  ProbeBall '设置之后'
+  Write-Host "$([DateTimeOffset]::Now.ToUnixTimeMilliseconds()) 步骤 按右Alt"
+  [void][FloatBall.Desk]::SetCursorPos(200, 200)
+  [FloatBall.Desk]::keybd_event(0xA5, 0, 0x0001, [UIntPtr]::Zero)          # 右 Alt 按下
+  Start-Sleep -Milliseconds 1500
+  Shot '09_按住右Alt'
+  [FloatBall.Desk]::keybd_event(0xA5, 0, 0x0003, [UIntPtr]::Zero)          # 右 Alt 松开
+  Start-Sleep -Milliseconds 1500
+  Shot '10_松开右Alt'
+  Start-Sleep -Seconds 6   # 等提示消失
+  ProbeBall '右Alt之后'
+
+  # 划词：在记事本里双击选中一个词，看工具栏出现在哪
+  $txt = Join-Path $env:RUNNER_TEMP '划词测试.txt'
+  Set-Content -Encoding utf8 $txt "FloatBall selection test`r`n悬浮球划词测试：双击选中一个词"
+  $np = Start-Process notepad.exe -ArgumentList "`"$txt`"" -PassThru
+  Start-Sleep -Seconds 3
+  $nh = (Get-Process -Id $np.Id).MainWindowHandle
+  if ($nh -eq [IntPtr]::Zero) { $nh = [FloatBall.Desk]::MainWindowOf([uint32]$np.Id) }
+  if ($nh -ne [IntPtr]::Zero) {
+    [void][FloatBall.Desk]::SetForegroundWindow($nh)
+    $nr = New-Object FloatBall.Desk+RECT
+    [void][FloatBall.Desk]::GetWindowRect($nh, [ref]$nr)
+    Write-Host "记事本：x=$($nr.Left) y=$($nr.Top) 宽=$($nr.Right - $nr.Left) 高=$($nr.Bottom - $nr.Top)"
+    # 第一行的「FloatBall」：标题栏和菜单下面第一行（100% 缩放，上一次截图量出来在窗口顶下 60 像素）
+    Write-Host "$([DateTimeOffset]::Now.ToUnixTimeMilliseconds()) 步骤 记事本双击"
+    DoubleClick ($nr.Left + 40) ($nr.Top + 62)
+    Start-Sleep -Milliseconds 1200
+    Shot '11_划词工具栏'
+  } else { Write-Host '记事本窗口没找到' }
+  Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 1
+
+  # 划词之后小球还能不能正常点开（看主线程有没有卡住）
+  $r = WinRect
+  if ($r) {
+    $cx = [int](($r.Left + $r.Right) / 2); $cy = [int](($r.Top + $r.Bottom) / 2)
+    Click $cx $cy; Start-Sleep -Milliseconds 1500; Say '划词后点小球'; Shot '13_划词后点小球'
+    # 第一下没展开就再点一下：分清是「第一下只用来激活窗口」还是程序真卡住了
+    $r2 = WinRect
+    if ($r2 -and ($r2.Right - $r2.Left) -lt 200) { Click $cx $cy; Start-Sleep -Milliseconds 1500; Say '再点一下小球'; Shot '14_再点一下小球' }
+  }
 } finally {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
   Get-Process -Name floatball -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
+# 程序自己的日志（只记做到哪一步、出了什么错）。cargo test 也会在临时目录写一份，跳过
+$logs = Get-ChildItem (Split-Path (Resolve-Path $Exe)), $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter floatball.log -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'fblog-' }
+if (-not $logs) { Write-Host "没有找到程序日志" }
+$n = 0
+foreach ($f in $logs) { $n++; Write-Host "日志 $($f.FullName)"; Copy-Item $f.FullName (Join-Path $Out "floatball-$n.log"); Get-Content $f.FullName | ForEach-Object { Write-Host "LOG $_" } }
 Write-Host "截图在 $Out，共 $((Get-ChildItem $Out -Filter *.png).Count) 张"
