@@ -132,11 +132,12 @@ function grabBackdrop(r, a) {
   return Promise.race([shot, new Promise((res) => setTimeout(() => res(null), 250))]);
 }
 async function expand(view) {
+  jslog(`展开：open=${S.open} morphing=${morphing} 小泡=${hv.shown}/${hv.hiding} 提示=${!!peekBox} 录音=${!!vc}`);
   if (hv.shown || hv.hiding) await hvHide();
   if (peekBox) await hidePeek();
   // 贴边的球刚滑出来（或别的短动画）时点下去：等它停稳再展开，不要吞掉这次点击
   for (let i = 0; morphing && i < 20; i++) await new Promise((r) => setTimeout(r, 25));
-  if (morphing) return;
+  if (morphing) { jslog("展开被动画挡住"); return; }
   if (S.open) { showView(view || "chat"); focusAsk(); return; }
   morphing = true;
   try {
