@@ -132,7 +132,6 @@ function grabBackdrop(r, a) {
   return Promise.race([shot, new Promise((res) => setTimeout(() => res(null), 250))]);
 }
 async function expand(view) {
-  jslog(`展开：open=${S.open} morphing=${morphing} 小泡=${hv.shown}/${hv.hiding} 提示=${!!peekBox} 录音=${!!vc}`);
   if (hv.shown || hv.hiding) await hvHide();
   if (peekBox) await hidePeek();
   // 贴边的球刚滑出来（或别的短动画）时点下去：等它停稳再展开，不要吞掉这次点击
@@ -201,7 +200,6 @@ function focusAsk() { if (!$("#vChat").hidden) setTimeout(() => ask.focus(), 30)
 // 点住小球：移动超过 4 像素算拖动，否则算点击
 let press = null;
 orb.addEventListener("pointerdown", (e) => {
-  jslog(`小球按下 button=${e.button} open=${S.open} 录音=${!!vc}`);
   if (e.button !== 0) return;
   press = { x: e.screenX, y: e.screenY, dragged: false, voice: false, lt: 0 };
   try { orb.setPointerCapture(e.pointerId); } catch (_) {}
@@ -221,7 +219,6 @@ window.addEventListener("pointermove", (e) => {
 });
 window.addEventListener("pointercancel", () => { if (press && press.voice && vc && vc.mode === "press") vcCancel(); if (press) clearTimeout(press.lt); press = null; });
 window.addEventListener("pointerup", () => {
-  if (press) jslog(`小球松开 拖动=${press.dragged} 语音=${press.voice}`);
   if (!press) return;
   const wasDrag = press.dragged, wasVoice = press.voice;
   clearTimeout(press.lt);
