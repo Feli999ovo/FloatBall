@@ -23,7 +23,14 @@ PAIRS = [
     # 小球表情：原型点「状态预览」里的按钮；程序直接切 #orb 的状态类（真实流程见 test_ui：确认卡 → 等你 + 「!」）
     ("小球等你", ["[data-s=wait]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-wait','need')"]),
     ("小球需要确认", ["[data-s=confirm]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-confirm')"]),
+    # 多 Agent（B1）：原型点「多 Agent」演示，等它跑到第 2 步；程序用 mock 的 team 事件，停在第 2 步进行中
+    ("多Agent计划卡", ["#teamBtn", "wait:3600"], ["#orb", "js:" + "__TEAM__", "team"]),
+    ("Agents弹卡", ["#teamBtn", "wait:3600", "#tabTask", ".x-ag:nth-child(2)"], ["#orb", "js:" + "__TEAM__", "team", "#tabTask", "#tasks .x-ag[data-ag=organize]"]),
 ]
+TEAM = """const A = (id, name, role, tint, tools) => ({ id, name, role, tint, emoji: "", tools, prompt: "", model: 0, fallback: 0, auto: false });
+  __mock.cfg.agents = [__mock.cfg.agents[0], A("research", "研究员", "搜索与阅读", "#A9BEDB", ["读文件"]), A("organize", "整理员", "文件与表格", "#AECDB6", ["读文件", "写文件"]), A("writer", "写手", "起草与润色", "#DCC0A8", ["读文件", "写文件"])];
+  __mock.holdTeam = true; __emit("config");"""
+PAIRS = [(n, c, [a.replace("__TEAM__", TEAM) for a in acts]) for n, c, acts in PAIRS]
 Q = "帮我总结一下今天的待办"
 
 
@@ -40,7 +47,8 @@ async def proto_shots(b, url, out):
         pg = await b.new_page(viewport={"width": VW, "height": VH})
         await pg.goto(url); await pg.wait_for_timeout(1500)
         for c in clicks:
-            if c.startswith("#") or c.startswith("["): await pg.click(c)
+            if c.startswith("wait:"): await pg.wait_for_timeout(int(c[5:])); continue
+            if c[0] in "#[.": await pg.click(c)
             else: await pg.get_by_text(c, exact=True).click()
             await pg.wait_for_timeout(1200)
         path = os.path.join(out, f"proto_{name}.png")
@@ -76,6 +84,8 @@ async def prog_shots(b, wall_b64, out):
         for a in acts:
             if a.startswith("js:"):
                 await pg.evaluate(a[3:]); await pg.wait_for_timeout(1200)
+            elif a == "team":
+                await pg.fill("#ask", "帮我调研三款降噪耳机并写个对比报告"); await pg.press("#ask", "Enter"); await pg.wait_for_timeout(2500)
             elif a == "ask":
                 await pg.fill("#ask", Q); await pg.press("#ask", "Enter"); await pg.wait_for_timeout(3500)
             else:

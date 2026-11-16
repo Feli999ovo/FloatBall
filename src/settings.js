@@ -328,6 +328,11 @@ $("agAdd").addEventListener("click", () => {
   });
   box.querySelector("button").focus({ preventScroll: true });
 });
+function gotoAgent(id) {
+  const a = agents().find((x) => x.id === id);
+  showTab("agents");
+  if (a) agEdit(a);
+}
 function agEdit(a, tpl) {
   const src = a || { id: "", emoji: "", model: 0, fallback: 0, auto: false, ...tpl };
   const d = { ...src, tools: src.tools.slice() };
@@ -859,6 +864,10 @@ async function initBackdrop() {
     $("lkGlassF").hidden = cfg.platform !== "windows";
     // 原型：首次引导「先设置一个模型吧 → 去设置」直接打开添加模型，保存后关掉设置
     if (!models().length) { fromTip = true; showTab("add"); } else showTab("model");
+    // 对话里 Agent 弹卡点「更换」：直接打开那个 Agent 的编辑页
+    const goto = await invoke("settings_goto").catch(() => null);
+    if (goto && models().length) gotoAgent(goto);
+    Promise.resolve(T.event.listen("settings:goto", async (e) => { await reload(); invoke("settings_goto").catch(() => {}); gotoAgent(e.payload); })).catch(() => {});
   } catch (e) { toast(String(e)); jslog(e); }
   invoke("catalog_refresh").catch(() => {});
 })();

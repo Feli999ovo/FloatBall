@@ -323,7 +323,7 @@ impl Default for Config {
             models: vec![],
             default_model: 0,
             system_prompt: String::new(),
-            agents: vec![Agent::lead(DEFAULT_PROMPT)],
+            agents: default_agents(),
             limits: Limits::default(),
             always_allow: vec![],
             pause_away: true,
@@ -348,6 +348,21 @@ impl Default for Config {
             catalog_auto: false,
         }
     }
+}
+
+/// 第一次用时的 4 个 Agent（照原型）：主控 + 研究员 / 整理员 / 写手。
+/// 研究员默认只带「读文件」：搜索网页默认不带（J 定的），要联网时在设置里给它勾上。
+pub fn default_agents() -> Vec<Agent> {
+    let ag = |id: &str, name: &str, role: &str, tint: &str, tools: &[&str], prompt: &str| Agent {
+        id: id.into(), name: name.into(), role: role.into(), tint: tint.into(), prompt: prompt.into(),
+        tools: tools.iter().map(|t| t.to_string()).collect(), ..Agent::default()
+    };
+    vec![
+        Agent::lead(DEFAULT_PROMPT),
+        ag("research", "研究员", "搜索与阅读", "#A9BEDB", &["读文件"], "你是研究员。按要求查找、阅读资料，给出要点和出处；不确定的标明不确定。"),
+        ag("organize", "整理员", "文件与表格", "#AECDB6", &["读文件", "写文件"], "你是整理员。把资料整理成清楚的表格、清单或文件；保持数据原样，不编造。"),
+        ag("writer", "写手", "起草与润色", "#DCC0A8", &["读文件", "写文件"], "你是写手。根据给你的材料起草或润色文字，结构清楚、语气自然，默认用中文。"),
+    ]
 }
 
 pub const DEFAULT_PROMPT: &str = "你是住在用户桌面上的悬浮球助手。回答简洁、具体，默认用中文。";
@@ -634,7 +649,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(Config::path(d.path()), r#"{"system_prompt":"只用中文","models":[]}"#).unwrap();
         let mut c = Config::load(d.path());
-        assert_eq!((c.agents.len(), c.lead().id.as_str(), c.lead().prompt.as_str()), (1, LEAD, "只用中文"));
+        assert_eq!((c.agents.len(), c.lead().id.as_str(), c.lead().prompt.as_str()), (4, LEAD, "只用中文"));
+        // 第一次用：照原型给 4 个 Agent，研究员默认不带搜索网页
+        let names: Vec<&str> = c.agents.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["主控", "研究员", "整理员", "写手"]);
+        assert_eq!(c.agents[1].tools, vec!["读文件".to_string()]);
         c.save(d.path()).unwrap();
         let raw = std::fs::read_to_string(Config::path(d.path())).unwrap();
         assert!(!raw.contains("system_prompt"));
@@ -656,7 +675,7 @@ mod tests {
         c.remove(m);
         assert_eq!(c.agents[1].model, 0);
         c.remove_agent(&id).unwrap();
-        assert_eq!(c.agents.len(), 1);
+        assert_eq!(c.agents.len(), 4);
     }
 
     #[test]

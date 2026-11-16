@@ -163,6 +163,44 @@ async def main():
         check(m["answer"]["allow"] is False and m["answer"]["reason"] == "还要用", f"拒绝原因传回 {m}")
         check("已拒绝" in await last.locator(".x-tw.no").inner_text() and "好的，没删。" in await last.inner_text(), "拒绝后药丸标已拒绝")
 
+        # 6c 多 Agent（B1，照原型 runTeam / agRow）：主控交给研究员 / 整理员 / 写手，对话里出计划卡；任务页顶上 Agents 头像条 + 弹卡
+        await pg.evaluate("""() => { const A = (id, name, role, tint, tools) => ({ id, name, role, tint, emoji: "", tools, prompt: "", model: 0, fallback: 0, auto: false });
+            __mock.cfg.agents = [__mock.cfg.agents[0], A("research", "研究员", "搜索与阅读", "#A9BEDB", ["读文件"]), A("organize", "整理员", "文件与表格", "#AECDB6", ["读文件", "写文件"]), A("writer", "写手", "起草与润色", "#DCC0A8", ["读文件", "写文件"])];
+            __mock.holdTeam = true; __emit("config"); }""")
+        await pg.wait_for_timeout(300)
+        await pg.fill("#ask", "帮我调研三款降噪耳机并写个对比报告"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("document.querySelectorAll('.m.ai:last-of-type .x-plan .x-ps').length === 3 && document.querySelector('.m.ai:last-of-type .x-ps[data-call=t1]').dataset.st === 'run'", timeout=5000)
+        plan = await pg.evaluate("""(() => { const c = document.querySelector('.m.ai:last-of-type .x-plan');
+            return { h: c.querySelector('.x-plh').textContent, f: c.querySelector('.x-plf').textContent,
+                     rows: [...c.querySelectorAll('.x-ps')].map(r => [r.querySelector('b').textContent, r.querySelector('.x-pss').textContent, r.dataset.st, r.querySelector('.x-pst').textContent, r.querySelector('.x-ptk').textContent]),
+                     pm: c.querySelector('.x-pm').textContent, av: getComputedStyle(c.querySelector('.x-av')).getPropertyValue('--t').trim(),
+                     before: c.previousElementSibling && c.previousElementSibling.textContent }; })()""")
+        check(plan["h"] == "主控 · 3 步计划 · 点一步看为什么交给它", f"计划卡标题同原型 {plan['h']}")
+        check(plan["rows"] == [["研究员", "搜集 3 款耳机评测", "done", "✓", "6.1K"], ["整理员", "做参数对比表", "run", "进行中", ""], ["写手", "写对比报告", "wait", "等待", ""]], f"每步：谁、做什么、状态、用掉的 token {plan['rows']}")
+        check(plan["f"] == "共 6.1K tokens" and plan["pm"] == "gpt-4o-mini" and plan["av"] == "#A9BEDB", f"底部合计、模型标签、头像颜色 {plan}")
+        check("拆成 3 步" in (plan["before"] or ""), "主控的话在计划卡前面")
+        await pg.click(".m.ai:last-of-type .x-ps[data-call=t0]"); await pg.wait_for_timeout(150)
+        why = await pg.inner_text(".m.ai:last-of-type .x-pwhy:not([hidden])")
+        check("研究员的职责是「搜索与阅读」" in why and "读文件" in why, f"点一步看为什么交给它 {why!r}")
+        await shot("06d_team")
+        await pg.click("#tabTask"); await pg.wait_for_timeout(300)
+        ags = await pg.evaluate("[...document.querySelectorAll('#tasks .x-ags .x-ag')].map(b => [b.textContent, b.dataset.st])")
+        check(await pg.inner_text("#tasks .x-ags .x-hg") == "Agents" and ags == [["研究员", "idle"], ["整理员", "busy"], ["写手", "idle"]], f"任务页 Agents 头像条：忙的亮橙点 {ags}")
+        await pg.click("#tasks .x-ag[data-ag=organize]"); await pg.wait_for_timeout(200)
+        pop = await pg.evaluate("(() => { const p = document.querySelector('#tasks .x-agp'), r = p.getBoundingClientRect(), c = document.querySelector('#card').getBoundingClientRect(); return { hidden: p.hidden, t: p.innerText, inside: r.left >= c.left && r.right <= c.right + 1 }; })()")
+        check(not pop["hidden"] and "整理员" in pop["t"] and "文件与表格" in pop["t"] and "模型 · gpt-4o-mini（默认）" in pop["t"] and "忙碌 · 做参数对比表" in pop["t"] and pop["inside"], f"Agent 弹卡：职责、模型、在忙什么 {pop}")
+        await shot("06e_agents")
+        await pg.click("#tasks .x-agp .x-agx"); await pg.wait_for_timeout(150)
+        check((await pg.evaluate("__mock")).get("settingsAgent") == "organize" and await pg.evaluate("document.querySelector('#tasks .x-agp').hidden"), "「更换」打开设置里这个 Agent 的编辑页")
+        await pg.evaluate("__mock.teamNext()")
+        await pg.wait_for_function("document.querySelector('.m.ai:last-of-type .meta') && !document.querySelector('.m.ai:last-of-type .meta').hidden", timeout=5000)
+        await pg.click("#tabTask"); await pg.wait_for_timeout(300)
+        ags = await pg.evaluate("[...document.querySelectorAll('#tasks .x-ags .x-ag')].map(b => b.dataset.st)")
+        await pg.click("#tabChat"); await pg.wait_for_timeout(200)
+        fin = await pg.evaluate("(() => { const c = document.querySelector('.m.ai:last-of-type .x-plan'); return [[...c.querySelectorAll('.x-ps')].map(r => r.dataset.st), c.querySelector('.x-plf').textContent, c.nextElementSibling.textContent]; })()")
+        check(fin[0] == ["done", "done", "done"] and fin[1] == "共 18.4K tokens" and "通勤选索尼" in fin[2] and ags == ["idle", "idle", "idle"], f"做完：三步打勾、合计、结论在卡片后面、Agents 都空闲 {fin} {ags}")
+        await shot("06f_team_done")
+
         # 7 截屏提问：附件 + 发送带图片
         await pg.evaluate("__emit('menu','capture')"); await pg.wait_for_timeout(300)  # 胶囊里不再有截屏按钮（照原型），走菜单/快捷键
         check(await pg.locator("#attach .chip").count() == 1, "截图出现在输入框")
