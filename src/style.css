@@ -114,6 +114,30 @@ body:not(.collapsed) #orb .float, body:not(.collapsed) #orb .breath { animation:
 .s-error .body { background: radial-gradient(closest-side, transparent 72%, rgba(90, 20, 50, 0.4) 89%, rgba(90, 20, 50, 0.4) 100%), radial-gradient(closest-side, rgba(80, 20, 44, 0.5), rgba(60, 14, 34, 0.3) 60%, transparent 100%); }
 .s-error .breath { animation: wobble 1.6s ease-in-out infinite; }
 @keyframes wobble { 25% { transform: rotate(-5deg); } 75% { transform: rotate(5deg); } }
+/* 需要确认（原型 .s-confirm）：琥珀色光晕一明一暗、眼睛变暖色一大一小、左右晃 */
+.amb { position: absolute; inset: 6%; border-radius: 50%; pointer-events: none; opacity: 0; transition: opacity 0.4s;
+  background: radial-gradient(closest-side, rgba(255, 170, 80, 0.75), rgba(255, 130, 40, 0.32) 65%, transparent); }
+.s-confirm .amb { opacity: 1; animation: amb 1.6s ease-in-out infinite; }
+body:not(.collapsed) #orb .amb { animation: none; opacity: 0; }
+@keyframes amb { 50% { opacity: 0.6; } }
+.s-confirm .face { --c: #ffd9a8; }
+.s-confirm .eye { box-shadow: 0 0 10px rgba(255, 170, 80, 0.95), 0 0 3px rgba(255, 170, 80, 0.95); }
+.s-confirm .eye.l { transform: translate(1px, 7px) rotate(-14deg) scale(0.6); }
+.s-confirm .eye.r { transform: translate(0, -3px) rotate(14deg) scale(1.15); }
+.s-confirm .breath { animation: wobble 1.6s ease-in-out infinite; }
+/* 等你（原型 .s-wait）：眼睛微微上抬、慢速眨眼；收起时球外一圈暖白呼吸光环 */
+.s-wait .eye { top: 22px; animation: slowblink 3.6s ease-in-out infinite; }
+@keyframes slowblink { 0%, 78%, 100% { height: 21px; top: 22px; } 86% { height: 3px; top: 31px; } }
+body.collapsed #orb.s-wait .breath::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; pointer-events: none;
+  border: 1.5px solid rgba(255, 244, 228, 0.75); box-shadow: 0 0 16px rgba(255, 226, 190, 0.6), inset 0 0 10px rgba(255, 226, 190, 0.35); animation: wring 2.8s ease-in-out infinite; }
+@keyframes wring { 0%, 100% { transform: scale(0.97); opacity: 0.35; } 50% { transform: scale(1.06); opacity: 0.95; } }
+/* 等你确认的「!」小点（原型 .x-need）：收起时贴在球的右上角，贴右边时换到左上角 */
+#orb .need { position: absolute; right: 12%; top: 6%; z-index: 3; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; pointer-events: none;
+  background: #FFF1DC; color: #1a1640; font: 700 12px/1 var(--ff, system-ui); font-style: normal; box-shadow: 0 0 10px rgba(255, 200, 140, 0.85);
+  opacity: 0; scale: 0.4; transition: opacity 0.2s, scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+body.collapsed #orb.need .need { opacity: 1; scale: 1; }
+#orb[data-edge="r"] .need { right: auto; left: 12%; }
+@media (prefers-reduced-motion: reduce) { .s-wait .eye, body.collapsed #orb.s-wait .breath::before, .s-confirm .amb, .s-confirm .breath { animation: none; } }
 /* 喂文件（拖进来） */
 .s-feed .breath { transform: scale(1.14); animation: none; }
 .s-feed .eye { height: 24px; top: 22px; box-shadow: 0 0 16px var(--eye-glow), 0 0 4px #fff; }

@@ -20,6 +20,9 @@ PAIRS = [
     ("小球待机", ["待机"], []),
     ("对话卡片", ["对话卡片"], ["#orb", "ask"]),
     ("更多菜单", ["对话卡片", "#chatMore"], ["#orb", "ask", "#moreBtn"]),
+    # 小球表情：原型点「状态预览」里的按钮；程序直接切 #orb 的状态类（真实流程见 test_ui：确认卡 → 等你 + 「!」）
+    ("小球等你", ["[data-s=wait]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-wait','need')"]),
+    ("小球需要确认", ["[data-s=confirm]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-confirm')"]),
 ]
 Q = "帮我总结一下今天的待办"
 
@@ -37,7 +40,7 @@ async def proto_shots(b, url, out):
         pg = await b.new_page(viewport={"width": VW, "height": VH})
         await pg.goto(url); await pg.wait_for_timeout(1500)
         for c in clicks:
-            if c.startswith("#"): await pg.click(c)
+            if c.startswith("#") or c.startswith("["): await pg.click(c)
             else: await pg.get_by_text(c, exact=True).click()
             await pg.wait_for_timeout(1200)
         path = os.path.join(out, f"proto_{name}.png")
@@ -71,7 +74,9 @@ async def prog_shots(b, wall_b64, out):
         await pg.goto("file://" + os.path.join(ROOT, "src", "index.html")); await pg.wait_for_timeout(500)
         await pg.evaluate(MOCK, wall_b64); await pg.wait_for_timeout(300)
         for a in acts:
-            if a == "ask":
+            if a.startswith("js:"):
+                await pg.evaluate(a[3:]); await pg.wait_for_timeout(1200)
+            elif a == "ask":
                 await pg.fill("#ask", Q); await pg.press("#ask", "Enter"); await pg.wait_for_timeout(3500)
             else:
                 await pg.click(a); await pg.wait_for_timeout(1000)

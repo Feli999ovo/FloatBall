@@ -120,8 +120,24 @@ async def main():
         check("我先看看下载文件夹。" in await last.locator(".txt").first.inner_text(), "药丸前的文字")
         ap = await last.locator(".x-ap").inner_text()
         check("高风险" in ap and "删除 /Users/j/Downloads/报告 (1).pdf" in ap and "允许一次" in ap and "总是允许" in ap, f"确认卡片 {ap!r}")
-        check("s-curious" in await pg.get_attribute("#orb", "class"), "等确认时小球好奇地看着你")
+        oc = await pg.get_attribute("#orb", "class")
+        check("s-wait" in oc and "need" in oc, f"等确认时小球是「等你」表情（同原型 setState('wait')）{oc}")
         await shot("06b_ask")
+        check(await pg.evaluate("getComputedStyle(document.querySelector('#orb .need')).opacity") == "0", "卡片开着时不显示「!」")
+        await pg.evaluate("collapse()"); await pg.wait_for_timeout(800)
+        g = await pg.evaluate("""(() => { const n = document.querySelector('#orb .need'), o = document.querySelector('#orb').getBoundingClientRect(), r = n.getBoundingClientRect(),
+            ring = getComputedStyle(document.querySelector('#orb .breath'), '::before');
+            return { op: getComputedStyle(n).opacity, txt: n.textContent, topRight: r.right <= o.right + 1 && r.left > o.left + o.width / 2 && r.top < o.top + o.height / 3,
+                     ring: ring.content !== 'none' && ring.borderTopStyle === 'solid', eyeTop: getComputedStyle(document.querySelector('#orb .eye')).animationName }; })()""")
+        check(g["op"] == "1" and g["txt"] == "!" and g["topRight"], f"收起后球右上角亮「!」{g}")
+        check(g["ring"] and g["eyeTop"] == "slowblink", f"收起后「等你」：暖白呼吸光环 + 慢速眨眼 {g}")
+        await shot("06b2_wait_orb")
+        await pg.evaluate("document.body.classList.add('x'); document.querySelector('#orb').dataset.edge = 'r'"); await pg.wait_for_timeout(300)
+        g2 = await pg.evaluate("(() => { const n = document.querySelector('#orb .need').getBoundingClientRect(), o = document.querySelector('#orb').getBoundingClientRect(); return n.left < o.left + o.width / 2; })()")
+        check(g2, "贴右边时「!」换到左上角")
+        await pg.evaluate("document.querySelector('#orb').dataset.edge = ''")
+        await pg.click("#orb"); await pg.wait_for_timeout(900)
+        last = pg.locator(".m.ai").last
         await last.locator(".x-tw.done .x-tool").click()
         check("报告 (1).pdf（20480 字节）" in await last.locator(".x-tw.done .x-tres").inner_text(), "点完成的药丸看结果")
         await last.locator(".x-ap button:has-text('允许一次')").click()
@@ -132,6 +148,7 @@ async def main():
         check(txts == ["我先看看下载文件夹。", "删好了，重复的那份在悬浮球回收站里。"], f"药丸后面的字另起一段 {txts}")
         nd, meta = await last.locator(".x-ap button:disabled").count(), await last.locator(".meta").inner_text()
         check(nd >= 4 and "1.8K tokens" in meta, f"确认后按钮变灰，结束显示用量 {nd} {meta!r}")
+        check("need" not in await pg.get_attribute("#orb", "class"), "确认后去掉「!」")
         hist = await pg.evaluate("__mock.convs[0].msgs.slice(-1)[0].content")
         check(hist == "我先看看下载文件夹。\n\n删好了，重复的那份在悬浮球回收站里。", f"历史里存整条回复 {hist!r}")
         await shot("06c_allowed")

@@ -733,7 +733,7 @@ function run() {
       scrollEnd();
     } else if (ev.type === "ask") {
       askCard(el, ev);
-      mood("curious");
+      needOn(true); mood("wait"); // 原型：等你确认 → 「等你」表情，收起时球角上亮「!」
       if (!S.open) showPeek("需要你确认：" + ev.desc);
       scrollEnd();
     } else if (ev.type === "usage") {
@@ -761,6 +761,7 @@ function run() {
   };
   function finish(st = "done") {
     if (S.busy === id) S.busy = null;
+    needOn(false);
     $("#stopRow").hidden = true;
     if (task.st === "run") { task.st = st; task.t1 = Date.now(); renderTasks(); }
   }
@@ -776,6 +777,8 @@ function run() {
   S.stopFn = el._stop;
   invoke("chat", { id, messages: S.msgs, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
+// 有确认在等你：球角上的「!」（收起时才显示）
+function needOn(v) { S.pend = !!v; orb.classList.toggle("need", !!v); }
 function stop() { if (S.busy && S.stopFn) S.stopFn(); }
 
 // ───────── 工具药丸、确认卡片（照搬原型的 toolChip / askAppr） ─────────
@@ -839,6 +842,7 @@ function askCard(el, ev) {
   let done = false;
   const fin = (b, answer) => {
     if (done) return; done = true;
+    needOn(false);
     c.querySelectorAll("button,input").forEach((x) => (x.disabled = true)); b.classList.add("on");
     invoke("answer_ask", { ask: ev.ask, answer: { allow: false, always: false, reason: "", edit: "", ...answer } }).then((ok) => { if (!ok) note("这一步已经结束了"); }).catch(() => {});
     if (answer.always) note(`以后「${ev.kind} · ${ev.scope}」不再询问`);
