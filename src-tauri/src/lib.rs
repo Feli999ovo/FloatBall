@@ -891,10 +891,93 @@ fn on_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
     }
 }
 
+/// 右键菜单：照原型 .x-menu，自绘在一个透明小窗口（ctxmenu.html）里，和卡片同一种玻璃。
+/// 项目先放程序已有的功能；以后的功能 PR 再往 ctx_items 里加。
+#[derive(Serialize, Clone)]
+struct CtxItem { id: &'static str, label: &'static str, check: Option<bool>, sep: bool }
+
+fn ctx_items<R: Runtime>(app: &AppHandle<R>) -> Vec<CtxItem> {
+    let auto = app.autolaunch().is_enabled().unwrap_or(false);
+    let it = |id, label| CtxItem { id, label, check: None, sep: false };
+    vec![
+        it("new_chat", "新对话"),
+        it("history", "历史记录"),
+        it("capture", "截屏提问"),
+        it("settings", "设置"),
+        it("toggle_ball", "隐藏小球"),
+        CtxItem { id: "autostart", label: "开机启动", check: Some(auto), sep: false },
+        CtxItem { id: "quit", label: "退出", check: None, sep: true },
+    ]
+}
+
+/// 菜单窗口的逻辑大小：原型 .x-menu 宽 200、上下各 6 内边距、每项 38、分隔线 11；四周留 8 给阴影
+const CTX_PAD: f64 = 8.0;
+fn ctx_size(items: &[CtxItem]) -> (f64, f64) {
+    let seps = items.iter().filter(|i| i.sep).count() as f64;
+    (200.0 + CTX_PAD * 2.0, 12.0 + 38.0 * items.len() as f64 + 11.0 * seps + CTX_PAD * 2.0)
+}
+
+/// 放在鼠标右下方；右边或下边放不下就翻到左边、上边（和系统菜单一样）。返回物理像素的 (左, 上, 宽, 高)
+fn ctx_rect(cx: f64, cy: f64, w: f64, h: f64, mon: (f64, f64, f64, f64)) -> (f64, f64) {
+    let (mx, my, mw, mh) = mon;
+    let x = if cx + w > mx + mw { (cx - w).max(mx) } else { cx };
+    let y = if cy + h > my + mh { (cy - h).max(my) } else { cy };
+    (x, y)
+}
+
+#[derive(Serialize, Clone)]
+struct CtxShow { items: Vec<CtxItem>, bd: Option<String> }
+
 #[tauri::command]
-fn show_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
-    let menu = build_menu(&app, false).map_err(|e| e.to_string())?;
-    window.popup_menu(&menu).map_err(|e| e.to_string())
+async fn show_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    let Some(menu) = app.get_webview_window("ctxmenu") else {
+        // 没有菜单窗口（不该发生）：退回系统菜单
+        let m = build_menu(&app, false).map_err(|e| e.to_string())?;
+        return window.popup_menu(&m).map_err(|e| e.to_string());
+    };
+    let items = ctx_items(&app);
+    let c = app.cursor_position().map_err(|e| e.to_string())?;
+    let mon = app.monitor_from_point(c.x, c.y).ok().flatten().or_else(|| window.current_monitor().ok().flatten());
+    let (sf, mrect) = match &mon {
+        Some(m) => (m.scale_factor(), (m.position().x as f64, m.position().y as f64, m.size().width as f64, m.size().height as f64)),
+        None => (1.0, (c.x - 4000.0, c.y - 4000.0, 8000.0, 8000.0)),
+    };
+    let (lw, lh) = ctx_size(&items);
+    let (w, h) = (lw * sf, lh * sf);
+    // 菜单的左上角（不含阴影边）对准鼠标
+    let (x, y) = ctx_rect(c.x - CTX_PAD * sf, c.y - CTX_PAD * sf, w, h, mrect);
+    let _ = menu.set_size(tauri::PhysicalSize::new(w.round() as u32, h.round() as u32));
+    let _ = menu.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
+    #[cfg(windows)]
+    let bd = {
+        let (bx, by) = ((x - mrect.0).round() as i32, (y - mrect.1).round() as i32);
+        let (bw, bh) = (w.round() as u32, h.round() as u32);
+        let (px, py) = ((x + w / 2.0) as i32, (y + h / 2.0) as i32);
+        let shot = tauri::async_runtime::spawn_blocking(move || capture::backdrop_at(px, py, bx, by, bw, bh));
+        match tokio::time::timeout(std::time::Duration::from_millis(250), shot).await {
+            Ok(Ok(Ok(url))) => Some(url),
+            _ => None,
+        }
+    };
+    #[cfg(not(windows))]
+    let bd = None;
+    let _ = app.emit_to("ctxmenu", "ctx:show", CtxShow { items, bd });
+    let _ = app.emit_to("main", "ctx", true);
+    menu.show().map_err(|e| e.to_string())?;
+    let _ = menu.set_focus();
+    Ok(())
+}
+
+/// 菜单里点了一项（或点别处、Esc 关掉时 id 为空）
+#[tauri::command]
+fn ctx_act(app: AppHandle, id: String) {
+    if let Some(m) = app.get_webview_window("ctxmenu") {
+        let _ = m.hide();
+    }
+    let _ = app.emit_to("main", "ctx", false);
+    if !id.is_empty() {
+        on_menu(&app, &id);
+    }
 }
 
 #[tauri::command]
@@ -1079,7 +1162,7 @@ pub fn run() {
             capture_screen,
             backdrop,
             read_text_file,
-            show_context_menu,
+            show_context_menu, ctx_act,
             hide_ball,
             js_log,
             transcribe
@@ -1104,5 +1187,26 @@ mod tests {
         let out = prepare_messages(" ", true, msgs);
         assert_eq!(out.len(), 1);
         assert!(out[0]["content"].is_array());
+    }
+}
+
+#[cfg(test)]
+mod ctx_tests {
+    use super::*;
+    #[test]
+    fn ctx_menu_flips_near_edges() {
+        let mon = (0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(ctx_rect(100.0, 100.0, 216.0, 300.0, mon), (100.0, 100.0));
+        assert_eq!(ctx_rect(1800.0, 100.0, 216.0, 300.0, mon), (1584.0, 100.0));
+        assert_eq!(ctx_rect(100.0, 1000.0, 216.0, 300.0, mon), (100.0, 700.0));
+        // 第二块屏幕在左边（负坐标）
+        assert_eq!(ctx_rect(-50.0, 10.0, 216.0, 300.0, (-1920.0, 0.0, 1920.0, 1080.0)), (-266.0, 10.0));
+    }
+    #[test]
+    fn ctx_menu_size_matches_prototype() {
+        let it = |sep| CtxItem { id: "a", label: "a", check: None, sep };
+        // 7 项、1 条分隔线：12 + 38×7 + 11 = 289，加阴影边 16
+        let items: Vec<_> = (0..7).map(|i| it(i == 6)).collect();
+        assert_eq!(ctx_size(&items), (216.0, 305.0));
     }
 }

@@ -1,0 +1,23 @@
+/* 右键菜单窗口：照原型 .x-menu。窗口四周留 8px 给阴影，菜单本身 200 宽。
+   玻璃和划词工具栏、对话卡片同一种：Windows 截下菜单后面的桌面、模糊后垫在墨层下面；拿不到时用卡片同款不透明底。 */
+:root{--ff:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;--type-label:500 14px/1.3 var(--ff);--ease-out:cubic-bezier(.22,1,.36,1)}
+html,body{margin:0;background:transparent;overflow:hidden;font-family:var(--ff);user-select:none;-webkit-user-select:none}
+body{padding:8px}
+.x-glassy{position:relative;isolation:isolate;background:linear-gradient(180deg,rgba(34,30,58,.94),rgba(23,20,42,.95));
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.25),0 4px 8px rgba(0,0,0,.35);color:#fff}
+.x-glassy::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;opacity:0;
+  background:linear-gradient(rgba(14,12,40,.58),rgba(14,12,40,.58)),var(--bd,none) -8px -8px/calc(100% + 16px) calc(100% + 16px) no-repeat}
+.x-glassy.glassy{background:none}
+/* 细白边画在最上层（::before 的底图会盖住元素自己的 inset 阴影） */
+.x-glassy::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);pointer-events:none}
+.x-menu:focus{outline:none}
+.x-glassy.glassy::before{opacity:1}
+.x-menu{width:200px;padding:6px;border-radius:14px;box-sizing:border-box;opacity:0;transform:scale(.96);transform-origin:0 0}
+.x-menu.on{opacity:1;transform:scale(1);transition:opacity .12s var(--ease-out),transform .12s var(--ease-out)}
+.x-menu button{display:flex;align-items:center;gap:8px;width:100%;min-height:38px;padding:0 10px;border:0;border-radius:10px;cursor:pointer;
+  background:none;color:#fff;font:var(--type-label);text-align:left}
+.x-menu button:hover,.x-menu button:focus-visible{background:rgba(255,255,255,.1);outline:none}
+.x-menu .x-ck{margin-left:auto;opacity:0;font-style:normal}
+.x-menu button[aria-checked="true"] .x-ck{opacity:1}
+.x-menu hr{height:1px;margin:5px 8px;border:0;background:rgba(255,255,255,.16)}
+@media (prefers-reduced-motion:reduce){.x-menu,.x-menu.on{transition:none;transform:none}}

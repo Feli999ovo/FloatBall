@@ -311,10 +311,12 @@ async function measureOrb(p) {
 }
 
 // 点别处：没在生成、没固定、输入框是空的 → 收起
+// 右键菜单是另一个小窗口，打开时焦点在它那里：这时别把卡片收起来
+T.event.listen("ctx", (e) => { S.ctx = !!e.payload; });
 appWin.onFocusChanged(({ payload: focused }) => {
-  if (focused || !S.open || S.pinned || S.busy) return;
+  if (focused || !S.open || S.pinned || S.busy || S.ctx) return;
   if (ask.value.trim() || S.attach.length) return;
-  setTimeout(() => { if (!document.hasFocus()) collapse(); }, 150);
+  setTimeout(() => { if (!document.hasFocus() && !S.ctx) collapse(); }, 150);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.open) {
