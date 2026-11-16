@@ -536,7 +536,7 @@ const radio = (g, v) => $(g).querySelectorAll("[role=radio]").forEach((b) => {
   const b = document.createElement("button"); b.type = "button"; b.className = "x-dot"; b.setAttribute("role", "radio");
   b.dataset.v = c; b.setAttribute("aria-label", name); b.title = name; b.style.setProperty("--t", c); $("lkEye").appendChild(b);
 });
-const showGlass = () => { const v = +$("lkGlass").value; $("lkGlassV").textContent = v ? "通透 " + v + "%" : "不透明"; };
+const showGlass = () => { const v = +$("lkGlass").value; $("lkGlassV").textContent = v ? "更通透 +" + v + "%" : "标准"; };
 const sw = (id) => $(id).getAttribute("aria-checked") === "true";
 $("lkIdle").addEventListener("change", savePrefs);
 // 多显示器的示意图（原型原样）：小球点跟着所选的方式挪；没开「滑过去」时闪一下表示跳过去
@@ -815,7 +815,7 @@ async function reload() {
   if (!$("panePerm").hidden) renderPerm();
 }
 // 对话里点了「总是允许」，设置窗口开着时跟着刷新
-T.event.listen("config", () => reload());
+T.event.listen("config", () => reload().then(() => document.body.classList.toggle("fx", cfg.fx === true)));
 T.event.listen("catalog-updated", async () => { await reload(); if (!$("paneModel").hidden && (!detected || detected.src !== "manual")) lookupCaps(0); });
 
 $("setClose").addEventListener("click", () => win.close());
@@ -829,7 +829,7 @@ document.addEventListener("keydown", (e) => {
 (async () => {
   try {
     await reload();
-    document.body.classList.toggle("fx", cfg.platform === "windows" || cfg.platform === "macos");
+    document.body.classList.toggle("fx", cfg.fx === true); // 系统毛玻璃可用（Windows 透明效果没关、或 macOS）
     document.body.classList.toggle("win", cfg.platform === "windows");
     // 卡片的透明度只在 Windows 上起作用（别的系统没有卡片毛玻璃），别处不显示这一项
     $("lkGlassF").hidden = cfg.platform !== "windows";

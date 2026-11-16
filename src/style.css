@@ -33,8 +33,10 @@ body.resizing #app { visibility: hidden; }
 /* 裁成胶囊形：缩回小球的途中，玻璃边两头不能再缩，会比底宽出一截，不裁就露出一个空心的圈 */
 .cap { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 99px; opacity: 0; transition: opacity 0.15s 0.3s; }
 body:not(.collapsed) .cap { opacity: 1; transition: opacity 0.1s; }
+/* 胶囊的材质（照原型 core = 0 的「清透胶囊」）：身后桌面 ×0.9，下半部再最多暗 13%；细边：1px 亮顶边 + 淡底边 + 很淡的深色内边 */
 .cap-body { position: absolute; inset: calc(var(--orb) * 0.05); border-radius: 99px;
-  background: linear-gradient(180deg, rgba(40, 35, 72, 0.9), rgba(23, 20, 42, 0.92)); }
+  background: linear-gradient(180deg, rgba(2, 2, 8, var(--capk, 0.3)) 0%, rgba(2, 2, 8, var(--capk, 0.3)) 50%, rgba(2, 2, 8, calc(var(--capk, 0.3) + 0.11)) 100%); /* --capk：身后越亮越深（app.js 的 measureCap） */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(255, 255, 255, 0.28), inset 0 0 3.2px 2px rgba(20, 10, 60, 0.14); }
 /* 玻璃边：素材里自带输入框那一圈轮廓。两头（左边含眼睛的位置和输入框的左端）不变形，只拉伸中间的直线段。 */
 .cap-glass { position: absolute; inset: 0; border: solid transparent; border-width: 0 calc(var(--orb) * 0.595) 0 calc(var(--orb) * 0.982);
   border-image: url(assets/capsule.png) 0 100 0 165 fill / 0 calc(var(--orb) * 0.595) 0 calc(var(--orb) * 0.982) stretch; }
@@ -48,9 +50,26 @@ body.flip-x .cap { transform: scaleX(-1); }
 .breath { animation: breath 3.6s ease-in-out infinite; transition: transform 0.4s var(--spring); }
 @keyframes float { 50% { transform: translateY(-3px); } }
 @keyframes breath { 50% { transform: scale(1.025, 0.985); } }
-.body { position: absolute; inset: 5%; border-radius: 50%;
-  background: radial-gradient(circle at 50% 38%, rgba(48, 42, 84, 0.72), rgba(23, 20, 42, 0.86) 70%);
-  box-shadow: 0 6px 18px rgba(10, 8, 24, 0.35); transition: background 0.5s, opacity 0.15s 0.22s; }
+/* 玻璃球的材质（照原型）：原型用整张壁纸做逐像素透镜折射，再按 1−0.372·(1−r²) 把中心压暗、向深海军蓝 #0E1030 偏 15%·(1−r)；
+   外加 .x-shade 一层 15% 的暗底和 .x-thick 的深色边带。程序窗口本身是透明的，桌面直接透过来，这里用同样曲线的半透明层叠出同样的明暗，
+   所以球不再是实心的墨色，而是透出身后桌面的玻璃。 */
+.body { position: absolute; inset: 2.5%; border-radius: 50%;
+  background:
+    radial-gradient(closest-side, rgba(8, 8, 24, var(--orbk, 0.12)) 0%, rgba(8, 8, 24, calc(var(--orbk, 0.12) * 0.6)) 80%, transparent 100%), /* 身后亮时加深（measureOrb） */
+    radial-gradient(closest-side, transparent 72%, rgba(20, 10, 60, 0.35) 89%, rgba(20, 10, 60, 0.35) 100%),
+    radial-gradient(closest-side, rgba(4, 5, 15, 0.47) 0%, rgba(4, 4, 12, 0.42) 25%, rgba(3, 4, 11, 0.33) 50%, rgba(2, 2, 7, 0.2) 75%, rgba(2, 2, 6, 0.08) 92%, transparent 100%),
+    radial-gradient(closest-side, rgba(0, 0, 0, 0.15) 65%, transparent);
+  transition: background 0.5s, opacity 0.15s 0.22s; }
+/* 厚水晶的细节（照原型 .x-disp / .x-hl / .x-caus）：色散细线、左上新月高光、右下一点暖白焦散 */
+.body .disp { position: absolute; inset: 2px; border-radius: inherit; padding: 1.5px; opacity: 0.55;
+  background: conic-gradient(from 45deg, transparent 20deg, #00e6ff 55deg, #9a50ff 80deg, #ff3cc8 105deg, #ffb43c 130deg, transparent 165deg 200deg, #00e6ff 235deg, #9a50ff 260deg, #ff3cc8 285deg, #ffb43c 310deg, transparent 345deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.body .hl { position: absolute; inset: 1.5px; border-radius: 50%; border-top: 3px solid rgba(255, 255, 255, 0.95); transform: rotate(-30deg);
+  -webkit-mask: conic-gradient(#000, transparent 40deg 320deg, #000); mask: conic-gradient(#000, transparent 40deg 320deg, #000); }
+.body .hl::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border-top: 10px solid #fff; filter: blur(4px); opacity: 0.35; }
+.body .caus { position: absolute; right: 22%; bottom: 21%; width: calc(var(--orb) * 0.1875); height: calc(var(--orb) * 0.094); border-radius: 50%;
+  background: radial-gradient(closest-side, #fff8ec 60%, rgba(255, 232, 200, 0.85) 85%, rgba(255, 225, 190, 0)); filter: blur(3px); opacity: 0.85; transform: rotate(-30deg); }
 .glass { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; transition: opacity 0.15s 0.22s; }
 /* 展开后小球自己的底和玻璃让位给胶囊的 */
 body:not(.collapsed) #orb .body, body:not(.collapsed) #orb .glass { opacity: 0; transition: opacity 0.15s 0.1s; }
@@ -92,7 +111,7 @@ body:not(.collapsed) #orb .float, body:not(.collapsed) #orb .breath { animation:
 .s-error .face { --c: #ffd9e0; }
 .s-error .eye.l { transform: translate(1px, 5px) rotate(-14deg) scale(0.7); }
 .s-error .eye.r { transform: translate(0, -2px) rotate(14deg) scale(1.1); }
-.s-error .body { background: radial-gradient(circle at 50% 38%, rgba(120, 48, 82, 0.72), rgba(36, 18, 40, 0.88) 70%); }
+.s-error .body { background: radial-gradient(closest-side, transparent 72%, rgba(90, 20, 50, 0.4) 89%, rgba(90, 20, 50, 0.4) 100%), radial-gradient(closest-side, rgba(80, 20, 44, 0.5), rgba(60, 14, 34, 0.3) 60%, transparent 100%); }
 .s-error .breath { animation: wobble 1.6s ease-in-out infinite; }
 @keyframes wobble { 25% { transform: rotate(-5deg); } 75% { transform: rotate(5deg); } }
 /* 喂文件（拖进来） */
@@ -101,7 +120,8 @@ body:not(.collapsed) #orb .float, body:not(.collapsed) #orb .breath { animation:
 /* 睡觉 */
 .s-sleep .eye { height: 3px; top: 34px; opacity: 0.75; }
 .s-sleep .breath { animation: breath 6s ease-in-out infinite; }
-.s-sleep .body { background: radial-gradient(circle at 50% 38%, rgba(40, 36, 70, 0.6), rgba(23, 20, 42, 0.8) 70%); }
+/* 原型睡觉时折射层降到一半：桌面透得更少，球更暗 */
+.s-sleep .body { background: radial-gradient(closest-side, transparent 72%, rgba(20, 10, 60, 0.35) 89%, rgba(20, 10, 60, 0.35) 100%), radial-gradient(closest-side, rgba(10, 10, 32, 0.6), rgba(10, 10, 30, 0.5) 60%, rgba(8, 8, 24, 0.3) 92%, transparent 100%); }
 /* 被戳 */
 #orb.poke .breath { animation: poke 0.45s var(--spring); }
 @keyframes poke { 30% { transform: scale(1.12, 0.86); } 60% { transform: scale(0.95, 1.06); } }
@@ -111,13 +131,13 @@ body:not(.collapsed) #orb .float, body:not(.collapsed) #orb .breath { animation:
 /* ───────── 胶囊 ───────── */
 /* 输入框正好落在素材那一圈轮廓里：轮廓从小球右侧四分之一处开始，所以往小球下面伸进去一截 */
 #capsule { position: relative; z-index: 1; flex: 1; min-width: 0; height: calc(var(--orb) * 0.64); margin: 0 calc(var(--orb) * 0.2) 0 calc(var(--orb) * -0.28); display: flex; align-items: center; gap: 2px; padding: 0 5px 0 calc(var(--orb) * 0.47);
-  border-radius: 99px; background: rgba(255, 255, 255, 0.04);
+  border-radius: 99px; background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
   opacity: 0; transition: opacity 0.25s 0.2s; }
 body.flip-x #capsule { margin: 0 calc(var(--orb) * -0.28) 0 calc(var(--orb) * 0.2); padding: 0 calc(var(--orb) * 0.47) 0 14px; }
 body:not(.collapsed) #capsule { opacity: 1; }
-#ask { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--txt);
+#ask { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--eye); caret-color: var(--eye);
   font: inherit; font-size: 15px; line-height: 20px; max-height: 40px; padding: 0; user-select: text; -webkit-user-select: text; }
-#ask::placeholder { color: var(--mut); }
+#ask::placeholder { color: rgba(255, 241, 220, 0.55); }
 #ask::-webkit-scrollbar { display: none; } /* 不然 Windows 会在输入框里画出白色的上下箭头 */
 #ask { scrollbar-width: none; }
 .ib { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border: 0; border-radius: 12px;
@@ -128,6 +148,10 @@ body:not(.collapsed) #capsule { opacity: 1; }
 .ib.send:hover { background: #fff; color: var(--ink); }
 .ib.send:disabled { opacity: 0.35; cursor: default; }
 .ib[aria-pressed="true"] { color: var(--eye); background: rgba(255, 241, 220, 0.12); }
+/* 胶囊里只留麦克风（照原型 .x-vc-mic）：回车发送，截屏提问在右键菜单、悬停入口和快捷键里 */
+#vcMic { width: 38px; height: 38px; border-radius: 50%; color: rgba(255, 241, 220, 0.72); }
+#vcMic:hover { background: rgba(255, 241, 220, 0.12); color: var(--eye); }
+#vcMic[aria-pressed="true"] { color: #ffe2a8; background: rgba(255, 190, 110, 0.24); box-shadow: 0 0 0 1px rgba(255, 214, 160, 0.6); }
 #attach { display: flex; gap: 4px; flex: none; }
 #attach .chip { display: flex; align-items: center; gap: 4px; max-width: 120px; height: 28px; padding: 0 4px 0 4px;
   border-radius: 9px; background: rgba(255, 255, 255, 0.09); font-size: 12px; }
@@ -144,20 +168,40 @@ body:not(.collapsed) #capsule { opacity: 1; }
 body.flip-y #card { transform: translateY(8px) scale(0.97); }
 /* 毛玻璃：程序在展开前截下卡片后面那块桌面、模糊后传过来（见 app.js 的 grabBackdrop），垫在一层墨色下面。拿不到时就是上面不透明的底。 */
 #card::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0; transition: opacity 0.3s;
-  background: linear-gradient(180deg, rgba(34, 30, 58, var(--tint, 0.75)), rgba(23, 20, 42, calc(var(--tint, 0.75) + 0.08))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
+  background: linear-gradient(rgba(14, 12, 40, var(--tint, 0.58)), rgba(14, 12, 40, var(--tint, 0.58))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
 #card.glassy::before { opacity: 1; }
 body:not(.collapsed) #card { opacity: 1; transform: none; }
 body.collapsed #capsule, body.collapsed #card { pointer-events: none; visibility: hidden; }
 body.collapsed #app { padding: var(--pad); }
-#card header { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
-#card .title { flex: 1; padding-left: 8px; min-width: 0; font-weight: 600; font-size: 13px; color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#card header .ib { width: 32px; height: 32px; border-radius: 10px; }
-#card header .ib svg { width: 16px; height: 16px; }
+/* 卡片头（照原型 .x-ctab / .x-ch / .x-ib） */
+#card .ctab { flex: none; display: flex; justify-content: center; padding: 10px 10px 0; }
+#card header { display: flex; align-items: center; gap: 4px; padding: 4px 10px 8px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+#card .title { flex: 1; min-width: 0; font-weight: 500; font-size: 14px; color: var(--txt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#card header .ib { width: 34px; height: 34px; border-radius: 10px; color: #fff; }
+#card header .ib:hover { background: rgba(255, 255, 255, 0.12); }
+#card header .ib[hidden] { display: none; }
+#card header .ib svg { width: 18px; height: 18px; }
+#card header .dots { fill: currentColor; stroke: none; }
+#card header .pnb .pnh { fill: currentColor; }
+#card header .ib:focus-visible { outline: 2px solid rgba(255, 241, 220, 0.8); outline-offset: 1px; }
+/* 「⋯」下拉：与右键菜单同一种玻璃（照原型 .x-cmdd） */
+.cmdd { position: absolute; left: 0; top: 0; z-index: 9; width: 196px; padding: 6px; border-radius: 14px; transform-origin: 100% 0;
+  background: rgba(14, 12, 40, 0.58); -webkit-backdrop-filter: blur(24px) saturate(165%); backdrop-filter: blur(24px) saturate(165%); /* 原型 .x-glassy：透出身后的卡片 */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 18px 44px rgba(0, 0, 0, 0.42);
+  opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.96); transition: opacity 0.12s, transform 0.12s, visibility 0s linear 0.12s; }
+.cmdd.on { opacity: 1; visibility: visible; pointer-events: auto; transform: none; transition: opacity 0.12s, transform 0.12s; }
+.cmdd button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; padding: 0 10px; border: 0; border-radius: 10px; background: none; color: #fff; font-size: 14px; text-align: left; }
+.cmdd button:hover, .cmdd button:focus-visible { background: rgba(255, 255, 255, 0.1); outline: none; }
+.cmdd button svg { flex: none; width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cmdd button[aria-checked="true"] .pnh { fill: currentColor; }
+.cmdd .cmck { margin-left: auto; font-style: normal; opacity: 0; }
+.cmdd button[aria-checked="true"] .cmck { opacity: 1; }
 .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* 对话 | 任务 页签（取自参考版本） */
-.seg { flex: none; display: inline-flex; padding: 2px; gap: 2px; border-radius: 10px; background: rgba(0, 0, 0, 0.25); }
-.seg button { position: relative; border: 0; background: none; padding: 4px 11px; border-radius: 8px; font-size: 12.5px; color: var(--mut); }
-.seg button[aria-selected="true"] { background: rgba(255, 255, 255, 0.14); color: var(--txt); font-weight: 600; }
+.seg { flex: none; display: inline-flex; padding: 2px; gap: 2px; border-radius: 99px; background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
+.seg button { position: relative; display: inline-flex; align-items: center; gap: 5px; min-height: 28px; border: 0; background: none; padding: 0 14px; border-radius: 99px; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.72); }
+.seg button:hover { color: #fff; }
+.seg button[aria-selected="true"] { background: rgba(255, 255, 255, 0.2); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
 .seg .badge { margin-left: 4px; padding: 0 5px; border-radius: 99px; background: var(--eye); color: var(--ink); font-size: 10.5px; font-weight: 700; }
 #tasks { flex: 1; overflow-y: auto; padding: 8px 8px 12px; display: flex; flex-direction: column; gap: 2px; }
 #tasks .none { margin: auto; padding-bottom: 30px; font-size: 13px; color: var(--mut); }
@@ -371,7 +415,7 @@ body.collapsed #toast { display: none; }
 /* ───────── 外观设置（原型 lkSys / lkDock / lkCalm） ───────── */
 /* 跟随系统深浅色：系统为深色时卡片玻璃更深 */
 html.dark #card { background: linear-gradient(180deg, rgba(14, 12, 32, 0.97), rgba(8, 6, 26, 0.97)); }
-html.dark #card::before { background: linear-gradient(180deg, rgba(14, 12, 32, calc(var(--tint, 0.75) + 0.12)), rgba(8, 6, 26, calc(var(--tint, 0.75) + 0.16))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
+html.dark #card::before { background: linear-gradient(rgba(8, 6, 26, calc(var(--tint, 0.58) + 0.16)), rgba(8, 6, 26, calc(var(--tint, 0.58) + 0.16))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
 /* 减少动态效果：关掉漂浮、呼吸 */
 html.calm .float, html.calm .breath { animation: none !important; }
 /* 贴边：外侧压平（失去 10% 宽度），平边贴住屏幕边，平边上一道暖色亮线；指针移上去时滑出来、恢复圆形 */
@@ -427,7 +471,7 @@ body.vc-eh .eye { transform: translate(var(--lx, 0), var(--ly, 0)) scaleY(0.35);
   isolation: isolate; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(34, 30, 58, 0.94), rgba(23, 20, 42, 0.95)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 9px rgba(8, 6, 20, 0.3); color: #fff;
   pointer-events: none; visibility: hidden; opacity: 0; transform: scale(0.9); transition: opacity 0.16s ease-out, transform 0.16s ease-out, background 0.2s, visibility 0s 0.2s; }
 #vcBub::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0; transition: opacity 0.2s;
-  background: linear-gradient(180deg, rgba(34, 30, 58, var(--tint, 0.75)), rgba(23, 20, 42, calc(var(--tint, 0.75) + 0.08))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
+  background: linear-gradient(rgba(14, 12, 40, var(--tint, 0.58)), rgba(14, 12, 40, var(--tint, 0.58))), var(--bd, none) var(--bd-pos, 0 0) / var(--bd-size, auto) no-repeat; }
 #vcBub.glassy::before { opacity: 1; }
 #vcBub.vc-x::before { opacity: 0; }
 #vcBub.on { visibility: visible; opacity: 1; transform: none; transition: opacity 0.16s ease-out, transform 0.16s ease-out, background 0.2s, visibility 0s; }

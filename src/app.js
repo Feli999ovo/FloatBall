@@ -169,6 +169,7 @@ async function expand(view) {
     S.open = true;
     body.classList.remove("collapsed");
     showView(view || "chat");
+    measureCap(bd, BIG_W);
     if (bd) {
       card.style.setProperty("--bd", 'url("' + bd + '")');
       card.style.setProperty("--bd-size", BIG_W + "px " + h + "px");
@@ -270,6 +271,43 @@ async function settle() {
     setTimeout(() => (morphing = false), 60);
   }
   invoke("save_position", { x, y }).catch(() => {});
+  setTimeout(() => measureOrb({ x, y }), 400); // 等吸边动画停下再量身后
+}
+
+// 自适应玻璃：原型的玻璃把身后的桌面直接透出来（×0.9），放到白色的文档、网页上，奶白的眼睛和占位字就看不见了。
+// 像系统的液态玻璃那样按身后的亮度加深：胶囊用展开前截的那张底图量它那一条，小球收起后量窗口四角（四角在球外，是桌面本身）。
+// 只有 Windows 有底图；拿不到时用一个中等的深度，保证白底上也看得清。
+function lumOf(url, pick) {
+  return new Promise((res) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const c = document.createElement("canvas"); c.width = im.width; c.height = im.height;
+        const g = c.getContext("2d"); g.drawImage(im, 0, 0);
+        let t = 0, n = 0;
+        for (const [x, y, w, h] of pick(im.width, im.height)) {
+          const d = g.getImageData(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))).data;
+          for (let i = 0; i < d.length; i += 4) { t += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255; n++; }
+        }
+        res(n ? t / n : null);
+      } catch (_) { res(null); }
+    };
+    im.onerror = () => res(null);
+    im.src = url;
+  });
+}
+const clamp01 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+async function measureCap(bd, w) {
+  const r = $("#capsule").getBoundingClientRect();
+  const L = bd ? await lumOf(bd, (iw) => { const k = iw / w; return [[r.left * k, r.top * k, r.width * k, r.height * k]]; }) : null;
+  document.documentElement.style.setProperty("--capk", String(L == null ? 0.3 : +clamp01(0.1 + (L - 0.45) * 1.1, 0.1, 0.55).toFixed(3)));
+}
+async function measureOrb(p) {
+  if (S.open || morphing) return;
+  const a = await monitorArea();
+  const bd = await grabBackdrop({ x: p.x, y: p.y, w: SMALL, h: SMALL }, a);
+  const L = bd ? await lumOf(bd, (iw, ih) => { const q = Math.max(1, iw * 0.15); return [[0, 0, q, q], [iw - q, 0, q, q], [0, ih - q, q, q], [iw - q, ih - q, q, q]]; }) : null;
+  document.documentElement.style.setProperty("--orbk", String(L == null ? 0.12 : +clamp01((L - 0.5) * 0.8, 0, 0.35).toFixed(3)));
 }
 
 // 点别处：没在生成、没固定、输入框是空的 → 收起
@@ -299,7 +337,6 @@ function showView(v) {
   if (v === "task") renderTasks();
   if (v === "chat") updateEmpty();
 }
-$("#closeBtn").onclick = collapse;
 $("#tabChat").onclick = () => { showView("chat"); focusAsk(); };
 $("#tabTask").onclick = () => showView("task");
 $(".seg").addEventListener("keydown", (e) => {
@@ -486,12 +523,32 @@ $("#peek").onclick = async () => {
 };
 $("#newBtn").onclick = () => { newChat(); showView("chat"); focusAsk(); };
 $("#histBtn").onclick = () => showView($("#vHist").hidden ? "hist" : "chat");
-$("#setBtn").onclick = openSettings;
-$("#pinBtn").onclick = () => {
-  S.pinned = !S.pinned;
-  $("#pinBtn").setAttribute("aria-pressed", S.pinned);
-  toast(S.pinned ? "已固定，点别处不会收起" : "取消固定");
-};
+// 「⋯」下拉（照原型 chatMoreDd）：钉住。钉住后标题旁出现实心图钉，点它取消
+const moreDd = $("#moreDd"), moreBtn = $("#moreBtn");
+function setPin(v) {
+  S.pinned = v;
+  $("#pinMark").hidden = !v;
+  moreDd.querySelector("[data-cm=pin]").setAttribute("aria-checked", v);
+  toast(v ? "已钉住，点别处不会收起" : "取消钉住");
+}
+function moreOpen(v) {
+  moreDd.classList.toggle("on", v); moreBtn.setAttribute("aria-expanded", v);
+  if (v) {
+    const c = $("#card").getBoundingClientRect(), b = moreBtn.getBoundingClientRect();
+    moreDd.style.left = Math.max(6, b.right - c.left - moreDd.offsetWidth) + "px";
+    moreDd.style.top = b.bottom - c.top + 4 + "px";
+    moreDd.querySelector("button").focus();
+  }
+}
+moreBtn.onclick = (e) => { e.stopPropagation(); moreOpen(!moreDd.classList.contains("on")); };
+moreDd.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cm]"); if (!b) return;
+  moreOpen(false);
+  if (b.dataset.cm === "pin") setPin(!S.pinned);
+});
+moreDd.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); moreOpen(false); moreBtn.focus(); } });
+addEventListener("pointerdown", (e) => { if (moreDd.classList.contains("on") && !e.target.closest("#moreDd,#moreBtn")) moreOpen(false); });
+$("#pinMark").onclick = () => setPin(false);
 
 let toastTimer = 0;
 function toast(t) {
@@ -558,7 +615,7 @@ function applyLook() {
   // 眼睛周围的光晕：默认的暖白用样式表里调好的暖色，换了颜色就跟着眼睛的颜色
   if (warm) { root.removeProperty("--eye-near"); root.removeProperty("--eye-glow"); }
   else { root.setProperty("--eye-near", eye); root.setProperty("--eye-glow", eye + "BF"); }
-  root.setProperty("--tint", String(1 - (c.glass == null ? 25 : c.glass) / 100));
+  root.setProperty("--tint", String(+(0.58 * (1 - Math.min(40, c.glass || 0) / 100)).toFixed(3))); // 原型 .x-glassy 的墨层 0.58，「更通透」按比例减
   // 减少动态效果；跟随系统深浅色（系统为深色时卡片玻璃更深）
   const html = document.documentElement.classList;
   html.toggle("calm", !!c.calm);
@@ -649,7 +706,6 @@ async function send(textArg) {
 function run() {
   const id = "c" + Date.now();
   S.busy = id;
-  $("#sendBtn").disabled = true;
   $("#stopRow").hidden = false;
   mood("think");
   const task = { title: (S.msgs[S.msgs.length - 1] && historyText(lastText(), [])) || "提问", st: "run", t0: Date.now() };
@@ -703,7 +759,7 @@ function run() {
   };
   function finish(st = "done") {
     if (S.busy === id) S.busy = null;
-    $("#sendBtn").disabled = false; $("#stopRow").hidden = true;
+    $("#stopRow").hidden = true;
     if (task.st === "run") { task.st = st; task.t1 = Date.now(); renderTasks(); }
   }
   el._stop = () => {
@@ -849,7 +905,6 @@ async function captureAsk() {
     ask.focus();
   } catch (e) { toastErr(e); }
 }
-$("#shotBtn").onclick = captureAsk;
 
 T.webview.getCurrentWebview().onDragDropEvent(async (e) => {
   const p = e.payload;

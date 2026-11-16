@@ -104,8 +104,33 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
     v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
     v["platform"] = json!(std::env::consts::OS);
+    v["fx"] = json!(system_glass());
     v["catalog_date"] = json!(state.catalog.lock().unwrap().fetched.clone());
     v
+}
+
+/// 系统毛玻璃能不能用：macOS 总能；Windows 要看「设置 → 个性化 → 颜色 → 透明效果」，关掉时亚克力会变成一块灰，
+/// 这时设置窗口不铺亚克力，改用不透明的墨色底（settings.css 的 body:not(.fx)）。Linux 没有。
+fn system_glass() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+        let key: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0".encode_utf16().collect();
+        let name: Vec<u16> = "EnableTransparency\0".encode_utf16().collect();
+        let mut v: u32 = 1;
+        let mut n = std::mem::size_of::<u32>() as u32;
+        // 读不到（老系统没有这个值）就当开着，和系统默认一致
+        let r = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), &mut v as *mut u32 as *mut _, &mut n) };
+        r != 0 || v != 0
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        false
+    }
 }
 
 /// 存盘，并告诉小球窗口设置变了
@@ -447,12 +472,19 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
             .center();
         #[cfg(any(windows, target_os = "macos"))]
         use tauri::{utils::config::WindowEffectsConfig, window::Effect};
+        // 透明效果被关掉的 Windows 上亚克力是一块灰：不铺，窗口照样无边框，底色由页面画成不透明的墨色
         #[cfg(any(windows, target_os = "macos"))]
-        let b = b.decorations(false).transparent(true).shadow(true).effects(WindowEffectsConfig {
-            effects: vec![Effect::Acrylic, Effect::HudWindow],
-            radius: Some(12.0),
-            ..Default::default()
-        });
+        let b = b.decorations(false).transparent(true).shadow(true);
+        #[cfg(any(windows, target_os = "macos"))]
+        let b = if system_glass() {
+            b.effects(WindowEffectsConfig {
+                effects: vec![Effect::Acrylic, Effect::HudWindow],
+                radius: Some(12.0),
+                ..Default::default()
+            })
+        } else {
+            b
+        };
         let built = b.build();
         if let Err(e) = built {
             log::error!("settings window: {e}");
