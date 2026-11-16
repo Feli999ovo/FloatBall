@@ -388,7 +388,7 @@
       .x-agh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
       .x-agh b{font:var(--type-label);font-weight:var(--weight-medium);color:#fff}
       .x-agh span:last-child{font:var(--type-caption);color:rgba(255,255,255,.62)}
-      .x-g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .x-g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.x-g2[hidden]{display:none}
       .x-g2 .x-field{margin:0}
       .x-g2 .x-field>span{margin-bottom:3px;font:var(--type-caption)}
       .x-g2 select.x-in{height:34px;padding-right:24px;text-overflow:ellipsis;background-position:calc(100% - 15px) 15px,calc(100% - 10px) 15px}
@@ -400,7 +400,7 @@
       .x-bud{margin-top:4px;padding-top:12px;border-top:1px solid rgba(255,255,255,.22)}
       .x-bh{margin-bottom:8px}
       .x-bud .x-g2{margin-top:8px}
-      .x-agm{display:flex;align-items:center;gap:6px}
+      .x-agm{display:flex;align-items:center;gap:6px}.x-agm .x-agx{flex:none;white-space:nowrap}
       .x-agx{margin-left:auto;min-height:24px;padding:0 2px;border:0;background:none;cursor:pointer;color:#fff;font:var(--type-caption);text-decoration:underline;text-underline-offset:2px}
       @media (max-width:640px){.x-g2 select.x-in{height:var(--tap);background-position:calc(100% - 15px) 20px,calc(100% - 10px) 20px}.x-mca button,.x-agx{min-height:var(--tap)}}
       @media (max-width:480px){.x-agr .x-g2{grid-template-columns:1fr}}
@@ -611,7 +611,7 @@
       .x-hempty{margin:auto;padding-bottom:30px;font:var(--type-small);color:rgba(255,255,255,.6);text-align:center}
       @media (prefers-reduced-motion:reduce){.x-hist,.x-hist.on{transition:none}}
       /* 卡片关闭后的回复预览气泡 */
-      .x-peekb{position:absolute;left:0;top:0;z-index:7;max-width:240px;padding:8px 12px;border-radius:14px 14px 14px 4px;font:var(--type-small);white-space:nowrap;
+      .x-peekb{position:absolute;left:0;top:0;z-index:7;max-width:240px;overflow:hidden;text-overflow:ellipsis;padding:8px 12px;border-radius:14px 14px 14px 4px;font:var(--type-small);white-space:nowrap;
         opacity:0;pointer-events:none;transform:translateY(6px) scale(.94);transform-origin:50% 100%;transition:opacity .2s var(--ease-out),transform .25s var(--ease-out)}
       .x-peekb.on{opacity:1;transform:none}
       /* 对话 | 任务 分段玻璃药丸 */
@@ -714,7 +714,7 @@
       .x-avw{position:relative;display:inline-flex}
       .x-agd{position:absolute;right:-2px;bottom:-2px;z-index:2;width:7px;height:7px;border-radius:50%;background:rgba(205,205,215,.85);box-shadow:0 0 0 1.5px rgba(40,36,70,.9)}
       .x-ag[data-st=busy] .x-agd{background:#FFB866;box-shadow:0 0 0 1.5px rgba(40,36,70,.9),0 0 6px rgba(255,184,102,.8)}
-      .x-agp{position:absolute;top:calc(100% + 4px);z-index:5;min-width:150px;padding:8px 12px;border-radius:12px;background:rgba(30,28,60,.84);box-shadow:inset 0 0 0 1px rgba(255,255,255,.2),0 8px 24px rgba(0,0,0,.3);
+      .x-agp{position:absolute;top:calc(100% + 4px);z-index:5;min-width:150px;width:max-content;max-width:calc(100% - 8px);box-sizing:border-box;padding:8px 12px;border-radius:12px;background:rgba(30,28,60,.84);box-shadow:inset 0 0 0 1px rgba(255,255,255,.2),0 8px 24px rgba(0,0,0,.3);
         backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);font:var(--type-caption);color:rgba(255,255,255,.75)}
       .x-agp b{display:block;font:var(--type-small);font-weight:var(--weight-medium);color:#fff}
       .x-agp p{margin:3px 0 0}
@@ -767,6 +767,63 @@
       .x-sko .x-tkn{flex:0 1 auto;margin-right:auto}
       @media (max-width:640px){.x-skb,.x-sk .x-in,.x-sk .x-wf .x-sb{min-height:var(--tap)}}
       @media (prefers-reduced-motion:reduce){.x-sk{animation:none}}
+      /* 交给终端：面板照 .x-sk；对话里的入口按钮、系统小行；模拟的系统终端窗口 */
+      .x-hoh{display:flex;align-items:center;gap:6px}
+      .x-hop .x-seg{display:flex;width:max-content;max-width:100%}
+      .x-hop .x-seg button:disabled,.x-hop .x-seg button:disabled:hover{opacity:.4;color:rgba(255,255,255,.72);cursor:default}
+      .x-hop .x-row{gap:6px}
+      .x-hop .x-row .x-in{flex:1;min-width:0;font:var(--type-small);font-family:"Geist Mono",ui-monospace,monospace;color:rgba(255,255,255,.85)}
+      .x-hop .x-row .x-sb{min-height:32px;font:var(--type-small)}
+      .x-hop .x-ar{margin:0 0 6px}
+      .x-hop p.x-skn{margin:0 0 4px}
+      .x-hob{display:flex;align-items:center;gap:6px;width:max-content;min-height:30px;margin-top:8px;padding:0 12px;font:var(--type-caption);font-weight:var(--weight-medium)}
+      .x-hosys{align-self:center;display:flex;align-items:center;gap:6px;margin:0;font:var(--type-caption);color:rgba(255,255,255,.55);text-align:center}
+      .x-hosys svg{flex:none}
+      .x-hosys .x-sb{min-height:26px;padding:0 10px;font:var(--type-caption)}
+      .x-hoset .x-row{align-items:center}
+      .x-hoset .x-row select.x-in{flex:1;min-width:0}
+      .x-hoset .x-row .x-res{flex:none;min-width:48px;font:var(--type-caption);color:var(--fill-system-green)}
+      .x-hoset .x-row .x-res.x-hono{color:rgba(255,255,255,.6)}
+      .x-hoset #hoDefDir{flex:1;min-width:0;font-family:"Geist Mono",ui-monospace,monospace}
+      /* 扫描本机：下拉按钮照 select.x-in，列表照 .x-mlist；右侧小字；扫描中的一行 */
+      .x-pkb{display:flex;align-items:center;gap:8px;padding-right:28px;text-align:left;cursor:pointer;color:#FFF1DC;
+        background-image:linear-gradient(45deg,transparent 50%,rgba(255,255,255,.7) 50%),linear-gradient(135deg,rgba(255,255,255,.7) 50%,transparent 50%);
+        background-position:calc(100% - 15px) 50%,calc(100% - 10px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+      .x-pkb[hidden],.x-hop .x-seg[hidden],.x-hoscan[hidden],.x-hocus[hidden]{display:none}
+      .x-pkb .x-pkv{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .x-pkb small,.x-pkl small{flex:none;margin-left:auto;font:var(--type-caption);color:rgba(255,255,255,.6)}
+      .x-pkb small.x-pkok,.x-pkl small.x-pkok{color:var(--fill-system-green)}
+      .x-pkl{right:auto;z-index:12;margin-top:0;max-height:min(320px,calc(100% - 16px));overflow-y:auto;box-sizing:border-box}
+      .x-pkl button{display:flex;align-items:center;gap:8px;font:var(--type-small)}
+      .x-pkl button span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .x-pkl button[aria-selected=true]{background:rgba(255,255,255,.12)}
+      .x-pkl button:focus-visible{outline:2px solid rgba(255,241,220,.8);outline-offset:-2px}
+      .x-pkl button:disabled,.x-pkl button:disabled:hover{background:none;color:rgba(255,255,255,.5);cursor:default}
+      .x-pkl hr{height:1px;margin:5px 8px;border:0;background:rgba(255,255,255,.16)}
+      .x-hoscan{display:flex;align-items:center;gap:7px;min-height:32px;margin:0;font:var(--type-caption);color:rgba(255,255,255,.62)}
+      .x-hop .x-seg button{flex:1 1 auto;justify-content:center;padding:0 9px;white-space:nowrap}
+      .x-hop .x-pkb{font:var(--type-small)}
+      .x-hoset .x-lh .x-sb{min-height:28px;padding:0 10px;font:var(--type-caption)}
+      .x-hoset .x-lh{flex-wrap:wrap}.x-hoset .x-lh .x-sb{margin-left:auto}.x-hoscr{order:3;display:flex;align-items:center;gap:6px;flex:1 0 100%;min-width:0;font:var(--type-caption);color:rgba(255,255,255,.62);text-align:left}.x-hoscr:not(:empty){margin-top:4px}
+      .x-hocus{margin-top:6px}
+      .x-hocus .x-in{font-family:"Geist Mono",ui-monospace,monospace;font-size:var(--size-small,13px)}
+      .x-hoset .x-pkb{flex:1;min-width:0}
+      @media (max-width:640px){.x-pkl button{min-height:var(--tap)}.x-hoset .x-lh .x-sb{min-height:var(--tap)}}
+      .x-term{position:absolute;left:0;top:0;z-index:9;width:440px;max-width:calc(100vw - 16px);box-sizing:border-box;border-radius:12px;background:#17142A;color:#E9E6F5;overflow:hidden;user-select:text;outline:none;
+        box-shadow:inset 0 0 0 1px rgba(255,255,255,.14),0 18px 44px rgba(0,0,0,.42);animation:x-skin .22s var(--ease-out)}
+      .x-term[hidden]{display:none}
+      .x-termh{display:flex;align-items:center;gap:7px;height:34px;padding:0 4px 0 12px;border-bottom:1px solid rgba(255,255,255,.1);cursor:grab;touch-action:none;user-select:none}
+      .x-term.x-tdrag .x-termh{cursor:grabbing}
+      .x-termh i{flex:none;width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.26)}
+      .x-termh b{flex:1;min-width:0;padding-left:8px;font:var(--type-caption);color:rgba(255,255,255,.62);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .x-termh .x-x{margin-left:0;background:none;color:rgba(255,255,255,.7)}
+      .x-termh .x-x:hover{background:rgba(255,255,255,.1);color:#fff}
+      .x-termb{margin:0;min-height:96px;padding:12px 14px 16px;font:var(--type-small);font-family:"Geist Mono",ui-monospace,monospace;line-height:1.65;white-space:pre-wrap;word-break:break-all}
+      .x-termb .x-termok{display:block;margin-top:4px;color:#9EE6B0}
+      .x-termb .x-termc{display:inline-block;width:7px;height:1.1em;margin-left:2px;vertical-align:-2px;background:rgba(233,230,245,.8);animation:x-tblink 1s steps(1) infinite}
+      @keyframes x-tblink{50%{opacity:0}}
+      @media (max-width:640px){.x-hop .x-row .x-sb,.x-hob,.x-hosys .x-sb{min-height:var(--tap)}.x-termh{height:var(--tap)}.x-termh .x-x{width:var(--tap);height:var(--tap)}}
+      @media (prefers-reduced-motion:reduce){.x-term,.x-termb .x-termc{animation:none}}
       @media (prefers-reduced-motion:reduce){.x-torb,[data-st=run] .x-tkp i::after{animation:none}}
       /* 任务列表：不横向滚动；底部「技能库 ›」入口 */
       .x-tasks{overflow-x:hidden}
@@ -942,6 +999,7 @@
       .x-rt .x-rsk{margin:4px 0 0}
       /* 定时任务详情：点行展开在卡片里 */
       .x-rt{cursor:pointer}
+      .x-rt .x-tkn{min-height:24px;line-height:24px}
       .x-rt .x-tkn:focus-visible{outline:2px solid rgba(255,241,220,.7);outline-offset:2px;border-radius:4px}
       .x-rd{margin:8px 0 2px;padding:10px;border-radius:10px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);cursor:default}
       .x-rd dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 12px;margin:0;font:var(--type-caption)}
@@ -1203,7 +1261,7 @@
       .x-selord li.drag{border-radius:10px;background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
       .x-selord b{flex:1;min-width:0;font:var(--type-small);font-weight:var(--weight-regular);color:#fff}
       .x-selord b small{margin-left:6px;font:var(--type-caption);color:rgba(255,255,255,.55)}
-      .x-selord .x-selh{flex:none;width:28px;height:30px;border:0;border-radius:8px;background:none;color:rgba(255,255,255,.6);font-size:15px;cursor:grab;touch-action:none}
+      .x-selord .x-selh{flex:none;width:28px;height:30px;padding:0;border:0;border-radius:8px;background:none;color:rgba(255,255,255,.6);font-size:15px;letter-spacing:-3px;cursor:grab;touch-action:none}
       .x-selord li.drag .x-selh{cursor:grabbing}
       .x-selord .x-selh:hover{background:rgba(255,255,255,.1);color:#fff}
       .x-selord label{display:flex;align-items:center;gap:5px;font:var(--type-caption);color:rgba(255,255,255,.75);cursor:pointer;white-space:nowrap}
@@ -1247,8 +1305,8 @@
       /* 胶囊里的麦克风：坐在输入框右端；听写时暖光呼吸 */
       #orb .x-input{padding-right:48px}
       .x-vc-mic{position:absolute;right:calc(6.1% + 6px);top:50%;z-index:2;display:grid;place-items:center;width:38px;height:38px;padding:0;border:0;border-radius:50%;
-        background:none;color:rgba(255,241,220,.72);cursor:pointer;opacity:0;pointer-events:none;transform:translateY(-50%);transition:opacity .12s,background .2s,color .2s}
-      #orb.open .x-vc-mic{opacity:1;pointer-events:auto;transition:opacity .3s .62s,background .2s,color .2s}
+        background:none;color:rgba(255,241,220,.72);cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-50%);transition:opacity .12s,visibility 0s .12s,background .2s,color .2s}
+      #orb.open .x-vc-mic{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .3s .62s,visibility 0s,background .2s,color .2s}
       .x-vc-mic:hover{background:rgba(255,241,220,.12);color:#FFF1DC}
       .x-vc-mic:focus-visible{outline:2px solid rgba(255,241,220,.8);outline-offset:1px}
       .x-vc-mic.x-vc-on{color:#FFE2A8;background:rgba(255,190,110,.24);box-shadow:0 0 0 1px rgba(255,214,160,.6),0 0 14px rgba(255,170,90,.6);animation:x-vc-glow 1.2s ease-in-out infinite}
@@ -1744,6 +1802,19 @@
                     <label class="x-field"><span>最多同时子 Agent</span><select class="x-in" id="bPar"><option>1</option><option>3</option><option>5</option></select></label>
                   </div>
                 </div>
+                <div class="x-bud x-hoset" style="margin-top:12px">
+                  <div class="x-lh"><p>交给终端</p><span class="x-hoscr" id="hoScanR" aria-live="polite"></span><button type="button" class="x-sb" id="hoReScan">重新扫描</button></div>
+                  <div class="x-field"><span id="hoDefTL">默认工具</span>
+                    <div class="x-row"><button type="button" class="x-in x-pkb" id="hoDefT" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="hoDefTL hoDefT"></button></div>
+                    <div class="x-hocus" id="hoDefCus" hidden><input class="x-in" id="hoDefCmd" placeholder="例如 my-agent --prompt {说明}" aria-label="自定义命令" aria-describedby="hoDefCmdN" spellcheck="false" autocomplete="off" /><small class="x-skn" id="hoDefCmdN">{说明} 会换成交接说明</small></div></div>
+                  <div class="x-field"><span id="hoDefTmL">默认终端</span>
+                    <div class="x-row"><button type="button" class="x-in x-pkb" id="hoDefTm" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="hoDefTmL hoDefTm"></button></div></div>
+                  <div class="x-field"><span id="hoDefDirL">默认项目文件夹</span>
+                    <div class="x-row"><input class="x-in" id="hoDefDir" readonly value="~/code/FloatBall" aria-labelledby="hoDefDirL" spellcheck="false" /><button type="button" class="x-sb" id="hoDefDirB">更换</button></div></div>
+                  <div class="x-ar" style="margin:0"><span id="hoDefSaveL">同时存交接说明到项目目录<small>.floatball/handoff.md</small></span><button type="button" class="x-sw" id="hoDefSave" role="switch" aria-checked="true" aria-labelledby="hoDefSaveL"></button></div>
+                  <div class="x-ar"><span id="hoDefHintL">对话像在写代码时，提示交给终端</span><button type="button" class="x-sw" id="hoDefHint" role="switch" aria-checked="true" aria-labelledby="hoDefHintL"></button></div>
+                  <p class="x-note" style="margin:10px 0 0">只读取本机已安装的程序和 PATH，不修改环境变量，不替你安装工具，也不替它们批准命令。</p>
+                </div>
               </div>
               <div class="x-pane x-ae" id="paneAgEd" hidden></div>
               <div class="x-pane" id="panePerm" hidden>
@@ -1884,11 +1955,22 @@
                     <button type="button" role="radio" aria-checked="true" data-v="send">直接发送</button><button type="button" role="radio" aria-checked="false" data-v="box">先放进输入框</button>
                   </div>
                 </div>
+                <div class="x-field"><span id="vcEngL">识别方式</span>
+                  <div class="x-seg x-lkseg" id="vcEng" role="radiogroup" aria-labelledby="vcEngL">
+                    <button type="button" role="radio" aria-checked="true" data-v="system">系统自带（免费）</button><button type="button" role="radio" aria-checked="false" data-v="provider">模型服务商</button>
+                  </div>
+                </div>
+                <p class="x-note" id="vcSysNote" style="margin:-2px 0 12px"></p>
+                <div class="x-g2 x-vcsvc" hidden>
+                  <label class="x-field"><span>识别用哪个服务商</span><select class="x-in" id="vcModel"><option>默认模型（DeepSeek-V3）</option><option>Qwen-VL-Max</option><option>llama3.1:8b</option></select></label>
+                  <label class="x-field"><span>识别模型</span><input class="x-in" id="vcStt" value="whisper-1" spellcheck="false" autocomplete="off" /></label>
+                </div>
+                <p class="x-note" id="vcSvcNote" style="margin:-2px 0 12px" hidden>用这个模型的接口地址和 Key，调用它的语音识别接口。DeepSeek 等没有语音识别的服务商用不了。</p>
                 <div class="x-bud">
                   <div class="x-ar" style="margin:0"><span id="vcTtsL">朗读回复<small>每条新回复读出来（演示）</small></span><button type="button" class="x-sw" id="vcTts" role="switch" aria-checked="false" aria-labelledby="vcTtsL"></button></div>
                   <div class="x-ar x-vc-wake" style="margin-top:12px"><span id="vcWakeL">唤醒词「嘿，小球」<small>开启后麦克风会一直在听，更耗电。只在本机识别唤醒词。</small></span><button type="button" class="x-sb x-vc-try" id="vcWakeTry" hidden>模拟说「嘿，小球」</button><button type="button" class="x-sw" id="vcWake" role="switch" aria-checked="false" aria-labelledby="vcWakeL"></button></div>
                 </div>
-                <p class="x-note" style="margin:14px 0 0">原型里是演示，正式版用系统语音识别或你在「模型」里配置的语音模型。</p>
+                <p class="x-note" style="margin:14px 0 0">原型里是演示，不会真的录音。</p>
               </div>
             </div>
           </div>
@@ -1904,8 +1986,8 @@
             <button type="button" class="x-ib x-pnb" id="chatPin" aria-label="取消钉住" title="取消钉住" aria-pressed="true" hidden><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="x-pnh" d="M9 3.5h6l-.9 5.6 3.4 3.4v1.6h-11v-1.6l3.4-3.4z"/><path d="M12 14.1v6.4"/></svg></button>
             <button class="x-ib x-dim" id="chatNew" aria-label="新对话" aria-disabled="true">＋</button>
             <button class="x-ib" id="chatHist" aria-label="历史记录"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></button>
-            <!-- 「⋯」：钉住、临时对话 -->
-            <button type="button" class="x-ib x-cmb" id="chatMore" aria-label="更多：钉住、临时对话" title="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="chatMoreDd"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></button>
+            <!-- 「⋯」：钉住、临时对话、交给终端 -->
+            <button type="button" class="x-ib x-cmb" id="chatMore" aria-label="更多：钉住、临时对话、交给终端" title="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="chatMoreDd"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></button>
           </div>
           <p class="x-tmpb" id="chatTmpB"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/><rect x="8.6" y="9" width="2" height="5" rx="1" fill="currentColor" stroke="none"/><rect x="13.4" y="9" width="2" height="5" rx="1" fill="currentColor" stroke="none"/></svg>临时对话 · 关闭后不保存，也不会用来记忆</p>
           <div class="x-msgs" id="msgs" aria-live="polite"><p class="x-empty">还没有消息</p></div>
@@ -1937,11 +2019,30 @@
             </div>
             <div class="x-wf"><button type="button" class="x-sb" id="skCancel">取消</button><button type="button" class="x-sb x-pri" id="skSave">保存</button></div>
           </div>
+          <!-- 交给终端：结构照「存为技能」面板 -->
+          <div class="x-sk x-hop x-glassy" id="ho" role="dialog" aria-label="交给终端" hidden>
+            <p class="x-skh x-hoh"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M7.5 9.5l2.5 2.5-2.5 2.5"/><path d="M12.5 14.5h4"/></svg>交给终端</p>
+            <div class="x-skbd">
+            <div class="x-field"><span id="hoToL">交给</span>
+              <p class="x-hoscan" hidden><span class="x-spin" aria-hidden="true"></span>正在找本机的工具</p>
+              <div class="x-seg x-lkseg" id="hoTo" role="radiogroup" aria-labelledby="hoToL"></div>
+              <button type="button" class="x-in x-pkb" id="hoToP" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="hoToL hoToP" hidden></button></div>
+            <div class="x-field"><span id="hoTmL">用哪个终端</span>
+              <p class="x-hoscan" hidden><span class="x-spin" aria-hidden="true"></span>正在找本机的工具</p>
+              <button type="button" class="x-in x-pkb" id="hoTm" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="hoTmL hoTm"></button></div>
+            <div class="x-field"><span id="hoDirL">项目文件夹</span><div class="x-row"><input class="x-in" id="hoDir" readonly value="~/code/FloatBall" aria-labelledby="hoDirL" spellcheck="false" /><button type="button" class="x-sb" id="hoDirB">更换</button></div></div>
+            <label class="x-field"><span>交接说明</span><textarea class="x-in x-lbmd" id="hoMd" spellcheck="false" rows="7"></textarea><small class="x-skn">从这次对话整理出来，可以先改再交</small></label>
+            <div class="x-ar"><span id="hoSaveL">同时存到项目里的 .floatball/handoff.md</span><button type="button" class="x-sw" id="hoSave" role="switch" aria-checked="true" aria-labelledby="hoSaveL"></button></div>
+            <p class="x-skn">终端打开后由它接手。它要执行命令时会先问你，悬浮球不替它批准。</p>
+            </div>
+            <div class="x-wf"><button type="button" class="x-sb" id="hoCancel">取消</button><button type="button" class="x-sb x-pri" id="hoGo">打开终端</button></div>
+          </div>
         </section>
         <!-- 对话卡片「⋯」下拉：钉住 · 临时对话（隐藏时 visibility:hidden + pointer-events:none） -->
         <div class="x-cmdd x-glassy" id="chatMoreDd" role="menu" aria-label="对话卡片更多操作">
           <button type="button" role="menuitemcheckbox" aria-checked="false" data-cm="pin" title="钉住"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="x-pnh" d="M9 3.5h6l-.9 5.6 3.4 3.4v1.6h-11v-1.6l3.4-3.4z"/><path d="M12 14.1v6.4"/></svg><span>钉住</span><i class="x-cmck" aria-hidden="true">✓</i></button>
           <button type="button" role="menuitemcheckbox" aria-checked="false" data-cm="tmp" title="临时对话：不保存，也不用来记忆"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/><rect x="8.6" y="9" width="2" height="5" rx="1" fill="currentColor" stroke="none"/><rect x="13.4" y="9" width="2" height="5" rx="1" fill="currentColor" stroke="none"/></svg><span>临时对话</span><i class="x-cmck" aria-hidden="true">✓</i></button>
+          <button type="button" role="menuitem" data-cm="ho" title="交给终端：把要写代码的活交给终端里的编程工具"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M7.5 9.5l2.5 2.5-2.5 2.5"/><path d="M12.5 14.5h4"/></svg><span>交给终端</span></button>
         </div>
         <!-- 技能库窗口 -->
         <div class="x-scrim" id="lbScrim">
@@ -2045,6 +2146,8 @@
           sgl = document.getElementById("sgl"), simg = document.getElementById("simg");
         const shade = document.getElementById("shade"), oimg = document.getElementById("oimg"), cimg = document.getElementById("cimg");
         const srf = document.getElementById("srf"), refr = document.getElementById("refr"), stage = document.getElementById("stage");
+        // 「交给终端」的下拉列表开着时，Esc 先只关列表（最先注册，排在设置窗口 / 面板的 Esc 之前）
+        addEventListener("keydown", (e) => { if (e.key === "Escape" && window.xPkEsc && window.xPkEsc()) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
         const csrf = document.getElementById("csrf"), crefr = document.getElementById("crefr");
 
         // ── 壁纸：唯一来源是 #wall（wallpaper.jpg）。同一张图既是舞台背景（cover、居中），也按相同 cover 变换画进透镜的离屏画布 ──
@@ -2545,7 +2648,10 @@
         addEventListener("resize", () => {
           W = innerWidth; H = innerHeight;
           if (tucked) x = dockX(); else x = clamp(x, 10, W - S - 10);
-          y = clamp(y, 40, Math.max(40, HB() - S - 10)); place();
+          y = clamp(y, 40, Math.max(40, HB() - S - 10));
+          // 视口变化时直接落位，不从旧位置滑过来（滑动途中球会半截露在屏幕外）
+          orb.style.transition = shade.style.transition = "none"; place(); void orb.offsetWidth;
+          orb.style.transition = shade.style.transition = "";
           drawWall();
         });
 
@@ -2852,7 +2958,10 @@
           $("fTitle").textContent = m ? "编辑模型" : "添加模型";
           if (m) { fProv.value = m.provider; syncProv(); fBase.value = m.base; fKey.value = m.key; fModel.value = m.model; detected = { tools: m.tools, vision: m.vision, ctx: m.ctx, local: m.local }; }
           else { syncProv(); fKey.value = ""; fModel.value = ""; }
-          showCaps(); $("paneLib").hidden = true; $("paneModel").hidden = false; $("paneModel").scrollTop = 0;
+          // 只显示编辑页：其它页一律收起，侧栏回到「模型」
+          document.querySelectorAll(".x-setw .x-pane").forEach((p) => { p.hidden = p.id !== "paneModel"; });
+          document.querySelectorAll(".x-tabs button").forEach((o) => o.classList.toggle("on", o.dataset.tab === "model"));
+          showCaps(); $("paneModel").scrollTop = 0;
           setTimeout(() => setOpen && fProv.focus({ preventScroll: true }), 60);
         }
         function fillSel(sel, first, val) {
@@ -3147,6 +3256,8 @@
           msgsEl.appendChild(p); msgsEl.scrollTop = msgsEl.scrollHeight;
         }
         const BG_RE = /后台|帮我整理|批量|每天/;
+        // 交给终端：消息像在写代码时，回复末尾附「交给终端」
+        const HO_RE = /改代码|写代码|重构|脚本|bug|报错/i, HO_TXT = "这件事要改不少代码，更适合交给终端里的编程工具来做。我可以把目标和上下文整理好一起交过去。";
         function pickTools(text) {
           const tools = [], fm = text.match(/[\w\u4e00-\u9fa5-]+\.pdf/i);
           const q = text.replace(/帮我|请|一下|搜索|查询|查|[，。？！?!,.、]/g, " ").replace(/\s+/g, " ").trim().slice(0, 14) || text.slice(0, 14);
@@ -3279,7 +3390,7 @@
           const sk = vf ? null : forced && forced.on && skills.includes(forced) ? forced : skillFor(text);
           if (sk) { sk.uses++; sk.last = "刚刚"; skChip(sk); msgs.push({ role: "skill", text: "✦ 用了技能 · " + sk.name, sk: sk.id }); }
           const rs = !vf && RT_RE.test(text) ? { name: rtName(text), sched: parseSched(text) } : null;
-          const at = vf ? null : apTool(text, rs), tok = ++convTok, team = !vf && !at && !rs && !(forced && sk === forced) && TEAM_RE.test(text), bg = !vf && !at && !rs && !team && BG_RE.test(text), tools = vf || at ? (at ? [at] : []) : bg || rs || team ? [] : pickTools(text);
+          const at = vf ? null : apTool(text, rs), tok = ++convTok, team = !vf && !at && !rs && !(forced && sk === forced) && TEAM_RE.test(text), bg = !vf && !at && !rs && !team && BG_RE.test(text), code = !vf && !at && !rs && !team && !bg && !sk && (window.hoPrefs ? window.hoPrefs.hint : true) && HO_RE.test(text), tools = vf || at ? (at ? [at] : []) : bg || rs || team || code ? [] : pickTools(text);
           let rt = null;
           clearInterval(streamT); talking = true;
           const reply = () => {
@@ -3289,13 +3400,13 @@
             if (team) return runTeam(text, tok);
             if (bg) addTask(taskName(text), /失败|fail/i.test(text));
             if (rs && !no) rt = addRoutine(rs.name, rs.sched, true);
-            const full = vf ? vf : rt ? `好的，已设为定时任务：${rt.sched} ${rt.name}。` : at ? (no ? (at.ap.reason ? `明白，改为：${at.ap.reason}。` : "好的，已取消。") : `已完成：${at.ap.desc}`) : bg ? "好的，已放到后台处理，完成后告诉你。" : sk ? skReply(sk) : tools.length ? `我用${tools.map((t) => t.name).join("和")}整理了要点（演示数据），接入你设置的模型后这里会显示真实回答。` : REPLIES[replyN++ % REPLIES.length];
+            const full = vf ? vf : rt ? `好的，已设为定时任务：${rt.sched} ${rt.name}。` : at ? (no ? (at.ap.reason ? `明白，改为：${at.ap.reason}。` : "好的，已取消。") : `已完成：${at.ap.desc}`) : bg ? "好的，已放到后台处理，完成后告诉你。" : code ? HO_TXT : sk ? skReply(sk) : tools.length ? `我用${tools.map((t) => t.name).join("和")}整理了要点（演示数据），接入你设置的模型后这里会显示真实回答。` : REPLIES[replyN++ % REPLIES.length];
             const [m, p] = addMsg("assistant", "");
             m.full = full;
             let i = 0;
             streamT = setInterval(() => {
               m.text = full.slice(0, ++i); p.textContent = m.text; msgsEl.scrollTop = msgsEl.scrollHeight;
-              if (i >= full.length) { clearInterval(streamT); talking = false; setState(no ? "idle" : "done"); metaLine(full, tools.length); if (rt) rcard(rt); if (tools.length >= 2 && !at) skBtn(text, tools.map((t) => t.name)); }
+              if (i >= full.length) { clearInterval(streamT); talking = false; setState(no ? "idle" : "done"); if (code) hoBtn(p); metaLine(full, tools.length); if (rt) rcard(rt); if (tools.length >= 2 && !at) skBtn(text, tools.map((t) => t.name)); }
             }, 33);
           };
           const step = (i) => {
@@ -3402,7 +3513,7 @@
         const tasks = window.agentTasks, MAXRUN = 3;
         window.agentSkills = window.agentSkills || [];
         const skills = window.agentSkills;
-        const LABEL = { run: "进行中", ask: "等待确认", wait: "等待中", pause: "已暂停", done: "已完成", fail: "失败" };
+        const LABEL = { run: "进行中", ask: "等待确认", wait: "等待中", pause: "已暂停", done: "已完成", fail: "失败", term: "在终端里进行" };
         let taskId = 0, taskEyes = false, taskTab = false, orbN = -1;
         const fmtT = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
         function taskName(text) {
@@ -3615,7 +3726,8 @@
           pm.lastChild.setAttribute("aria-label", `更换${a.name}的模型`);
           pm.lastChild.addEventListener("click", () => { agOpen = null; pop(); openSettings("agents", a.id); });
           p3.textContent = a.status === "busy" ? `忙碌 · ${a.task}` : "空闲";
-          agPop.style.left = a._el.offsetLeft + "px";
+          // 靠右的 Agent 弹卡往左让，不被卡片右边挤窄
+          agPop.style.left = Math.max(4, Math.min(a._el.offsetLeft, agPop.parentElement.clientWidth - agPop.offsetWidth - 4)) + "px";
         }
         function agRow() {
           const w = document.createElement("div"); w.className = "x-ags";
@@ -3694,7 +3806,7 @@
           c.innerHTML = '<span aria-hidden="true">' + icoSvg("alarm") + '</span><div><b></b><small></small></div>';
           c.querySelector("b").textContent = r.name; c.querySelector("small").textContent = "定时任务 · " + r.sched; rtSkill(r, c.querySelector("div"));
           c.appendChild(sw(r)); msgsEl.appendChild(c); msgsEl.scrollTop = msgsEl.scrollHeight;
-          msgs.push({ role: "routine", text: `⏰ ${r.sched} ${r.name}`, rt: r }); syncChat();
+          msgs.push({ role: "routine", text: `${r.sched} ${r.name}`, rt: r }); syncChat();
         }
         // 定时任务详情：指令、何时运行、技能、负责 Agent、下次运行、运行记录（演示数据）
         const RT_TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"; } catch (_) { return "Asia/Shanghai"; } })();
@@ -3719,9 +3831,9 @@
           return (m ? s : /每小时/.test(s) ? "每小时整点" : s) + " · " + RT_TZ;
         }
         function rtTest(r, note) {
-          const t = addTask("⏰ " + r.name); t.rt = r; t.rtNote = note;
+          const t = addTask("定时 · " + r.name); t.rt = r; t.rtNote = note;
           // 卡片关着时，球边冒一个气泡说明在干什么（点开看任务列表）；卡片开着时由调用处给提示条
-          if (!chatOn) showPeek(`⏰ 定时任务开始：${r.name}`, false, () => { openChat(); closeHist(); setTab(true); });
+          if (!chatOn) showPeek(`定时任务开始：${r.name}`, false, () => { openChat(); closeHist(); setTab(true); });
           return t;
         }
         function rtDetail(r) {
@@ -3806,6 +3918,7 @@
           if (!t._el) return;
           if (t._bar) t._bar.style.width = t.progress * 100 + "%";
           const k = t.team ? t.tok || 0 : (t.tk || 0) * t.progress;
+          if (t.status === "term") { t._time.textContent = ""; return; }
           t._time.textContent = (t.status === "wait" ? "排队" : (t.status === "done" ? "用时 " : "") + fmtT(t.elapsed)) + (k >= 1 ? " · " + fmtK(k) : "");
         }
         function taskRow(t) {
@@ -3849,7 +3962,7 @@
           // 重绘时保住定时任务编辑框的焦点和光标
           const fa = document.activeElement, fid = fa && tasksEl.contains(fa) && fa.id, fsel = fid && fa.tagName === "INPUT" ? [fa.selectionStart, fa.selectionEnd] : null, fst = tasksEl.scrollTop;
           tasksEl.innerHTML = ""; tasksEl.appendChild(agRow());
-          const act = tasks.filter(isAct), fin = tasks.filter((t) => !isAct(t));
+          const act = tasks.filter((t) => isAct(t) || t.status === "term"), fin = tasks.filter((t) => !isAct(t) && t.status !== "term");
           if (!tasks.length && !routines.length) tasksEl.insertAdjacentHTML("beforeend", '<p class="x-hempty">暂无后台任务</p>');
           else [["进行中", act], ["定时任务", routines], ["已完成", fin]].forEach(([g, list]) => {
             if (!list.length) return;
@@ -3940,7 +4053,7 @@
           if (open && !chatOn) collapse();
           const on = routines.filter((r) => r.on), pool = on.length ? on : routines, r = pool[cronN++ % Math.max(1, pool.length)];
           if (!r) return toast("还没有定时任务");
-          rtTest(r, "定时触发"); if (chatOn) toast(`⏰ 定时任务开始：${r.name}`);
+          rtTest(r, "定时触发"); if (chatOn) toast(`定时任务开始：${r.name}`);
         });
         menu.addEventListener("click", (e) => { if (e.target.closest("[data-act=routines]")) { closeMenu(); openChat(); closeHist(); setTab(true); } });
         $("apprBtn").addEventListener("click", () => { if (open && !chatOn) collapse(); converse("删除重复文件"); });
@@ -4848,7 +4961,7 @@
           c.append(i, t); return c;
         }
         function afterShot(r, win, act, title) {
-          const label = title ? "🪟 " + title : "🖼 截图 " + sizeTxt(r), txt = act === "ocr" ? "提取文字" : act === "tr" ? "翻译成英文" : "";
+          const label = title ? "窗口 · " + title : "截图 " + sizeTxt(r), txt = act === "ocr" ? "提取文字" : act === "tr" ? "翻译成英文" : "";
           openChat(); setTab(false); closeHist();
           const [um, p] = addMsg("user", label + (txt ? " · " + txt : ""));
           um.title = title || "截图 " + sizeTxt(r); syncChat();
@@ -5168,7 +5281,7 @@
                 : (alts.length > 1 ? "换了两种说法" : "换了个说法") + "，点「替换原文」直接改进备忘录：";
               break;
             }
-            case "read": full = "🔊 正在朗读…"; break;
+            case "read": full = "正在朗读"; break;
             case "search": full = `搜索「${short}」（演示数据）：\n· 百科 · 相关概念的定义和背景\n· 资讯 · 最近 3 篇相关报道\n· 内部文档 · 2 条提到这段话的笔记`; break;
             case "expand": full = one ? one.exp : many ? ks.map((k) => k.exp).join("\n\n") : flat + "。具体来说，这一点背后还有不少细节，接入模型后会按上下文展开成完整的一段。"; break;
             case "shrink": full = one ? one.shr : many ? ks.map((k) => k.shr).join(" · ") : cut(flat, 10); break;
@@ -5194,7 +5307,7 @@
               });
               if (act === "read") {
                 const b = mk("button", "x-sb x-sel-stop", "■ 停止朗读"); b.type = "button";
-                b.addEventListener("click", () => { b.disabled = true; b.textContent = "已停止"; const last = msgs.filter((m) => m.role === "assistant").pop(); if (last) last.full = "🔊 已停止朗读"; });
+                b.addEventListener("click", () => { b.disabled = true; b.textContent = "已停止"; const last = msgs.filter((m) => m.role === "assistant").pop(); if (last) last.full = "已停止朗读"; });
                 msgsEl.appendChild(b);
               }
               metaLine(full, 0); msgsEl.scrollTop = msgsEl.scrollHeight;
@@ -5635,6 +5748,22 @@
           const bs = [...vcAfter.querySelectorAll("button")], i = bs.indexOf(document.activeElement), d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
           if (!d || i < 0) return; e.preventDefault(); const n = bs[(i + d + bs.length) % bs.length]; n.focus(); n.click();
         });
+        // 识别方式：系统自带（默认）/ 模型服务商，与真程序一致
+        const vcEng = $("vcEng");
+        function vcEngSet(v) {
+          vcEng.querySelectorAll("button").forEach((o) => { const on = o.dataset.v === v; o.setAttribute("aria-checked", on); o.tabIndex = on ? 0 : -1; });
+          const prov = v === "provider";
+          $("vcSysNote").textContent = prov ? "录音会发给下面选的模型服务商识别。"
+            : IS_WIN ? "用 Windows 自带的听写，不用配模型。要先打开 Windows 设置 → 隐私和安全性 → 语音里的「联机语音识别」，录音可能经微软云端处理。"
+            : "用 macOS 自带的本机识别，不用配模型，录音不离开这台 Mac。第一次用会弹系统授权。";
+          document.querySelector(".x-vcsvc").hidden = !prov; $("vcSvcNote").hidden = !prov;
+        }
+        vcEng.addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (b) vcEngSet(b.dataset.v); });
+        vcEng.addEventListener("keydown", (e) => {
+          const bs = [...vcEng.querySelectorAll("button")], i = bs.indexOf(document.activeElement), d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+          if (!d || i < 0) return; e.preventDefault(); const n = bs[(i + d + bs.length) % bs.length]; n.focus(); n.click();
+        });
+        vcEngSet("system");
         $("vcTts").addEventListener("click", (e) => (vcCfg.tts = swFlip(e.currentTarget)));
         $("vcWake").addEventListener("click", (e) => { vcCfg.wake = swFlip(e.currentTarget); $("vcWakeTry").hidden = !vcCfg.wake; });
         $("vcWakeTry").addEventListener("click", () => { closeSettings(); setTimeout(() => vcStart("auto", 3000), 220); });
@@ -6477,10 +6606,302 @@
         cmDd.addEventListener("click", (e) => {
           const b = e.target.closest("[data-cm]"); if (!b) return;
           cmClose();
-          if (b.dataset.cm === "pin") setPin(!chatPin); else askTmp(!chatTmp);
+          if (b.dataset.cm === "pin") setPin(!chatPin); else if (b.dataset.cm === "ho") openHo(chatMore); else askTmp(!chatTmp);
         });
         // 卡片收起：下拉和确认小卡一起收
         new MutationObserver(() => { if (!chat.classList.contains("on")) { cmClose(); tmpQ.hidden = true; } }).observe(chat, { attributes: true, attributeFilter: ["class"] });
+
+        // ── 交给终端（自成一块）──
+        // 把要重度写代码的活交给终端里的编程 Agent（扫描本机找到的那些，或自定义命令）。
+        // 入口：「⋯」菜单；对话像在写代码时回复末尾的小按钮。面板 #ho 照「存为技能」面板。
+        // 打开终端：模拟的系统终端窗口（可拖、可关）+ 球「完成」+ 对话里一条系统小行 + 任务页一张「在终端里进行」的卡。
+        // 偏好 window.hoPrefs：默认工具、自定义命令、默认终端、默认文件夹、是否存 .floatball/handoff.md、是否提示。
+        const hoEl = $("ho"), hoTo = $("hoTo"), hoDir = $("hoDir"), hoMd = $("hoMd"), hoSave = $("hoSave");
+        const hoToP = $("hoToP"), hoTmB = $("hoTm"), hoScans = [...hoEl.querySelectorAll(".x-hoscan")];
+        let hoTBs = [];
+        // 演示用的扫描结果：面板和设置共用这一张表
+        const HO_ARG = '"$(cat .floatball/handoff.md)"';
+        const HO_AG = [
+          { k: "claude", name: "Claude Code", cmd: "claude", ok: true },
+          { k: "codex", name: "Codex", cmd: "codex", ok: true },
+          { k: "gemini", name: "Gemini CLI", cmd: "gemini", ok: false },
+          { k: "qwen", name: "Qwen Code", cmd: "qwen", ok: true },
+          { k: "cursor", name: "Cursor CLI", cmd: "cursor-agent", ok: false },
+          { k: "copilot", name: "GitHub Copilot CLI", cmd: "copilot", ok: false },
+          { k: "opencode", name: "OpenCode", cmd: "opencode", run: "opencode run", ok: true },
+          { k: "aider", name: "Aider", cmd: "aider", ok: false },
+          { k: "amp", name: "Amp", cmd: "amp", ok: false },
+          { k: "goose", name: "Goose", cmd: "goose", ok: false },
+          { k: "kimi", name: "Kimi CLI", cmd: "kimi", ok: false },
+        ];
+        const HO_WIN = /win/i.test(navigator.platform || "") || /windows/i.test(navigator.userAgent || "");
+        const HO_TMS = HO_WIN ? [
+          { k: "wt", name: "Windows Terminal", ok: true, def: true },
+          { k: "pwsh", name: "PowerShell 7", ok: true },
+          { k: "winps", name: "Windows PowerShell", ok: true },
+          { k: "cmd", name: "命令提示符", ok: true },
+          { k: "warp", name: "Warp", ok: false },
+          { k: "wezterm", name: "WezTerm", ok: false },
+          { k: "alacritty", name: "Alacritty", ok: false },
+        ] : [
+          { k: "terminal", name: "系统终端", ok: true, def: true },
+          { k: "iterm", name: "iTerm2", ok: true },
+          { k: "ghostty", name: "Ghostty", ok: true },
+          { k: "warp", name: "Warp", ok: false },
+          { k: "wezterm", name: "WezTerm", ok: false },
+          { k: "kitty", name: "kitty", ok: false },
+          { k: "alacritty", name: "Alacritty", ok: false },
+        ];
+        const HO_T = Object.fromEntries(HO_AG.map((a) => [a.k, a]));
+        const HO_TM = Object.fromEntries(HO_TMS.map((t) => [t.k, t]));
+        const HO_TMDEF = HO_TMS.find((t) => t.def).k;
+        const HO_DIRS = ["~/code/FloatBall", "~/code/notes-app", "~/code/team-dashboard"];
+        const HO_ICO = (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M7.5 9.5l2.5 2.5-2.5 2.5"/><path d="M12.5 14.5h4"/></svg>`;
+        window.hoPrefs = window.hoPrefs || { tool: "claude", dir: HO_DIRS[0], save: true, hint: true };
+        const hoP = window.hoPrefs;
+        if (!hoP.term || !HO_TM[hoP.term] || !HO_TM[hoP.term].ok) hoP.term = HO_TMDEF;
+        if (typeof hoP.cmd !== "string") hoP.cmd = "";
+        let hoFor = null, hoTool = "claude", hoTmK = HO_TMDEF, hoTerm = null, hoTypeT = 0, hoRun = null, hoBack = null, hoScanT = 0;
+        const nextDir = (d) => HO_DIRS[(HO_DIRS.indexOf(d) + 1) % HO_DIRS.length];
+        // 自定义命令：第一个词当名字，{说明} 换成交接说明（没写 {说明} 就接在末尾）
+        const hoCus = () => { const c = hoP.cmd.trim(); return c ? { k: "custom", name: c.split(/\s+/)[0], cmd: c, ok: true, custom: true } : null; };
+        const hoAgent = (k) => (k === "custom" ? hoCus() : HO_T[k]) || HO_T.claude;
+        const hoLine = (a) => (a.custom ? (a.cmd.includes("{说明}") ? a.cmd.split("{说明}").join(HO_ARG) : `${a.cmd} ${HO_ARG}`) : `${a.run || a.cmd} ${HO_ARG}`);
+        const hoFound = () => { const l = HO_AG.filter((a) => a.ok); if (hoP.tool === "custom" && hoCus()) l.push({ ...hoCus(), name: "自定义命令" }); return l; };
+
+        // 下拉：按钮照 select.x-in，列表照 .x-mlist（挂在舞台上，不被面板裁掉）；可置灰、右侧小字
+        const pkL = document.createElement("div"); pkL.className = "x-mlist x-glassy x-pkl"; pkL.id = "hoPkL"; pkL.setAttribute("role", "listbox"); pkL.hidden = true;
+        stage.appendChild(pkL); swallowDown(pkL);
+        let pkCur = null;
+        const pkSide = (el, it) => { if (!it.side) return; const s = document.createElement("small"); s.textContent = it.side; if (it.cls) s.className = it.cls; el.appendChild(s); };
+        function pkFill(btn, it) {
+          btn.textContent = ""; const v = document.createElement("span"); v.className = "x-pkv"; v.textContent = it.name; btn.appendChild(v); pkSide(btn, it);
+        }
+        function pkClose(back) {
+          if (!pkCur) return false;
+          const c = pkCur; pkCur = null; pkL.hidden = true; c.btn.setAttribute("aria-expanded", "false");
+          if (back && c.btn.isConnected) c.btn.focus({ preventScroll: true });
+          return true;
+        }
+        window.xPkEsc = () => pkClose(true);
+        function pkOpen(btn, items, val, on) {
+          pkClose(); pkCur = { btn, on };
+          pkL.textContent = ""; pkL.setAttribute("aria-label", btn.getAttribute("aria-label") || "选择");
+          items.forEach((it) => {
+            if (it.sep) { pkL.appendChild(document.createElement("hr")); return; }
+            const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "option"); b.dataset.v = it.k;
+            b.setAttribute("aria-selected", it.k === val); if (it.off) { b.disabled = true; b.setAttribute("aria-disabled", "true"); }
+            const n = document.createElement("span"); n.textContent = it.name; b.appendChild(n); pkSide(b, it);
+            pkL.appendChild(b);
+          });
+          const r = btn.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+          pkL.style.width = Math.max(r.width, 180) + "px"; pkL.hidden = false;
+          const w = pkL.offsetWidth, h = pkL.offsetHeight;
+          let top = r.bottom - sr.top + 4;
+          if (top + h > sr.height - 8 && r.top - sr.top - h - 4 >= 8) top = r.top - sr.top - h - 4;
+          pkL.style.left = clamp(r.left - sr.left, 8, Math.max(8, sr.width - w - 8)) + "px";
+          pkL.style.top = clamp(top, 8, Math.max(8, sr.height - h - 8)) + "px";
+          btn.setAttribute("aria-controls", pkL.id); btn.setAttribute("aria-expanded", "true");
+          (pkL.querySelector('[aria-selected="true"]:not(:disabled)') || pkL.querySelector("button:not(:disabled)")).focus({ preventScroll: true });
+        }
+        function pkBind(btn, get) {
+          btn.addEventListener("click", () => { if (pkCur && pkCur.btn === btn) { pkClose(true); return; } const g = get(); pkOpen(btn, g.items, g.val, g.on); });
+          btn.addEventListener("keydown", (e) => { if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const g = get(); pkOpen(btn, g.items, g.val, g.on); } });
+        }
+        pkL.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || b.disabled || !pkCur) return; const c = pkCur; pkClose(true); c.on(b.dataset.v); });
+        pkL.addEventListener("keydown", (e) => {
+          const bs = [...pkL.querySelectorAll("button:not(:disabled)")], i = bs.indexOf(document.activeElement);
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); bs[(i + (e.key === "ArrowDown" ? 1 : bs.length - 1)) % bs.length].focus(); }
+          else if (e.key === "Home" || e.key === "End") { e.preventDefault(); bs[e.key === "Home" ? 0 : bs.length - 1].focus(); }
+          else if (e.key === "Tab") pkClose(true);
+        });
+        document.addEventListener("pointerdown", (e) => { if (pkCur && !pkL.contains(e.target) && !pkCur.btn.contains(e.target)) pkClose(); }, true);
+        document.addEventListener("scroll", (e) => { if (pkCur && !pkL.contains(e.target)) pkClose(); }, true);
+        addEventListener("resize", () => pkClose());
+
+        // 面板 #ho：「交给」只列已找到的（多于 4 个换成下拉），「用哪个终端」只列已找到的终端
+        const hoTmItems = () => HO_TMS.filter((t) => t.ok).map((t) => ({ k: t.k, name: t.name, side: t.def ? "默认" : "" }));
+        function hoSetTm(k) { if (!HO_TM[k] || !HO_TM[k].ok) k = HO_TMDEF; hoTmK = k; const t = HO_TM[k]; pkFill(hoTmB, { name: t.name, side: t.def ? "默认" : "" }); }
+        pkBind(hoTmB, () => ({ items: hoTmItems(), val: hoTmK, on: hoSetTm }));
+        pkBind(hoToP, () => ({ items: hoFound().map((a) => ({ k: a.k, name: a.name })), val: hoTool, on: hoSetTool }));
+        function hoRenderTo() {
+          const l = hoFound(), dd = l.length > 4;
+          hoTo.hidden = dd; hoToP.hidden = !dd; hoTo.textContent = "";
+          hoTBs = dd ? [] : l.map((a) => {
+            const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "radio"); b.dataset.t = a.k; b.textContent = a.name;
+            hoTo.appendChild(b); return b;
+          });
+          // 一行放不下也换成下拉，不让按钮挤出面板
+          if (!dd && hoTo.scrollWidth > hoTo.parentElement.clientWidth + 1) { hoTo.hidden = true; hoToP.hidden = false; hoTo.textContent = ""; hoTBs = []; }
+        }
+        function hoBtn(p) {
+          const b = document.createElement("button"); b.type = "button"; b.className = "x-sb x-hob";
+          b.innerHTML = HO_ICO(15) + "<span>交给终端</span>";
+          b.addEventListener("click", () => openHo(b));
+          p.appendChild(b); msgsEl.scrollTop = msgsEl.scrollHeight;
+        }
+        function hoGoal() {
+          for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "user" && msgs[i].text.trim()) return msgs[i].text.trim();
+          return "（写下要终端做的事）";
+        }
+        function hoSetTool(k) {
+          const l = hoFound();
+          if (!l.some((a) => a.k === k)) k = "claude";
+          hoTool = k;
+          hoTBs.forEach((b) => { const on = b.dataset.t === k; b.setAttribute("aria-checked", on); b.tabIndex = on ? 0 : -1; });
+          if (!hoToP.hidden) pkFill(hoToP, { name: l.find((a) => a.k === k).name });
+        }
+        function openHo(from) {
+          cmClose(); skEl.hidden = true; setTab(false); pkClose();
+          hoFor = from || chatMore;
+          hoDir.value = hoP.dir; hoSave.setAttribute("aria-checked", hoP.save);
+          hoMd.value = `# 目标\n${hoGoal()}\n# 相关文件\n- src-tauri/src/selection.rs\n# 已经试过\n- 在对话里讨论了思路，还没改代码\n# 附件\n- 截图 1 张`;
+          hoMd.scrollTop = 0;
+          // 先扫描本机约 0.4 秒，再出结果
+          clearTimeout(hoScanT);
+          hoScans.forEach((s) => (s.hidden = false)); hoTo.hidden = true; hoToP.hidden = true; hoTmB.hidden = true; $("hoGo").disabled = true;
+          hoEl.hidden = false;
+          hoScanT = setTimeout(() => {
+            hoScans.forEach((s) => (s.hidden = true)); hoTmB.hidden = false; $("hoGo").disabled = false;
+            hoRenderTo(); hoSetTool(hoP.tool); hoSetTm(hoP.term);
+            if (!hoEl.hidden && hoEl.contains(document.activeElement) === false) (hoTBs.find((b) => b.tabIndex === 0) || hoToP).focus({ preventScroll: true });
+          }, 400);
+        }
+        function closeHo() { if (hoEl.hidden) return; pkClose(); hoEl.hidden = true; if (hoFor && hoFor.isConnected) hoFor.focus({ preventScroll: true }); hoFor = null; }
+        hoTo.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && !b.disabled) hoSetTool(b.dataset.t); });
+        hoTo.addEventListener("keydown", (e) => {
+          if (!/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+          e.preventDefault(); const ok = hoTBs.filter((b) => !b.disabled), i = ok.findIndex((b) => b.dataset.t === hoTool);
+          const n = ok[(i + (e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : ok.length - 1)) % ok.length];
+          hoSetTool(n.dataset.t); n.focus();
+        });
+        $("hoDirB").addEventListener("click", () => { hoDir.value = nextDir(hoDir.value); });
+        hoSave.addEventListener("click", () => hoSave.setAttribute("aria-checked", hoSave.getAttribute("aria-checked") !== "true"));
+        $("hoCancel").addEventListener("click", closeHo);
+        [tabChat, tabTask, $("chatHist"), chatNew].forEach((b) => b.addEventListener("click", () => (hoEl.hidden = true)));
+        // 终端窗口：放在球附近，尽量不压对话卡片
+        function hoOver(a, b) { return Math.max(0, Math.min(a.r, b.right) - Math.max(a.l, b.left)) * Math.max(0, Math.min(a.b, b.bottom) - Math.max(a.t, b.top)); }
+        function termPlace(e) {
+          const w = e.offsetWidth, h = e.offsetHeight, o = orb.getBoundingClientRect(), c = chat.classList.contains("on") ? chat.getBoundingClientRect() : null;
+          const ox = o.left + o.width / 2, oy = o.top + o.height / 2, g = 16;
+          const cand = [[o.left - w - g, oy - h / 2], [o.right + g, oy - h / 2], [ox - w / 2, o.top - h - g], [ox - w / 2, o.bottom + g]];
+          if (c) cand.push([c.left - w - 12, c.top], [c.right + 12, c.top], [c.left, c.top - h - 12], [c.left, c.bottom + 12], [c.right - w, c.bottom + 12], [c.right - w, c.top - h - 12]);
+          let best = null, bs = Infinity;
+          cand.forEach(([l, t]) => {
+            l = clamp(l, 8, Math.max(8, W - w - 8)); t = clamp(t, 8, Math.max(8, H - h - 8));
+            const a = { l, t, r: l + w, b: t + h }, s = (c ? hoOver(a, c) * 20 : 0) + hoOver(a, o) * 10 + Math.hypot(l + w / 2 - ox, t + h / 2 - oy);
+            if (s < bs) { bs = s; best = [l, t]; }
+          });
+          e.style.left = best[0] + "px"; e.style.top = best[1] + "px";
+        }
+        function termEl() {
+          if (hoTerm) return hoTerm;
+          const e = document.createElement("div"); e.className = "x-term"; e.id = "hoTerm"; e.hidden = true; e.tabIndex = -1;
+          e.setAttribute("role", "dialog"); e.setAttribute("aria-labelledby", "hoTermT");
+          e.innerHTML = '<div class="x-termh"><i></i><i></i><i></i><b id="hoTermT">终端 — FloatBall</b><button type="button" class="x-x" aria-label="关闭终端">×</button></div><pre class="x-termb" aria-live="polite"></pre>';
+          stage.appendChild(e); swallowDown(e);
+          const hd = e.firstChild, x = hd.lastChild; let dg = null;
+          x.addEventListener("click", closeTerm);
+          hd.addEventListener("pointerdown", (ev) => {
+            if (ev.target === x || ev.button !== 0) return;
+            dg = { dx: ev.clientX - e.offsetLeft, dy: ev.clientY - e.offsetTop }; hd.setPointerCapture(ev.pointerId); e.classList.add("x-tdrag");
+          });
+          hd.addEventListener("pointermove", (ev) => {
+            if (!dg) return;
+            e.style.left = clamp(ev.clientX - dg.dx, 8 - e.offsetWidth + 80, W - 80) + "px";
+            e.style.top = clamp(ev.clientY - dg.dy, 0, H - 40) + "px";
+          });
+          const end = () => { dg = null; e.classList.remove("x-tdrag"); };
+          hd.addEventListener("pointerup", end); hd.addEventListener("pointercancel", end);
+          addEventListener("resize", () => { if (!e.hidden) { e.style.left = clamp(e.offsetLeft, 8, Math.max(8, W - e.offsetWidth - 8)) + "px"; e.style.top = clamp(e.offsetTop, 8, Math.max(8, H - e.offsetHeight - 8)) + "px"; } });
+          return (hoTerm = e);
+        }
+        function showTerm(run, type, back) {
+          const e = termEl(), body = e.querySelector(".x-termb"), t = run.agent;
+          hoBack = back || null;
+          e.querySelector("#hoTermT").textContent = `${run.termName} — ${run.dir.split("/").pop()}`;
+          clearTimeout(hoTypeT); body.textContent = "";
+          const l1 = document.createElement("span"), cur = document.createElement("i"), ok = document.createElement("span");
+          cur.className = "x-termc"; ok.className = "x-termok"; ok.textContent = `${t.name} 已读取交接说明，开始工作`;
+          const cmd = `${run.dir} $ ${hoLine(t)}`;
+          body.append(l1, cur);
+          const wasHidden = e.hidden; e.hidden = false;
+          if (wasHidden) termPlace(e);
+          e.focus({ preventScroll: true });
+          if (!type || RM.matches || calm) { l1.textContent = cmd; cur.before(ok); ok.appendChild(cur); return; }
+          let i = 0;
+          const tick = () => {
+            l1.textContent = cmd.slice(0, ++i);
+            if (i < cmd.length) hoTypeT = setTimeout(tick, 22);
+            else hoTypeT = setTimeout(() => { cur.before(ok); ok.appendChild(cur); }, 520);
+          };
+          hoTypeT = setTimeout(tick, 260);
+        }
+        function closeTerm() {
+          if (!hoTerm || hoTerm.hidden) return;
+          clearTimeout(hoTypeT); hoTerm.hidden = true;
+          const b = hoBack && hoBack.isConnected ? hoBack : null; hoBack = null;
+          if (b && chat.classList.contains("on")) b.focus({ preventScroll: true });
+        }
+        $("hoGo").addEventListener("click", () => {
+          const t = hoAgent(hoTool), m = hoMd.value.match(/#\s*目标[^\n]*\n+\s*([^\n]*)/), g = (m && m[1].trim() && !/^#/.test(m[1].trim()) ? m[1].trim() : hoGoal().split("\n")[0]);
+          const run = (hoRun = { tool: hoTool, agent: t, termName: HO_TM[hoTmK].name, dir: hoDir.value, md: hoMd.value, save: hoSave.getAttribute("aria-checked") === "true" });
+          hoEl.hidden = true; hoFor = null;
+          // 对话里的系统小行
+          msgsEl.querySelector(".x-empty")?.remove();
+          const p = document.createElement("p"); p.className = "x-hosys";
+          p.innerHTML = HO_ICO(14) + '<span></span><button type="button" class="x-sb">再打开</button>';
+          p.querySelector("span").textContent = `已交给 ${t.name} · 在终端里继续`;
+          const again = p.querySelector("button"); again.setAttribute("aria-label", `再打开终端（${t.name}）`);
+          again.addEventListener("click", () => showTerm(run, false, again));
+          msgsEl.appendChild(p); msgsEl.scrollTop = msgsEl.scrollHeight;
+          // 任务页：一张「在终端里进行」的卡，没有进度条
+          tasks.unshift({ id: ++taskId, name: `交给 ${t.name}：${g}`, status: "term", elapsed: 0, dur: 1, progress: 0, tk: 0, result: "", open: false, posted: false });
+          renderTasks();
+          setState("done");
+          showTerm(run, true, again);
+        });
+        addEventListener("keydown", (e) => {
+          if (e.key !== "Escape") return;
+          if (!hoEl.hidden) { closeHo(); e.stopImmediatePropagation(); e.preventDefault(); }
+          else if (hoTerm && !hoTerm.hidden && hoTerm.contains(document.activeElement)) { closeTerm(); e.stopImmediatePropagation(); e.preventDefault(); }
+        }, true);
+        // 设置 · Agents ·「交给终端」
+        {
+          const sT = $("hoDefT"), sTm = $("hoDefTm"), sCus = $("hoDefCus"), sCmd = $("hoDefCmd"), sDir = $("hoDefDir"), sSave = $("hoDefSave"), sHint = $("hoDefHint");
+          const side = (ok) => ({ side: ok ? "已找到" : "未找到", cls: ok ? "x-pkok" : "" });
+          const syncS = () => {
+            if (hoP.tool === "custom") pkFill(sT, { name: "自定义命令" });
+            else { const a = HO_T[hoP.tool] || HO_T.claude; pkFill(sT, { name: a.name, ...side(a.ok) }); }
+            sCus.hidden = hoP.tool !== "custom";
+          };
+          const syncTm = () => { const t = HO_TM[hoP.term]; pkFill(sTm, { name: t.name, ...(t.def ? { side: "默认" } : side(t.ok)) }); };
+          pkBind(sT, () => ({
+            items: [...HO_AG.map((a) => ({ k: a.k, name: a.name, off: !a.ok, ...side(a.ok) })), { sep: true }, { k: "custom", name: "自定义命令" }],
+            val: hoP.tool,
+            on: (k) => { hoP.tool = k; syncS(); if (k === "custom") sCmd.focus({ preventScroll: true }); },
+          }));
+          pkBind(sTm, () => ({
+            items: HO_TMS.map((t) => ({ k: t.k, name: t.name, off: !t.ok, ...(t.def ? { side: "默认" } : side(t.ok)) })),
+            val: hoP.term,
+            on: (k) => { hoP.term = k; syncTm(); },
+          }));
+          sCmd.value = hoP.cmd; sCmd.addEventListener("input", () => { hoP.cmd = sCmd.value; });
+          sDir.value = hoP.dir; sSave.setAttribute("aria-checked", hoP.save); sHint.setAttribute("aria-checked", hoP.hint); syncS(); syncTm();
+          // 重新扫描：按钮旁转约 0.6 秒，再报找到几个
+          const scB = $("hoReScan"), scR = $("hoScanR");
+          scB.addEventListener("click", () => {
+            if (scB.disabled) return;
+            pkClose(); scB.disabled = true; scR.innerHTML = '<span class="x-spin" role="img" aria-label="正在扫描"></span>';
+            setTimeout(() => {
+              scB.disabled = false;
+              scR.textContent = `刚刚扫描：找到 ${HO_AG.filter((a) => a.ok).length} 个编程工具、${HO_TMS.filter((t) => t.ok).length} 个终端`;
+            }, 600);
+          });
+          $("hoDefDirB").addEventListener("click", () => { hoP.dir = sDir.value = nextDir(sDir.value); });
+          sSave.addEventListener("click", () => { hoP.save = !hoP.save; sSave.setAttribute("aria-checked", hoP.save); });
+          sHint.addEventListener("click", () => { hoP.hint = !hoP.hint; sHint.setAttribute("aria-checked", hoP.hint); });
+        }
 
         // ── 钉住 ──
         function pinSync() { chatPinB.hidden = !chatPin; cmSync(); }
