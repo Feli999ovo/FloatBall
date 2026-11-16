@@ -33,6 +33,22 @@ pub fn backdrop_at(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Result<S
     blur_region(DynamicImage::ImageRgba8(img), x, y, w, h)
 }
 
+/// 设置窗口的玻璃底：整块屏幕缩到八分之一、模糊、提饱和度。x、y、w、h 是这块屏幕的物理像素位置和大小，
+/// 页面按自己窗口的位置把对应那一块露出来。
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct ScreenBackdrop { pub url: String, pub x: i32, pub y: i32, pub w: u32, pub h: u32 }
+
+#[cfg(windows)]
+pub fn screen_backdrop(px: i32, py: i32) -> Result<ScreenBackdrop, String> {
+    let monitor = xcap::Monitor::from_point(px, py)
+        .or_else(|_| xcap::Monitor::all().map_err(|e| e.to_string())?.into_iter().next().ok_or_else(|| "没有找到显示器".to_string()))
+        .map_err(|e| e.to_string())?;
+    let (x, y) = (monitor.x().map_err(|e| e.to_string())?, monitor.y().map_err(|e| e.to_string())?);
+    let img = monitor.capture_image().map_err(|e| e.to_string())?;
+    let (w, h) = (img.width(), img.height());
+    Ok(ScreenBackdrop { url: blur_region(DynamicImage::ImageRgba8(img), 0, 0, w, h)?, x, y, w, h })
+}
+
 /// 取出一块、缩到八分之一再模糊：图很小，又快又省内存，放大回去正好是毛玻璃的糊。
 #[cfg(any(windows, test))]
 pub fn blur_region(img: DynamicImage, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {

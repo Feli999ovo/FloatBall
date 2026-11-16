@@ -627,6 +627,13 @@ async def main():
         # ───────── 设置窗口（单独的窗口，照原型：七个分类、模型库 / 添加模型；能力标签查 models.dev） ─────────
         wall = WALL or os.path.join(ROOT, "design-reference", "wallpaper.jpg")
         wu = "data:image/jpeg;base64," + base64.b64encode(open(wall, "rb").read()).decode()
+        from PIL import Image, ImageFilter, ImageEnhance
+        import io
+        _im = Image.open(wall).convert("RGB"); _k = max(1440 / _im.width, 900 / _im.height)
+        _im = _im.resize((round(_im.width * _k), round(_im.height * _k))); _x, _y = (_im.width - 1440) // 2, (_im.height - 900) // 2
+        _im = ImageEnhance.Color(_im.crop((_x, _y, _x + 1440, _y + 900)).resize((360, 225)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
+        _b = io.BytesIO(); _im.save(_b, "JPEG", quality=85)
+        sbd_url = "data:image/jpeg;base64," + base64.b64encode(_b.getvalue()).decode()
         # 模拟系统亚克力：窗口身后的桌面（原型里设置窗口在 1440×900 的 480,150）模糊后垫在下面，再盖原型舞台的那层暗色
         wall_css = "html{background:#111} body::before{content:'';position:fixed;inset:-40px;background:url(" + wu + ") -440px -110px/1440px 900px no-repeat;filter:blur(24px) saturate(165%);z-index:-1} body::after{content:'';position:fixed;inset:0;background:rgba(6,4,24,.4);z-index:-1}"
         # 服务商 logo 用 CSS mask 加载，file:// 下会被跨域拦掉；真实程序是同源的，这里起个本地 http 服务
@@ -642,7 +649,11 @@ async def main():
             sp.on("pageerror", lambda e: serrs.append(str(e)))
             sp.on("console", lambda m: m.type == "error" and serrs.append(m.text))
             await sp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
-            await sp.add_init_script(f"window.__mock.cfg.platform = '{plat}'; window.__mock.cfg.fx = true")
+            await sp.add_init_script(f"window.__mock.cfg.platform = '{plat}'; window.__mock.cfg.fx = {'true' if plat == 'macos' else 'false'}")
+            if plat == "windows":
+                # Windows 不用亚克力：程序在窗口出现前截下整块屏幕（缩小 8 倍、模糊），页面按窗口位置垫在墨层下面。
+                # 这里拿同一张壁纸做一张同样的小图，屏幕 1440×900（2 倍像素），窗口在 480,150
+                await sp.add_init_script("window.__mock.settingsBd = { url: " + json.dumps(sbd_url) + ", x: 0, y: 0, w: 2880, h: 1800 }; window.__mock.pos = { x: 480, y: 150 };")
             await sp.goto(base_url + "/settings.html")
             await sp.add_style_tag(content=wall_css)
             await sp.wait_for_timeout(400)
@@ -654,13 +665,18 @@ async def main():
             mock = lambda: sp.evaluate("__mock")
             P = f"[{plat}] "
             bc = await sp.get_attribute("body", "class") or ""
-            check("fx" in bc and (("win" in bc) == (plat == "windows")), P + f"平台样式 ({bc})")
+            check((("fx" in bc.split()) == (plat == "macos")) and (("win" in bc) == (plat == "windows")), P + f"平台样式 ({bc})")
             if plat == "windows":
-                # 透明效果被关掉：不铺亚克力，页面自己画不透明的墨色底
-                await sp.evaluate("__mock.cfg.fx = false; __emit('config')"); await sp.wait_for_timeout(200)
-                nofx = await sp.evaluate("[document.body.className, getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundImage]")
-                check("fx" not in nofx[0].split() and "linear-gradient" in nofx[1], P + f"系统透明效果关掉时用不透明底 {nofx[0]}")
-                await sp.evaluate("__mock.cfg.fx = true; __emit('config')"); await sp.wait_for_timeout(200)
+                g = await sp.evaluate("[document.body.className, getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundImage, getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundPosition]")
+                check("bd" in g[0].split() and "url(" in g[1] and "-480px -150px" in g[2], P + f"设置窗口用截图玻璃，按窗口位置对齐 {g[2]}")
+                # 拖到别的地方：底图跟着挪；挪出这块屏幕就用不透明的墨色底
+                await sp.evaluate("__mock.moved.forEach(f => f({ payload: { x: 400, y: 200 } }))"); await sp.wait_for_timeout(150)
+                g = await sp.evaluate("getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundPosition")
+                check("-200px -100px" in g, P + f"拖动设置窗口时玻璃底图跟着挪 {g}")
+                await sp.evaluate("__mock.moved.forEach(f => f({ payload: { x: 4000, y: 200 } }))"); await sp.wait_for_timeout(150)
+                g = await sp.evaluate("[document.body.className, getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundImage]")
+                check("bd" not in g[0].split() and "url(" not in g[1] and "linear-gradient" in g[1], P + f"挪到没截过的屏幕上用不透明底 {g[0]}")
+                await sp.evaluate("__mock.moved.forEach(f => f({ payload: { x: 960, y: 300 } }))"); await sp.wait_for_timeout(150)
             check(await sp.get_attribute(".x-wh", "data-tauri-drag-region") is not None, P + "去掉系统标题栏后自己画了一条可拖动的标题栏")
             check((await mock()).get("catalogRefresh") == 1, P + "打开设置时检查模型资料更新")
             # S1 模型库是空的：直接进「添加模型」（原型：首次引导 → 去设置）

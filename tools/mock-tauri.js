@@ -16,6 +16,7 @@
     switch (cmd) {
       case "get_config": return view();
       // 划词
+      case "settings_backdrop": { const b = st.settingsBd || null; st.settingsBd = null; return b; }
       case "sel_status": return { supported: st.cfg.platform !== "linux", trusted: !st.untrusted, recent: ["微信", "Microsoft Edge"] };
       case "sel_place": st.selPlace = a; st.selShown = true; return st.selBackdrop || null;
       case "sel_resize": st.selResize = a; return null;

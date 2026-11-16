@@ -826,11 +826,35 @@ document.addEventListener("keydown", (e) => {
   win.close();
 });
 
+// Windows 的玻璃：和对话卡片同一种。窗口出现前程序截下整块屏幕、缩小模糊（settings_backdrop），
+// 这里把它按窗口在屏幕上的位置垫在墨层下面，拖动时跟着挪；挪到别的屏幕上没有图，就用不透明的墨色底。
+let sbd = null;
+async function placeBackdrop(pos) {
+  if (!sbd) return;
+  const s = await win.scaleFactor();
+  const p = pos || (await win.outerPosition());
+  const inside = p.x >= sbd.x - 4 && p.y >= sbd.y - 4 && p.x < sbd.x + sbd.w && p.y < sbd.y + sbd.h;
+  document.body.classList.toggle("bd", inside);
+  const st = document.documentElement.style;
+  st.setProperty("--sbx", (sbd.x - p.x) / s + "px");
+  st.setProperty("--sby", (sbd.y - p.y) / s + "px");
+  st.setProperty("--sbw", sbd.w / s + "px");
+  st.setProperty("--sbh", sbd.h / s + "px");
+}
+async function initBackdrop() {
+  try { sbd = await invoke("settings_backdrop"); } catch (_) { sbd = null; }
+  if (!sbd) return;
+  document.documentElement.style.setProperty("--sbd", 'url("' + sbd.url + '")');
+  await placeBackdrop();
+  Promise.resolve(win.onMoved((e) => placeBackdrop(e.payload))).catch(() => {});
+}
+
 (async () => {
   try {
     await reload();
     document.body.classList.toggle("fx", cfg.fx === true); // 系统毛玻璃可用（Windows 透明效果没关、或 macOS）
     document.body.classList.toggle("win", cfg.platform === "windows");
+    if (!cfg.fx) initBackdrop();
     // 卡片的透明度只在 Windows 上起作用（别的系统没有卡片毛玻璃），别处不显示这一项
     $("lkGlassF").hidden = cfg.platform !== "windows";
     // 原型：首次引导「先设置一个模型吧 → 去设置」直接打开添加模型，保存后关掉设置

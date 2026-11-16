@@ -43,6 +43,8 @@ pub struct AppState {
     shortcuts: Mutex<Vec<(Shortcut, &'static str)>>,
     /// 最近出现过划词的应用（设置页「添加应用」时给候选）
     sel_recent: Mutex<Vec<String>>,
+    /// 设置窗口的玻璃底图：打开窗口之前截下整块屏幕、缩小模糊（见 open_settings_window）
+    settings_bd: Mutex<Option<capture::ScreenBackdrop>>,
 }
 
 impl AppState {
@@ -104,7 +106,8 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
     v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
     v["platform"] = json!(std::env::consts::OS);
-    v["fx"] = json!(system_glass());
+    // fx：系统自带的毛玻璃（只有 macOS 用；Windows 的亚克力在 Server、远程桌面、省电模式下会变成一块灰，改用和卡片同一种截图玻璃）
+    v["fx"] = json!(cfg!(target_os = "macos") && system_glass());
     v["catalog_date"] = json!(state.catalog.lock().unwrap().fetched.clone());
     v
 }
@@ -463,25 +466,29 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
             let _ = w.set_focus();
             return;
         }
-        // 去掉系统标题栏（界面里自己画），窗口透明，后面铺系统自带的毛玻璃：Windows 用亚克力，macOS 用系统材质。
-        // Linux 没有这个效果，保留系统标题栏和不透明的底。
+        // Windows：和对话卡片同一种玻璃。窗口还没出现，先截下鼠标所在的整块屏幕、缩小模糊，
+        // 页面把它按窗口位置垫在墨层下面，拖动时跟着挪（见 settings.js 的 placeBackdrop）。
+        // 「透明效果」被用户关掉时不截，用不透明的墨色底。
+        #[cfg(windows)]
+        if system_glass() {
+            let at = app.cursor_position().map(|p| (p.x as i32, p.y as i32)).unwrap_or((0, 0));
+            let bd = capture::screen_backdrop(at.0, at.1).map_err(|e| log::warn!("设置窗口底图：{e}")).ok();
+            if let Some(st) = app.try_state::<AppState>() {
+                *st.settings_bd.lock().unwrap() = bd;
+            }
+        }
+        // 去掉系统标题栏（界面里自己画），窗口透明。macOS 后面铺系统材质；Linux 保留系统标题栏和不透明的底。
         let b = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
             .title("悬浮球设置")
             .inner_size(480.0, 600.0)
             .min_inner_size(440.0, 480.0)
             .center();
         #[cfg(any(windows, target_os = "macos"))]
-        use tauri::{utils::config::WindowEffectsConfig, window::Effect};
-        // 透明效果被关掉的 Windows 上亚克力是一块灰：不铺，窗口照样无边框，底色由页面画成不透明的墨色
-        #[cfg(any(windows, target_os = "macos"))]
         let b = b.decorations(false).transparent(true).shadow(true);
-        #[cfg(any(windows, target_os = "macos"))]
+        #[cfg(target_os = "macos")]
         let b = if system_glass() {
-            b.effects(WindowEffectsConfig {
-                effects: vec![Effect::Acrylic, Effect::HudWindow],
-                radius: Some(12.0),
-                ..Default::default()
-            })
+            use tauri::{utils::config::WindowEffectsConfig, window::Effect};
+            b.effects(WindowEffectsConfig { effects: vec![Effect::HudWindow], radius: Some(12.0), ..Default::default() })
         } else {
             b
         };
@@ -490,6 +497,12 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
             log::error!("settings window: {e}");
         }
     });
+}
+
+/// 设置窗口取走它的玻璃底图（只取一次，图只在内存里）
+#[tauri::command]
+fn settings_backdrop(state: State<'_, AppState>) -> Option<capture::ScreenBackdrop> {
+    state.settings_bd.lock().unwrap().take()
 }
 
 // ───────── 划词工具栏 ─────────
@@ -1007,6 +1020,7 @@ pub fn run() {
                 asks: Arc::new(agent::Asks::default()),
                 shortcuts: Mutex::new(vec![]),
                 sel_recent: Mutex::new(vec![]),
+                settings_bd: Mutex::new(None),
             });
             let handle = app.handle().clone();
             refresh_catalog(&handle, false);
@@ -1045,7 +1059,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
+            save_prefs, settings_backdrop, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,
