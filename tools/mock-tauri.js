@@ -135,6 +135,15 @@
               const [call, id, name, task, tok] = steps[i];
               send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: "run", tokens: 0 });
               if (st.holdTeam && i === 1) { st.teamNext = () => { st.holdTeam = false; next2(); }; return; }
+              // 预算用满（B2）：第 2 步做到一半暂停，等「再给 2万 / 停止」
+              if (st.budgetTeam && i === 1) {
+                st.budgetTeam = false;
+                setTimeout(() => {
+                  send({ type: "budget", ask: 9, kind: "tokens", used: 50000, limit: 50000, more: 20000 });
+                  st.onAnswer = (ans) => { if (ans.allow) next2(); else { send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: "err", tokens: 3100 }); send({ type: "error", message: "已用 50000 tokens，到了单个任务的上限（设置 → Agents → 预算），已停止" }); } };
+                }, gap);
+                return;
+              }
               next2();
               function next2() { setTimeout(() => { send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: "done", tokens: tok }); i++; next(); }, gap); }
             })();

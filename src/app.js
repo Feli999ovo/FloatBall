@@ -365,7 +365,8 @@ function renderTasks() {
     const when = document.createElement("span"); when.className = "when";
     const sec = Math.round(((t.t1 || Date.now()) - t.t0) / 1000);
     if (t.st === "done") { const ok = document.createElement("span"); ok.className = "ok"; ok.textContent = "✓ "; when.appendChild(ok); }
-    when.appendChild(document.createTextNode({ run: "回答中", done: "完成", err: "出错", stop: "已停止" }[t.st] + " · " + sec + " 秒"));
+    if (t.st === "run" && t.why) { d.dataset.st = "pause"; const bd = document.createElement("span"); bd.className = "bud"; bd.textContent = "已暂停 · " + t.why; when.appendChild(bd); }
+    else when.appendChild(document.createTextNode({ run: "回答中", done: "完成", err: "出错", stop: "已停止" }[t.st] + " · " + sec + " 秒"));
     row.append(name, when);
     d.appendChild(row);
     if (t.st === "run") {
@@ -718,7 +719,7 @@ function run() {
   let txt = el.querySelector(".txt");
   // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
   let out = "", seg = "", reasoning = "", usage = null, raf = 0;
-  const paint = () => { raf = 0; const live = S.busy === id; txt.innerHTML = live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
+  const paint = () => { raf = 0; const live = S.busy === id; txt.innerHTML = live && !seg ? "" : live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
   const ch = new Channel();
   ch.onmessage = (ev) => {
     if (S.busy !== id) return;
@@ -737,6 +738,11 @@ function run() {
       if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
       el.insertBefore(txt, el.querySelector(".meta"));
       mood("work");
+      scrollEnd();
+    } else if (ev.type === "budget") {
+      budgetCard(el, ev, task);
+      needOn(true); mood("wait");
+      if (!S.open) showPeek(`预算用完，已暂停：${task.title}`);
       scrollEnd();
     } else if (ev.type === "ask") {
       askCard(el, ev);
@@ -817,9 +823,13 @@ function teamRow(el, ev) {
     r.addEventListener("keydown", (e) => { if (e.target === r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); tog(); } });
     ol.append(r, wy);
   }
-  r.dataset.st = ev.status === "err" ? "stop" : ev.status;
+  // 用户在预算卡上点了「停止」：这一步之后报的错就是这个，仍显示「已停止」
+  const userStop = ev.status === "err" && r.dataset.st === "stop";
+  if (!userStop) {
+    r.dataset.st = ev.status === "err" ? "stop" : ev.status;
+    r.querySelector(".x-pst").textContent = { run: "进行中", done: "✓", err: "出错" }[ev.status] || "等待";
+  }
   r.dataset.tok = ev.tokens || 0;
-  r.querySelector(".x-pst").textContent = { run: "进行中", done: "✓", err: "出错" }[ev.status] || "等待";
   r.querySelector(".x-ptk").textContent = ev.tokens ? fmtTok(ev.tokens) : "";
   const rows = [...ol.querySelectorAll(".x-ps")], n = rows.length, tot = rows.reduce((s, x) => s + +x.dataset.tok, 0);
   c.firstChild.textContent = `主控 · ${n} 步计划 · 点一步看为什么交给它`;
@@ -915,6 +925,38 @@ function toolPill(el, ev) {
   w.lastChild.querySelector("span").textContent = ev.result || "";
   w.lastChild.querySelector("b").textContent = ev.status === "err" ? "出错" : "结果";
 }
+// 预算用满（照原型 capCard / capGo）：正在做的步骤停住，对话里一张小卡「再给 2万 / 停止」
+const wan = (n) => Math.round(n / 1000) / 10 + "万";
+function budgetCard(el, ev, task) {
+  task.why = "预算"; renderTasks();
+  const tok = ev.kind === "tokens";
+  const c = document.createElement("div");
+  c.className = "x-ap"; c.setAttribute("role", "group"); c.setAttribute("aria-label", "预算已用完");
+  c.innerHTML = `<p class="x-aph"><span class="x-risk">预算</span>${tok ? "单个任务上限" : "最多步数"}</p><p class="x-apd"></p><div class="x-apb"><button type="button" class="x-sb x-pri"></button><button type="button" class="x-sb">停止</button></div>`;
+  c.querySelector(".x-apd").textContent = tok ? `已用 ${(ev.used / 1e4).toFixed(1)}万 / ${wan(ev.limit)} tokens，已暂停` : `已走 ${ev.used} / ${ev.limit} 步，已暂停`;
+  const [more, stop] = c.querySelectorAll("button");
+  more.textContent = tok ? `再给 ${wan(ev.more)}` : `再给 ${ev.more} 步`;
+  el.insertBefore(c, el.querySelector(".meta"));
+  // 计划卡里正在做的那几步显示「已暂停」
+  const paused = [...el.querySelectorAll('.x-ps[data-st="run"]')];
+  paused.forEach((r) => { r.dataset.st = "pause"; r.querySelector(".x-pst").innerHTML = icoSvg("pause", "x-ico--in") + "已暂停"; });
+  let done = false;
+  const go = (b, allow) => {
+    if (done) return; done = true;
+    needOn(false); hidePeek();
+    task.why = ""; renderTasks();
+    c.querySelectorAll("button").forEach((x) => (x.disabled = true)); b.classList.add("on");
+    const n = document.createElement("p"); n.className = "x-apn"; c.appendChild(n);
+    n.textContent = allow ? (tok ? `上限加到 ${wan(ev.used + ev.more)} tokens，继续` : `最多步数加到 ${ev.used + ev.more} 步，继续`) : "已停止";
+    paused.forEach((r) => { if (r.dataset.st !== "pause") return; r.dataset.st = allow ? "run" : "stop"; r.querySelector(".x-pst").textContent = allow ? "进行中" : "已停止"; });
+    invoke("answer_ask", { ask: ev.ask, answer: { allow, always: false, reason: "", edit: "" } }).then((ok) => { if (!ok) n.textContent = "这个任务已经结束了"; }).catch(() => {});
+    mood(allow ? "work" : "think");
+  };
+  more.addEventListener("click", () => go(more, true));
+  stop.addEventListener("click", () => go(stop, false));
+  more.focus({ preventScroll: true });
+}
+
 function askCard(el, ev) {
   const w = el.querySelector(`.x-tw[data-call="${ev.call}"]`);
   const c = document.createElement("div");

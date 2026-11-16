@@ -201,6 +201,35 @@ async def main():
         check(fin[0] == ["done", "done", "done"] and fin[1] == "共 18.4K tokens" and "通勤选索尼" in fin[2] and ags == ["idle", "idle", "idle"], f"做完：三步打勾、合计、结论在卡片后面、Agents 都空闲 {fin} {ags}")
         await shot("06f_team_done")
 
+        # 6d 预算用满（B2，照原型 capCard / capGo）：暂停，对话里「再给 2万 / 停止」，任务页显示「已暂停 · 预算」
+        async def budget_run():
+            await pg.evaluate("__mock.budgetTeam = true")
+            await pg.fill("#ask", "帮我调研三款降噪耳机并写个对比报告"); await pg.press("#ask", "Enter")
+            await pg.wait_for_function("(() => { const c = document.querySelector('.m.ai:last-of-type .x-ap'); return c && /预算/.test(c.textContent); })()", timeout=5000)
+            await pg.wait_for_timeout(150)
+        await budget_run()
+        bc = await pg.evaluate("""(() => { const m = document.querySelector('.m.ai:last-of-type'), c = m.querySelector('.x-ap'), r = m.querySelector('.x-ps[data-call=t1]');
+            return { h: c.querySelector('.x-aph').textContent, d: c.querySelector('.x-apd').textContent, b: [...c.querySelectorAll('button')].map(b => b.textContent),
+                     row: [r.dataset.st, r.querySelector('.x-pst').textContent], need: document.querySelector('#orb').classList.contains('need'),
+                     after: c.previousElementSibling && c.previousElementSibling.className }; })()""")
+        check(bc["h"] == "预算单个任务上限" and bc["d"] == "已用 5.0万 / 5万 tokens，已暂停" and bc["b"] == ["再给 2万", "停止"], f"预算卡文字同原型 {bc}")
+        check(bc["row"] == ["pause", "已暂停"], f"计划卡里正在做的一步变「已暂停」 {bc['row']}")
+        await shot("06g_budget")
+        await pg.click("#tabTask"); await pg.wait_for_timeout(250)
+        tk = await pg.evaluate("document.querySelector('#tasks .tk .when').textContent")
+        check(tk == "已暂停 · 预算", f"任务页显示「已暂停 · 预算」 {tk!r}")
+        await pg.click("#tabChat"); await pg.wait_for_timeout(200)
+        await pg.click(".m.ai:last-of-type .x-ap .x-pri")
+        await pg.wait_for_function("document.querySelector('.m.ai:last-of-type .meta') && !document.querySelector('.m.ai:last-of-type .meta').hidden", timeout=5000)
+        r1 = await pg.evaluate("(() => { const m = document.querySelector('.m.ai:last-of-type'); return [m.querySelector('.x-apn').textContent, [...m.querySelectorAll('.x-ps')].map(r => r.dataset.st), __mock.answers.at(-1)]; })()")
+        check(r1[0] == "上限加到 7万 tokens，继续" and r1[1] == ["done", "done", "done"] and r1[2]["ask"] == 9 and r1[2]["answer"]["allow"] is True, f"再给 2万：接着做完 {r1}")
+        await budget_run()
+        await pg.click(".m.ai:last-of-type .x-ap .x-sb:not(.x-pri)")
+        await pg.wait_for_function("document.querySelector('.m.ai:last-of-type.err')", timeout=5000)
+        r2 = await pg.evaluate("(() => { const m = document.querySelector('.m.ai:last-of-type'); return [m.querySelector('.x-apn').textContent, [...m.querySelectorAll('.x-ps')].map(r => [r.dataset.st, r.querySelector('.x-pst').textContent]), [...m.querySelectorAll('.txt')].at(-1).textContent, __mock.answers.at(-1).answer.allow, document.querySelector('#orb').classList.contains('need')]; })()")
+        check(r2[0] == "已停止" and r2[1] == [["done", "✓"], ["stop", "已停止"], ["wait", "等待"]] and "已停止" in r2[2] and r2[3] is False and not r2[4], f"停止：这一步「已停止」不显示成出错，回复说明原因，「!」去掉 {r2}")
+        await shot("06h_budget_stop")
+
         # 7 截屏提问：附件 + 发送带图片
         await pg.evaluate("__emit('menu','capture')"); await pg.wait_for_timeout(300)  # 胶囊里不再有截屏按钮（照原型），走菜单/快捷键
         check(await pg.locator("#attach .chip").count() == 1, "截图出现在输入框")

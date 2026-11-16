@@ -69,7 +69,18 @@ pub struct Task {
     allowed: Mutex<HashSet<String>>,
     par: Semaphore,
     seq: AtomicU64,
+    /// 预算用满后用户「再给」加上的 token / 步数
+    more_tokens: AtomicU64,
+    more_steps: AtomicU64,
+    /// 几个子 Agent 同时撞上预算时只问一次
+    budget_ask: tokio::sync::Mutex<()>,
+    /// 用户在预算卡上选了「停止」：之后谁再撞上预算都直接停，不再问
+    budget_stop: std::sync::atomic::AtomicBool,
 }
+
+/// 预算用满时每次「再给」加多少（照原型「再给 2万」）
+pub const MORE_TOKENS: u64 = 20_000;
+pub const MORE_STEPS: u64 = 20;
 
 /// 工具定义（OpenAI function calling）。group 是设置里「能用的工具」那一项
 struct ToolDef {
@@ -163,22 +174,61 @@ fn file_name(p: &str) -> String {
 impl Task {
     pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>) -> Arc<Self> {
         let par = cfg.limits.parallel.max(1) as usize;
-        Arc::new(Self { cfg, world, asks, trash, emit, tokens: AtomicU64::new(0), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0) })
+        Arc::new(Self { cfg, world, asks, trash, emit, tokens: AtomicU64::new(0), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default() })
     }
 
     pub fn tokens(&self) -> u64 {
         self.tokens.load(Ordering::Relaxed)
     }
 
-    fn budget(&self) -> Result<(), String> {
+    /// 用满了哪一项：(种类, 已用, 上限)
+    fn over(&self) -> Option<(&'static str, u64, u64)> {
         let l = &self.cfg.limits;
-        if l.tokens > 0 && self.tokens() >= l.tokens {
-            return Err(format!("已用 {} tokens，到了单个任务的上限（设置 → Agents → 预算），已停止", self.tokens()));
+        let tl = l.tokens + self.more_tokens.load(Ordering::Relaxed);
+        if l.tokens > 0 && self.tokens() >= tl {
+            return Some(("tokens", self.tokens(), tl));
         }
-        if self.steps.load(Ordering::Relaxed) >= l.steps as u64 {
-            return Err(format!("已经走了 {} 步，到了最多步数（设置 → Agents → 预算），已停止", l.steps));
+        let sl = l.steps as u64 + self.more_steps.load(Ordering::Relaxed);
+        let st = self.steps.load(Ordering::Relaxed);
+        if st >= sl {
+            return Some(("steps", st, sl));
         }
-        Ok(())
+        None
+    }
+
+    /// 预算用满：暂停，问用户「再给一些 / 停止」（照原型的预算卡）。再给就加上继续，停止或没人回答就结束
+    async fn budget(&self) -> Result<(), String> {
+        if self.over().is_none() {
+            return Ok(());
+        }
+        let _one = self.budget_ask.lock().await;
+        // 排队时别人可能已经问过、用户已经加了
+        let Some((kind, used, limit)) = self.over() else { return Ok(()) };
+        let stopped = self.budget_stop.load(Ordering::Relaxed);
+        let more = if kind == "tokens" { MORE_TOKENS } else { MORE_STEPS };
+        let r = if stopped { None } else { self.budget_wait(kind, used, limit, more).await };
+        if r.is_some_and(|a| a.allow) {
+            let add = if kind == "tokens" { &self.more_tokens } else { &self.more_steps };
+            // 加到「已用 + 再给」，一步超了很多时也真能再走
+            add.fetch_add(used.saturating_sub(limit) + more, Ordering::Relaxed);
+            return Ok(());
+        }
+        self.budget_stop.store(true, Ordering::Relaxed);
+        Err(if kind == "tokens" {
+            format!("已用 {used} tokens，到了单个任务的上限（设置 → Agents → 预算），已停止")
+        } else {
+            format!("已经走了 {used} 步，到了最多步数（设置 → Agents → 预算），已停止")
+        })
+    }
+
+    async fn budget_wait(&self, kind: &str, used: u64, limit: u64, more: u64) -> Option<Answer> {
+        let id = self.asks.next.fetch_add(1, Ordering::Relaxed) + 1;
+        let (tx, rx) = oneshot::channel();
+        self.asks.wait.lock().unwrap().insert(id, tx);
+        (self.emit)(ChatEvent::Budget { ask: id, kind: kind.into(), used, limit, more });
+        let r = if self.cfg.pause_away { rx.await.ok() } else { tokio::time::timeout(Duration::from_secs(300), rx).await.ok().and_then(|r| r.ok()) };
+        self.asks.wait.lock().unwrap().remove(&id);
+        r
     }
 
     /// 这个 Agent 用哪个模型：自动省钱时优先用本地免费的，其次自己选的，再次默认
@@ -229,7 +279,7 @@ impl Task {
             let mut tools = self.tools_for(agent, &m, lead);
             msgs = crate::prepare_messages(&agent.prompt, m.vision, msgs);
             loop {
-                self.budget()?;
+                self.budget().await?;
                 self.steps.fetch_add(1, Ordering::Relaxed);
                 let mut extra = json!({});
                 if !tools.is_empty() {
@@ -817,16 +867,44 @@ mod tests {
         assert_eq!(deltas, "审查员说没有错别字");
     }
 
+    async fn answer_budget(e: &Env, allow: bool) -> (String, u64, u64, u64) {
+        for _ in 0..200 {
+            let b = e.events.lock().unwrap().iter().find_map(|x| match x { ChatEvent::Budget { ask, kind, used, limit, more } => Some((*ask, kind.clone(), *used, *limit, *more)), _ => None });
+            if let Some((id, k, u, l, m)) = b {
+                assert!(e.task.asks.answer(id, Answer { allow, ..Answer::default() }));
+                return (k, u, l, m);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("没有出现预算卡")
+    }
+
     #[test]
-    fn budget_stops_runaway_loops() {
-        let r = (0..5).map(|_| tool("web_search", json!({"query":"x"}))).collect();
-        let e = env(r, |c| c.limits = Limits { tokens: 0, steps: 3, parallel: 1 });
-        let out = rt().block_on(e.task.run(&e.task.cfg.lead().clone(), vec![json!({"role":"user","content":"搜"})], true));
+    fn budget_pauses_and_asks() {
+        // 步数用满：暂停问用户，选「停止」就结束
+        let e = env((0..5).map(|_| tool("web_search", json!({"query":"x"}))).collect(), |c| c.limits = Limits { tokens: 0, steps: 3, parallel: 1 });
+        let (out, b) = rt().block_on(async {
+            let t = e.task.clone();
+            let h = tokio::spawn(async move { t.run(&t.cfg.lead().clone(), vec![json!({"role":"user","content":"搜"})], true).await });
+            let b = answer_budget(&e, false).await;
+            (h.await.unwrap(), b)
+        });
         assert!(out.unwrap_err().contains("最多步数"));
-        let e = env((0..5).map(|_| tool("web_search", json!({"query":"x"}))).collect(), |c| c.limits = Limits { tokens: 50, steps: 50, parallel: 1 });
-        let out = rt().block_on(e.task.run(&e.task.cfg.lead().clone(), vec![json!({"role":"user","content":"搜"})], true));
-        assert!(out.unwrap_err().contains("上限"));
-        assert_eq!(e.got.lock().unwrap().len(), 2);
+        assert_eq!(b, ("steps".into(), 3, 3, MORE_STEPS));
+        // token 用满：选「再给 2万」就接着做完
+        let e = env(vec![tool("web_search", json!({"query":"x"})), tool("web_search", json!({"query":"y"})), text("好了")], |c| c.limits = Limits { tokens: 50, steps: 50, parallel: 1 });
+        let (out, b) = rt().block_on(async {
+            let t = e.task.clone();
+            let h = tokio::spawn(async move { t.run(&t.cfg.lead().clone(), vec![json!({"role":"user","content":"搜"})], true).await });
+            let b = answer_budget(&e, true).await;
+            (h.await.unwrap(), b)
+        });
+        assert_eq!(out.unwrap(), "好了");
+        assert_eq!((b.0.as_str(), b.2, b.3), ("tokens", 50, MORE_TOKENS));
+        assert!(b.1 >= 50);
+        assert_eq!(e.got.lock().unwrap().len(), 3);
+        // 只问了一次
+        assert_eq!(e.events.lock().unwrap().iter().filter(|x| matches!(x, ChatEvent::Budget { .. })).count(), 1);
     }
 
     #[test]
