@@ -214,7 +214,12 @@ impl Task {
 
     /// 让一个 Agent 跑完：请求模型 → 执行工具 → 再请求，直到它不再调用工具。
     /// lead：主控的正文流给界面；子 Agent 的正文只作为 delegate 的结果。
-    pub fn run<'a>(self: &'a Arc<Self>, agent: &'a Agent, mut msgs: Vec<Value>, lead: bool) -> futures_util::future::BoxFuture<'a, Result<String, String>> {
+    pub fn run<'a>(self: &'a Arc<Self>, agent: &'a Agent, msgs: Vec<Value>, lead: bool) -> futures_util::future::BoxFuture<'a, Result<String, String>> {
+        self.run_acc(agent, msgs, lead, None)
+    }
+
+    /// 同 run；acc 另外记下这个 Agent 自己用掉的 token（多 Agent 计划卡每一步显示）
+    fn run_acc<'a>(self: &'a Arc<Self>, agent: &'a Agent, mut msgs: Vec<Value>, lead: bool, acc: Option<Arc<AtomicU64>>) -> futures_util::future::BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
             let m = self.model(agent).ok_or("还没有设置模型。右键小球 → 设置，添加一个模型。")?;
             let key = crate::config::get_api_key(m.id);
@@ -246,6 +251,9 @@ impl Task {
                     r => r?,
                 };
                 self.tokens.fetch_add(t.tokens, Ordering::Relaxed);
+                if let Some(a) = &acc {
+                    a.fetch_add(t.tokens, Ordering::Relaxed);
+                }
                 if t.calls.is_empty() {
                     return Ok(t.content);
                 }
@@ -284,17 +292,25 @@ impl Task {
         let Some(to) = self.cfg.agents.iter().skip(1).find(|x| x.name == who || x.id == who).cloned() else {
             return format!("没有叫「{who}」的 Agent");
         };
-        let name = format!("交给 {}", to.name);
-        self.pill(&call, from, &name, &short(&task, 40), "run", "");
+        let model = self.model(&to).map(|m| if m.name.is_empty() { m.model.clone() } else { m.name.clone() }).unwrap_or_default();
+        let team = |status: &str, tokens: u64| {
+            (self.emit)(ChatEvent::Team { call: call.clone(), agent_id: to.id.clone(), agent: to.name.clone(), task: short(&task, 80), model: model.clone(), status: status.into(), tokens })
+        };
+        let _ = from;
+        // 先排队（受「最多同时子 Agent」限制），轮到了才算进行中
+        team("wait", 0);
         let _permit = self.par.acquire().await;
-        let r = self.run(&to, vec![json!({"role": "user", "content": task})], false).await;
+        team("run", 0);
+        let acc = Arc::new(AtomicU64::new(0));
+        let r = self.run_acc(&to, vec![json!({"role": "user", "content": task})], false, Some(acc.clone())).await;
+        let used = acc.load(Ordering::Relaxed);
         match r {
             Ok(out) => {
-                self.pill(&call, from, &name, &short(&task, 40), "done", &out);
+                team("done", used);
                 out
             }
             Err(e) => {
-                self.pill(&call, from, &name, &short(&task, 40), "err", &e);
+                team("err", used);
                 format!("出错了：{e}")
             }
         }
@@ -637,6 +653,8 @@ mod tests {
     fn env(replies: Vec<String>, f: impl FnOnce(&mut Config)) -> Env {
         let (base, got) = server(replies);
         let mut cfg = Config::default();
+        // 测试从只有主控开始；要子 Agent 的测试自己加
+        cfg.agents.truncate(1);
         cfg.upsert(Model { model: "m".into(), base_url: base, no_key: true, tools: Some(true), ..Model::default() }).unwrap();
         f(&mut cfg);
         let fake = Arc::new(Fake { opened: Mutex::new(vec![]), remembered: Mutex::new(vec![]) });
@@ -790,7 +808,10 @@ mod tests {
         // 子 Agent 用自己的指令，不能再往下交
         assert_eq!(got[1]["messages"][0], json!({"role":"system","content":"你是审查员"}));
         assert!(!got[1]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "delegate"));
-        assert_eq!(pills(&e), vec![("交给 审查员".into(), "检查错别字".into(), "run".into()), ("交给 审查员".into(), "检查错别字".into(), "done".into())]);
+        // 交给子 Agent 不再是工具药丸，而是计划卡的一行：开始 → 完成（带这一步用掉的 token）
+        assert!(pills(&e).is_empty());
+        let team: Vec<(String, String, String)> = e.events.lock().unwrap().iter().filter_map(|x| match x { ChatEvent::Team { agent, task, status, .. } => Some((agent.clone(), task.clone(), status.clone())), _ => None }).collect();
+        assert_eq!(team, vec![("审查员".into(), "检查错别字".into(), "wait".into()), ("审查员".into(), "检查错别字".into(), "run".into()), ("审查员".into(), "检查错别字".into(), "done".into())]);
         // 子 Agent 的正文不流到主控的气泡里
         let deltas: String = e.events.lock().unwrap().iter().filter_map(|x| match x { ChatEvent::Delta { text } => Some(text.clone()), _ => None }).collect();
         assert_eq!(deltas, "审查员说没有错别字");

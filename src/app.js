@@ -356,6 +356,7 @@ function renderTasks() {
   if ($("#vTask").hidden) return;
   const box = $("#tasks");
   box.textContent = "";
+  if (agList().length > 1) { box.appendChild(agRow()); agSync(); }
   if (!S.tasks.length) { const p = document.createElement("p"); p.className = "none"; p.textContent = "还没有任务"; box.appendChild(p); return; }
   for (const t of S.tasks.slice(0, 30)) {
     const d = document.createElement("div"); d.className = "tk"; d.dataset.st = t.st === "run" ? "run" : "done";
@@ -731,6 +732,12 @@ function run() {
       el.insertBefore(txt, el.querySelector(".meta"));
       if (ev.status === "run") mood("work");
       scrollEnd();
+    } else if (ev.type === "team") {
+      teamRow(el, ev);
+      if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
+      el.insertBefore(txt, el.querySelector(".meta"));
+      mood("work");
+      scrollEnd();
     } else if (ev.type === "ask") {
       askCard(el, ev);
       needOn(true); mood("wait"); // 原型：等你确认 → 「等你」表情，收起时球角上亮「!」
@@ -761,6 +768,7 @@ function run() {
   };
   function finish(st = "done") {
     if (S.busy === id) S.busy = null;
+    if (Object.keys(S.agBusy).length) { S.agBusy = {}; agSync(); }
     needOn(false);
     $("#stopRow").hidden = true;
     if (task.st === "run") { task.st = st; task.t1 = Date.now(); renderTasks(); }
@@ -777,6 +785,90 @@ function run() {
   S.stopFn = el._stop;
   invoke("chat", { id, messages: S.msgs, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
+// ───────── 多 Agent 计划卡（照搬原型 runTeam 的 .x-plan）：主控每交给一个 Agent 一步，卡里多一行 ─────────
+S.agBusy = {}; // Agent id → 正在做的那一步（任务页 Agents 头像条的状态）
+const agList = () => ((S.cfg && S.cfg.agents) || []);
+const agOf = (id) => agList().find((a) => a.id === id);
+const avHTML = (a, big) => `<span class="x-av${big ? " x-avl" : ""}${a.emoji ? " x-ave" : ""}" style="--t:${/^#[0-9a-f]{6}$/i.test(a.tint || "") ? a.tint : "#E6D49A"}" data-agv="${String(a.id || "").replace(/[^\w-]/g, "")}" aria-hidden="true">${a.emoji ? String(a.emoji).replace(/[&<>"]/g, "") : ""}</span>`;
+function agentModelName(a) {
+  const ms = (S.cfg && S.cfg.models) || [], mn = (m) => m.name || m.model;
+  const m = ms.find((x) => x.id === a.model), d = ms.find((x) => x.id === S.cfg.default_model);
+  return m ? mn(m) : d ? mn(d) + "（默认）" : "未设置";
+}
+function teamRow(el, ev) {
+  let c = el.querySelector(".x-plan");
+  if (!c) {
+    c = document.createElement("div"); c.className = "x-plan"; c.setAttribute("role", "group");
+    c.innerHTML = '<p class="x-plh"></p><ol></ol><p class="x-plf"></p>';
+    el.insertBefore(c, el.querySelector(".meta"));
+  }
+  const ol = c.children[1];
+  let r = ol.querySelector(`.x-ps[data-call="${ev.call}"]`);
+  const a = agOf(ev.agent_id) || { id: ev.agent_id, name: ev.agent, tint: "#E6D49A" };
+  if (!r) {
+    r = document.createElement("li"); r.className = "x-ps"; r.dataset.call = ev.call;
+    r.innerHTML = avHTML(a) + '<span class="x-psn"><b></b><span class="x-pm"></span></span><span class="x-pss"></span><span class="x-ptk"></span><span class="x-pst"></span>';
+    r.querySelector("b").textContent = ev.agent; r.querySelector(".x-pm").textContent = ev.model || agentModelName(a); r.querySelector(".x-pss").textContent = ev.task;
+    // 点开一步：一行「为什么交给它」（它的职责和会用的工具）
+    const wy = document.createElement("li"); wy.className = "x-pwhy"; wy.hidden = true;
+    r.tabIndex = 0; r.setAttribute("role", "button"); r.setAttribute("aria-expanded", "false");
+    const tog = () => { const on = wy.hidden; if (on) wy.textContent = whyLine(a); wy.hidden = !on; r.setAttribute("aria-expanded", on); };
+    r.addEventListener("click", tog);
+    r.addEventListener("keydown", (e) => { if (e.target === r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); tog(); } });
+    ol.append(r, wy);
+  }
+  r.dataset.st = ev.status === "err" ? "stop" : ev.status;
+  r.dataset.tok = ev.tokens || 0;
+  r.querySelector(".x-pst").textContent = { run: "进行中", done: "✓", err: "出错" }[ev.status] || "等待";
+  r.querySelector(".x-ptk").textContent = ev.tokens ? fmtTok(ev.tokens) : "";
+  const rows = [...ol.querySelectorAll(".x-ps")], n = rows.length, tot = rows.reduce((s, x) => s + +x.dataset.tok, 0);
+  c.firstChild.textContent = `主控 · ${n} 步计划 · 点一步看为什么交给它`;
+  c.setAttribute("aria-label", `主控的 ${n} 步计划`);
+  c.lastChild.textContent = `共 ${fmtTok(tot)} tokens`;
+  if (ev.status === "run") S.agBusy[ev.agent_id] = ev.task; else delete S.agBusy[ev.agent_id];
+  agSync();
+}
+function whyLine(a) {
+  const tools = (a.tools || []).join("、");
+  return `${a.name}的职责是「${a.role || "没写职责"}」` + (tools ? `，会用 ${tools}` : "") + "，所以主控把这一步交给它。";
+}
+// ───────── 任务页顶上的 Agents 头像条 + 弹卡（照搬原型 agRow / pop） ─────────
+let agOpen = null;
+function agRow() {
+  const w = document.createElement("div"); w.className = "x-ags";
+  w.innerHTML = '<p class="x-hg">Agents</p><div class="x-agl"></div><div class="x-agp" role="status" hidden></div>';
+  agList().slice(1).forEach((a) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "x-ag"; b.dataset.ag = a.id;
+    b.innerHTML = `<span class="x-avw">${avHTML(a)}<i class="x-agd"></i></span><span></span>`; b.lastChild.textContent = a.name;
+    b.addEventListener("click", (e) => { e.stopPropagation(); agOpen = agOpen === a.id ? null : a.id; agSync(); });
+    w.children[1].appendChild(b);
+  });
+  return w;
+}
+function agSync() {
+  const w = $("#tasks") && $("#tasks").querySelector(".x-ags");
+  if (!w) return;
+  w.querySelectorAll(".x-ag").forEach((b) => {
+    const a = agOf(b.dataset.ag), busy = S.agBusy[b.dataset.ag] != null;
+    b.dataset.st = busy ? "busy" : "idle"; b.setAttribute("aria-expanded", agOpen === b.dataset.ag);
+    b.setAttribute("aria-label", `${a ? a.name : ""}，${busy ? "忙碌" : "空闲"}`);
+  });
+  const pop = w.querySelector(".x-agp"), a = agOpen && agOf(agOpen), b = a && w.querySelector(`.x-ag[data-ag="${a.id}"]`);
+  pop.hidden = !b;
+  if (!b) return;
+  pop.innerHTML = '<b></b><p></p><p class="x-agm"><span></span><button type="button" class="x-agx">更换</button></p><p></p>';
+  const [nm, p1, pm, p3] = pop.children;
+  nm.textContent = a.name; p1.textContent = a.role || "还没写职责";
+  pm.firstChild.textContent = "模型 · " + agentModelName(a);
+  pm.lastChild.setAttribute("aria-label", `更换${a.name}的模型`);
+  pm.lastChild.addEventListener("click", () => { agOpen = null; agSync(); invoke("open_settings", { agent: a.id }).catch(toastErr); });
+  p3.textContent = S.agBusy[a.id] != null ? `忙碌 · ${S.agBusy[a.id]}` : "空闲";
+  // 靠右的 Agent 弹卡往左让，不被卡片右边挤窄
+  pop.style.left = Math.max(4, Math.min(b.offsetLeft, pop.parentElement.clientWidth - pop.offsetWidth - 4)) + "px";
+}
+document.addEventListener("pointerdown", (e) => { if (agOpen && !e.target.closest(".x-ag,.x-agp")) { agOpen = null; agSync(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && agOpen) { agOpen = null; agSync(); e.stopImmediatePropagation(); } }, true);
+
 // 有确认在等你：球角上的「!」（收起时才显示）
 function needOn(v) { S.pend = !!v; orb.classList.toggle("need", !!v); }
 function stop() { if (S.busy && S.stopFn) S.stopFn(); }

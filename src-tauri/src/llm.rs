@@ -22,6 +22,8 @@ pub enum ChatEvent {
     ToolCall { index: usize, id: String, name: String, args: String },
     /// Agent 用了一个工具：界面上显示成一行「工具药丸」。status：run / done / no（被拒绝）/ err
     Tool { call: String, agent: String, name: String, arg: String, status: String, result: String },
+    /// 主控把一步交给别的 Agent：界面上是「多 Agent 计划卡」的一行。status：wait（排队）/ run / done / err；tokens 是这一步（子 Agent）用掉的
+    Team { call: String, agent_id: String, agent: String, task: String, model: String, status: String, tokens: u64 },
     /// 需要用户确认（发送、删除、写文件等）。界面显示确认卡片，用户的选择通过 answer_ask 传回
     Ask { ask: u64, call: String, kind: String, desc: String, scope: String, hi: bool },
 }

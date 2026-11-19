@@ -45,6 +45,8 @@ pub struct AppState {
     sel_recent: Mutex<Vec<String>>,
     /// 设置窗口的玻璃底图：打开窗口之前截下整块屏幕、缩小模糊（见 open_settings_window）
     settings_bd: Mutex<Option<capture::ScreenBackdrop>>,
+    /// 打开设置时直接去编辑哪个 Agent（对话里 Agent 弹卡的「更换」）
+    settings_goto: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -634,9 +636,25 @@ fn open_external(target: &str) -> Result<(), String> {
     r.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// agent：直接打开这个 Agent 的编辑页（Agent 弹卡的「更换」模型）
 #[tauri::command]
-fn open_settings(app: AppHandle) {
+fn open_settings(app: AppHandle, agent: Option<String>) {
+    if let Some(id) = agent.filter(|x| !x.is_empty()) {
+        if let Some(st) = app.try_state::<AppState>() {
+            *st.settings_goto.lock().unwrap() = Some(id.clone());
+        }
+        // 设置窗口已经开着：直接让它跳过去
+        if app.get_webview_window("settings").is_some() {
+            let _ = app.emit_to("settings", "settings:goto", id);
+        }
+    }
     open_settings_window(&app);
+}
+
+/// 设置窗口启动时取走「要去编辑的 Agent」
+#[tauri::command]
+fn settings_goto(state: State<'_, AppState>) -> Option<String> {
+    state.settings_goto.lock().unwrap().take()
 }
 
 // ───────── 对话 ─────────
@@ -1108,6 +1126,7 @@ pub fn run() {
                 shortcuts: Mutex::new(vec![]),
                 sel_recent: Mutex::new(vec![]),
                 settings_bd: Mutex::new(None),
+                settings_goto: Mutex::new(None),
             });
             let handle = app.handle().clone();
             refresh_catalog(&handle, false);
@@ -1146,7 +1165,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, settings_backdrop, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
+            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,

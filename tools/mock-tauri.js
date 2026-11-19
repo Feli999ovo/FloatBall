@@ -16,6 +16,7 @@
     switch (cmd) {
       case "get_config": return view();
       // 划词
+      case "settings_goto": { const g = st.settingsGoto || null; st.settingsGoto = null; return g; }
       case "settings_backdrop": { const b = st.settingsBd || null; st.settingsBd = null; return b; }
       case "sel_status": return { supported: st.cfg.platform !== "linux", trusted: !st.untrusted, recent: ["微信", "Microsoft Edge"] };
       case "sel_place": st.selPlace = a; st.selShown = true; return st.selBackdrop || null;
@@ -71,7 +72,7 @@
       case "catalog_refresh": st.catalogRefresh = (st.catalogRefresh || 0) + 1; return null;
       case "js_log": (st.logs ||= []).push(a.msg); return null;
       case "list_models": st.listArgs = a; if (st.listFails) throw "连不上：connection refused"; return ["deepseek-chat", "deepseek-reasoner", "gpt-4o-mini"];
-      case "open_settings": st.settingsOpened = (st.settingsOpened || 0) + 1; return null;
+      case "open_settings": st.settingsOpened = (st.settingsOpened || 0) + 1; st.settingsAgent = (a && a.agent) || null; return null;
       case "set_autostart": st.cfg.autostart = a.on; return a.on;
       case "save_position": st.cfg.position = [a.x, a.y]; return null;
       case "test_connection": st.testArgs = a; if (/bad/.test(a.baseUrl)) throw "API Key 不对或没有权限（401）：Incorrect API key provided: sk-xx****. You can find your API key at https://platform.openai.com/account/api-keys."; return "连接成功，用时 412 毫秒";
@@ -118,6 +119,26 @@
               };
             }, 150);
           }, 100);
+          return null;
+        }
+        // 多 Agent：主控把三步交给研究员 / 整理员 / 写手（真程序里是 delegate 工具发出的 team 事件）
+        if (/调研/.test(q)) {
+          const send = (e) => { if (st.cancelled !== a.id) ch.onmessage(e); };
+          const steps = [["t0", "research", "研究员", "搜集 3 款耳机评测", 6100], ["t1", "organize", "整理员", "做参数对比表", 3800], ["t2", "writer", "写手", "写对比报告", 8500]];
+          const gap = st.slow ? 900 : 60;
+          setTimeout(() => {
+            send({ type: "delta", text: "我把它拆成 3 步，分给小伙伴们：" });
+            steps.forEach(([call, id, name, task], i) => send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: i ? "wait" : "run", tokens: 0 }));
+            let i = 0;
+            (function next() {
+              if (i >= steps.length) { send({ type: "delta", text: "报告写好了：通勤选索尼，强降噪选 Bose。" }); send({ type: "usage", prompt: 18400, completion: 0 }); send({ type: "done" }); return; }
+              const [call, id, name, task, tok] = steps[i];
+              send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: "run", tokens: 0 });
+              if (st.holdTeam && i === 1) { st.teamNext = () => { st.holdTeam = false; next2(); }; return; }
+              next2();
+              function next2() { setTimeout(() => { send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: "done", tokens: tok }); i++; next(); }, gap); }
+            })();
+          }, 50);
           return null;
         }
         const r = reply(q);
