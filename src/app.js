@@ -339,7 +339,7 @@ function showView(v) {
   $("#vHist").hidden = v !== "hist";
   $("#histBtn").setAttribute("aria-pressed", v === "hist");
   if (v === "hist") loadHistory();
-  if (v === "task") renderTasks();
+  if (v === "task") { renderTasks(); rtRefresh().then(renderTasks); }
   if (v === "chat") updateEmpty();
 }
 $("#tabChat").onclick = () => { showView("chat"); focusAsk(); };
@@ -360,9 +360,25 @@ function renderTasks() {
   const box = $("#tasks");
   box.textContent = "";
   if (agList().length > 1) { box.appendChild(agRow()); agSync(); }
-  if (!S.tasks.length) { const p = document.createElement("p"); p.className = "none"; p.textContent = "还没有任务"; box.appendChild(p); return; }
-  for (const t of S.tasks.slice(0, 30)) {
+  // 照原型分组：进行中、定时任务、已完成
+  const head = (t) => { const h = document.createElement("p"); h.className = "hg"; h.textContent = t; box.appendChild(h); };
+  const rts = (S.cfg && S.cfg.routines) || [];
+  const act = S.tasks.filter((t) => t.st === "run"), fin = S.tasks.filter((t) => t.st !== "run");
+  if (act.length) { head("进行中"); act.forEach((t) => box.appendChild(taskRow(t))); }
+  head("定时任务");
+  rts.forEach((r) => box.appendChild(rtRow(r)));
+  if (rtNew) box.appendChild(rtForm(rtNew));
+  box.appendChild(rtAddBtn());
+  const n = document.createElement("p"); n.className = "rnote"; n.textContent = "电脑睡眠或关机时不运行，开机后只补跑最近一次"; box.appendChild(n);
+  if (fin.length) { head("已完成"); fin.slice(0, 30).forEach((t) => box.appendChild(taskRow(t))); }
+  if (rtFocus) { const el = document.getElementById(rtFocus); rtFocus = ""; if (el) el.focus({ preventScroll: true }); }
+  // 卡片只有 260 高：展开的详情 / 表单滚到看得见
+  const open = box.querySelector(".rd"); if (open) open.scrollIntoView({ block: "nearest" });
+}
+function taskRow(t) {
+  {
     const d = document.createElement("div"); d.className = "tk"; d.dataset.st = t.st === "run" ? "run" : "done";
+    if (t.rt) d.classList.add("fromrt");
     const row = document.createElement("div"); row.className = "row";
     const name = document.createElement("span"); name.className = "name"; name.textContent = t.title;
     const when = document.createElement("span"); when.className = "when";
@@ -378,10 +394,125 @@ function renderTasks() {
       const bar = document.createElement("div"); bar.className = "bar"; bar.appendChild(document.createElement("i")); d.appendChild(bar);
     }
     d.onclick = () => (t.conv ? goConv(t.conv) : (showView("chat"), focusAsk()));
-    box.appendChild(d);
+    return d;
   }
 }
 setInterval(() => { if (convs.size && !$("#vTask").hidden) renderTasks(); }, 1000);
+
+/* ───────── 定时任务（B5，照原型 rtRow / rtDetail）：开关、每天 / 每周 / 每小时、下次时间；到点在后台跑 ───────── */
+const WK = "日一二三四五六";
+let rtNext = {}, rtOpen = "", rtNew = null, rtFocus = "";
+const hm2 = (d) => String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+function rtSched(r) { return r.every === "hour" ? `每小时 :${r.time.slice(3)}` : (r.every === "week" ? "每周" + WK[r.weekday] : "每天") + " " + r.time; }
+function rtWhen(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000), day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const k = Math.round((day(d) - day(new Date())) / 864e5);
+  return (["今天", "明天", "后天"][k] || (k < 0 ? `${d.getMonth() + 1}月${d.getDate()}日` : "周" + WK[d.getDay()])) + " " + hm2(d);
+}
+async function rtRefresh() { try { rtNext = await invoke("routine_next"); } catch (e) { rtNext = {}; jslog("routine_next 失败：" + e); } }
+function rtAddBtn() {
+  const b = document.createElement("button"); b.type = "button"; b.className = "rtadd"; b.textContent = "+ 新建定时任务";
+  b.onclick = () => { rtNew = { id: "", name: "", prompt: "", every: "day", weekday: 1, time: "09:00", on: true }; rtFocus = "rtEdprompt"; renderTasks(); };
+  return b;
+}
+function rtRow(r) {
+  const d = document.createElement("div"); d.className = "tk rt" + (r.on ? "" : " off"); d.dataset.rid = r.id;
+  const row = document.createElement("div"); row.className = "row";
+  const name = document.createElement("button"); name.type = "button"; name.className = "name"; name.textContent = r.name; name.id = "rtN" + r.id;
+  name.setAttribute("aria-expanded", rtOpen === r.id);
+  const sw = document.createElement("button"); sw.type = "button"; sw.className = "x-sw"; sw.setAttribute("role", "switch");
+  sw.setAttribute("aria-checked", r.on); sw.setAttribute("aria-label", `定时任务「${r.name}」开关`);
+  sw.onclick = (e) => { e.stopPropagation(); rtSave({ ...r, on: !r.on }, `${r.on ? "已关闭" : "已开启"}：${r.name}`); };
+  row.append(name, sw);
+  const sub = document.createElement("p"); sub.className = "rts";
+  sub.textContent = rtSched(r) + " · " + (r.on ? (rtNext[r.id] ? "下次 " + rtWhen(rtNext[r.id]) : "") : "已关闭");
+  d.append(row, sub);
+  if (rtOpen === r.id) d.appendChild(r._edit ? rtForm(r._edit) : rtDetail(r));
+  name.onclick = () => { rtOpen = rtOpen === r.id ? "" : r.id; rtFocus = "rtN" + r.id; renderTasks(); };
+  return d;
+}
+function rtBox() { const d = document.createElement("div"); d.className = "rd"; d.onclick = (e) => e.stopPropagation(); return d; }
+function rtBtns(d, list) {
+  const bar = document.createElement("div"); bar.className = "rda";
+  for (const [t, f, cls] of list) { const b = document.createElement("button"); b.type = "button"; b.className = "x-sb" + (cls ? " " + cls : ""); b.textContent = t; b.onclick = f; bar.appendChild(b); }
+  d.appendChild(bar); return bar;
+}
+function rtDl(d) {
+  const dl = document.createElement("dl"); d.appendChild(dl);
+  return (k, v) => { const dt = document.createElement("dt"), dd = document.createElement("dd"); dt.textContent = k; if (typeof v === "string") dd.textContent = v; else dd.appendChild(v); dl.append(dt, dd); return v; };
+}
+function rtDetail(r) {
+  const d = rtBox(), row = rtDl(d);
+  row("指令", r.prompt);
+  row("何时运行", rtSched(r));
+  row("下次运行", r.on ? rtWhen(rtNext[r.id]) || "—" : "已暂停");
+  const ul = document.createElement("ul");
+  const runs = r.runs || [];
+  if (!runs.length) { const li = document.createElement("li"); li.textContent = "还没有运行过"; ul.appendChild(li); }
+  runs.slice(0, 3).forEach((x) => {
+    const li = document.createElement("li"), st = document.createElement("span"), sm = document.createElement("small");
+    st.className = x.ok ? "rok" : "rno"; st.textContent = x.ok ? "✓ 成功" : "✕ 失败";
+    sm.textContent = ` ${rtWhen(x.at)} · ${x.note}`; li.append(st, sm); ul.appendChild(li);
+  });
+  row("运行记录", ul);
+  if (r._del) {
+    const bar = rtBtns(d, [["确认删除", () => { rtOpen = ""; invoke("delete_routine", { id: r.id }).then(() => toast(`已删除：${r.name}`)).catch(toastErr); }, "danger"], ["取消", () => { r._del = false; renderTasks(); }]]);
+    const p = document.createElement("p"); p.textContent = "删除后不再运行"; bar.prepend(p);
+  } else {
+    rtBtns(d, [["立即测试", () => rtRun(r, "手动测试")], ["编辑", () => { r._edit = { ...r }; rtFocus = "rtEdprompt"; renderTasks(); }],
+      [r.on ? "暂停" : "恢复", () => rtSave({ ...r, on: !r.on }, `${r.on ? "已暂停" : "已恢复"}：${r.name}`)], ["删除", () => { r._del = true; renderTasks(); }, "danger"]]);
+  }
+  return d;
+}
+// 编辑 / 新建：指令、名字、每天 / 每周几 / 每小时、时间
+function rtForm(dr) {
+  const d = rtBox(); d.classList.add("ed");
+  if (!dr.id) { const h = document.createElement("p"); h.className = "rth"; h.textContent = "新建定时任务"; d.appendChild(h); }
+  const row = rtDl(d);
+  const inp = (k, ph, label) => { const x = document.createElement("input"); x.className = "x-in"; x.id = "rtEd" + k; x.value = dr[k]; x.placeholder = ph; x.spellcheck = false; x.setAttribute("aria-label", label); x.oninput = () => (dr[k] = x.value); return x; };
+  row("指令", inp("prompt", "每次运行时让它做什么", "指令"));
+  row("名字", inp("name", "不填就用指令开头", "名字"));
+  const wrap = document.createElement("div"); wrap.className = "rtw";
+  const sel = (id, label, opts, v) => { const s = document.createElement("select"); s.className = "x-in"; s.id = id; s.setAttribute("aria-label", label); opts.forEach(([val, t]) => s.add(new Option(t, val))); s.value = v; return s; };
+  const ev = sel("rtEdevery", "多久一次", [["day", "每天"], ["week", "每周"], ["hour", "每小时"]], dr.every);
+  const wk = sel("rtEdweekday", "星期几", [1, 2, 3, 4, 5, 6, 0].map((i) => [i, "周" + WK[i]]), dr.weekday);
+  const tm = document.createElement("input"); tm.type = "time"; tm.className = "x-in"; tm.id = "rtEdtime"; tm.value = dr.time; tm.setAttribute("aria-label", "时间");
+  const sync = () => { wk.hidden = dr.every !== "week"; };
+  ev.onchange = () => { dr.every = ev.value; sync(); };
+  wk.onchange = () => (dr.weekday = +wk.value);
+  tm.oninput = () => (dr.time = tm.value || "09:00");
+  sync(); wrap.append(ev, wk, tm); row("何时运行", wrap);
+  const close = () => { if (dr === rtNew) rtNew = null; else { const r = ((S.cfg && S.cfg.routines) || []).find((x) => x.id === dr.id); if (r) r._edit = null; } };
+  const save = async () => {
+    if (!dr.prompt.trim()) { toast("要写上每次让它做什么"); document.getElementById("rtEdprompt").focus(); return; }
+    const isNew = !dr.id, { _edit, _del, ...r } = dr;
+    const label = r.name.trim() || r.prompt.trim().slice(0, 12);
+    if (await rtSave(r, isNew ? `已创建：${label}` : `已保存：${label}`)) close();
+  };
+  rtBtns(d, [["保存", save, "x-pri"], ["取消", () => { close(); renderTasks(); }]]);
+  d.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); renderTasks(); } });
+  return d;
+}
+async function rtSave(r, msg) {
+  try { await invoke("save_routine", { routine: r }); toast(msg); return true; } catch (e) { toastErr(e); return false; }
+}
+// 跑一次定时任务：开一个新对话在后台跑（和普通提问一样，审批卡、预算、历史都照常），不打扰当前对话
+function rtRun(r, note) {
+  const keep = S.conv, c = Conv(null, "定时 · " + r.name);
+  showConv(c);
+  S.msgs.push({ role: "user", content: r.prompt });
+  addUserBubble(r.prompt, []);
+  run();
+  const task = c.task;
+  if (task) { task.title = "定时 · " + r.name; task.rt = { id: r.id, note }; }
+  invoke("history_append", { convId: null, role: "user", content: r.prompt }).then((id) => { c.id = id; if (c === S.conv) S.convId = id; }).catch(() => {});
+  if (keep !== c) showConv(keep);
+  renderTasks();
+  if (!S.open) showPeek(`定时任务开始：${r.name}`, false, () => goConv(c));
+  else toast(`已开始：${r.name}`);
+}
+T.event.listen("routine", (e) => { if (e.payload && e.payload.id) rtRun(e.payload, "按时运行"); });
 
 /* ───────── 悬停快捷入口（原型的 hoverEntries）：指针停在球上，旁边沿弧线弹出几个小泡 ─────────
    收起时窗口只有小球那么大，放不下小泡：弹出时把窗口扩成以小球为中心的方块，小球留在原地；收起时缩回。 */
@@ -753,10 +884,9 @@ function run() {
   S.tasks.unshift(task); renderTasks();
   const el = addAiBubble();
   const scrollEnd = () => { if (here()) msgsEl.scrollTop = msgsEl.scrollHeight; };
-  const think = el.querySelector(".think");
   let txt = el.querySelector(".txt");
   // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
-  let out = "", seg = "", reasoning = "", usage = null, raf = 0;
+  let out = "", seg = "", usage = null, raf = 0;
   const paint = () => { raf = 0; const live = conv.busy === id; txt.innerHTML = live && !seg ? "" : live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
   const ch = new Channel();
   ch.onmessage = (ev) => {
@@ -816,7 +946,10 @@ function run() {
     if (here()) { S.busy = S.stopFn = null; $("#stopRow").hidden = true; }
     if (Object.keys(S.agBusy).length && !convs.size) { S.agBusy = {}; agSync(); }
     needOn([...convs].some((x) => x.need));
-    if (task.st === "run") { task.st = st; task.t1 = Date.now(); renderTasks(); }
+    if (task.st === "run") {
+      task.st = st; task.t1 = Date.now(); renderTasks();
+      if (task.rt) invoke("routine_done", { id: task.rt.id, ok: st === "done", note: { done: task.rt.note, err: "运行失败，下次按时重试", stop: "已停止" }[st] || "" }).catch(() => {});
+    }
   }
   el._stop = () => {
     invoke("cancel_chat", { id }).catch(() => {});
@@ -934,6 +1067,7 @@ const ICO_PATH = {
   window: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9h18"/><circle cx="6" cy="6.8" r=".6" fill="currentColor"/><circle cx="8.6" cy="6.8" r=".6" fill="currentColor"/>',
   pause: '<rect x="7" y="5.5" width="3" height="13" rx="1"/><rect x="14" y="5.5" width="3" height="13" rx="1"/>',
   upload: '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z"/>',
 };
 const icoSvg = (n, cls) => `<svg class="x-ico${cls ? " " + cls : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO_PATH[n] || ""}</svg>`;
 const fmtTok = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + "K");
@@ -1200,6 +1334,7 @@ listen("config", async () => {
   try { S.cfg = await invoke("get_config"); } catch (_) { return; }
   applyLook();
   updateEmpty();
+  if (!$("#vTask").hidden) rtRefresh().then(renderTasks);
   // 改了贴边开关或小球大小：重新贴一次
   if (was !== S.cfg.auto_dock + "|" + S.cfg.orb_size && !S.open) setTimeout(settle, 60);
   if (S.cfg.screen === "main") setTimeout(() => screenCheck(), 120);

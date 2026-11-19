@@ -620,3 +620,44 @@ body:not(.collapsed) #vcBub, body:not(.collapsed) #vcRip { display: none; }
 .tk[data-st="pause"] .bar i { animation-play-state: paused; }
 /* 计划卡、预算卡在跑时不再显示空的打字光标（原型没有） */
 .x-plan ~ .txt.cursor:empty, .x-ap ~ .txt.cursor:empty { display: none; }
+
+/* 任务页分组 + 定时任务（B5，照原型 .x-hg / .x-rt / .x-rd） */
+#tasks .hg { margin: 10px 8px 4px; font: var(--type-caption); color: rgba(255, 255, 255, 0.6); }
+#tasks .hg:first-child { margin-top: 2px; }
+.tk.rt { cursor: default; }
+.tk.rt .name { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
+.tk.rt .name:focus-visible { outline: 2px solid rgba(255, 241, 220, 0.7); outline-offset: 2px; }
+.tk.rt .rts { margin: 2px 0 0; font: var(--type-caption); color: rgba(255, 255, 255, 0.6); }
+.tk.rt.off .name, .tk.rt.off .rts { opacity: 0.55; }
+.tk .x-sw { position: relative; flex: 0 0 auto; width: 44px; height: 26px; margin: -3px -4px -3px 0; padding: 0; border: 0; background: none; cursor: pointer; }
+.tk .x-sw::before { content: ""; position: absolute; left: 5px; top: calc(50% - 10px); width: 34px; height: 20px; border-radius: 99px; background: rgba(255, 255, 255, 0.18); transition: background 0.2s; }
+.tk .x-sw::after { content: ""; position: absolute; left: 7px; top: calc(50% - 8px); width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.2s var(--spring, ease); }
+.tk .x-sw[aria-checked="true"]::before { background: rgba(120, 220, 150, 0.5); }
+.tk .x-sw[aria-checked="true"]::after { transform: translateX(14px); }
+.tk .x-sw:focus-visible { outline: 2px solid rgba(255, 241, 220, 0.7); outline-offset: 0; border-radius: 99px; }
+#tasks .rd { margin: 8px 0 2px; padding: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); cursor: default; }
+#tasks .rd .rth { margin: 0 0 8px; font: var(--type-label); color: #FFF1DC; }
+#tasks .rd dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 12px; margin: 0; font: var(--type-caption); align-items: center; }
+#tasks .rd dt { color: rgba(255, 255, 255, 0.6); }
+#tasks .rd dd { margin: 0; min-width: 0; color: #FFF1DC; word-break: break-word; }
+/* 表单在 340 宽的卡片里：标签在上、输入框在下 */
+#tasks .rd.ed dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+#tasks .rd.ed dd + dt { margin-top: 6px; }
+#tasks .rd.ed .x-in { width: 100%; box-sizing: border-box; }
+#tasks .rd.ed .rtw .x-in { width: auto; flex: 1 1 0; min-width: 0; }
+#tasks .rd ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+#tasks .rd li, #tasks .rd li small { font: var(--type-caption); color: rgba(255, 255, 255, 0.6); }
+#tasks .rd .rok { color: var(--ok); }
+#tasks .rd .rno { color: #ffb4ad; }
+#tasks .rd .rda { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+#tasks .rd .rda p { margin: 0 auto 0 0; font: var(--type-caption); color: #ffb4ad; }
+#tasks .rd .x-sb { min-height: 30px; padding: 0 10px; font: var(--type-caption); }
+#tasks .rd .x-sb.danger { color: #ffb4ad; }
+#tasks .rd .x-in { height: 32px; font: var(--type-caption); }
+#tasks .rd select.x-in { width: auto; padding-right: 6px; }
+#tasks .rd .rtw { display: flex; flex-wrap: wrap; gap: 6px; }
+#tasks .rd .rtw [hidden] { display: none; }
+#tasks .rd .rtw input[type="time"] { width: 104px; color-scheme: dark; }
+#tasks .rtadd { align-self: flex-start; margin: 4px 8px 0; padding: 4px 10px; border: 1px dashed rgba(255, 255, 255, 0.28); border-radius: 8px; background: none; color: rgba(255, 241, 220, 0.85); font: var(--type-caption); cursor: pointer; }
+#tasks .rtadd:hover, #tasks .rtadd:focus-visible { background: rgba(255, 255, 255, 0.06); outline: none; border-color: rgba(255, 241, 220, 0.6); }
+#tasks .rnote { margin: 6px 8px 0; font: var(--type-caption); color: rgba(255, 255, 255, 0.45); }

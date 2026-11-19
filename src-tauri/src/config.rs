@@ -135,6 +135,8 @@ pub struct Config {
     pub agents: Vec<Agent>,
     /// 预算
     pub limits: Limits,
+    /// 定时任务（B5）
+    pub routines: Vec<crate::routine::Routine>,
     /// 权限：总是允许的操作
     pub always_allow: Vec<Allow>,
     /// 离开电脑时暂停敏感操作：确认卡片一直等；关掉则 5 分钟没确认就跳过
@@ -325,6 +327,7 @@ impl Default for Config {
             system_prompt: String::new(),
             agents: default_agents(),
             limits: Limits::default(),
+            routines: vec![],
             always_allow: vec![],
             pause_away: true,
             shortcut: "Alt+Space".into(),
