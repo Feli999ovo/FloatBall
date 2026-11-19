@@ -157,20 +157,36 @@ fn quote_as(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// PowerShell -EncodedCommand 要的：UTF-16LE 再 Base64（不为这几行加依赖）
+pub fn encode_ps(s: &str) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let b: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut o = String::with_capacity(b.len().div_ceil(3) * 4);
+    for c in b.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for (i, sh) in [18, 12, 6, 0].into_iter().enumerate() {
+            o.push(if i <= c.len() { T[(n >> sh & 63) as usize] as char } else { '=' });
+        }
+    }
+    o
+}
+
 /// 在终端里、dir 下运行 line（一整行 shell 命令）
 pub fn open(term: &str, dir: &Path, line: &str) -> Result<(), String> {
     if !dir.is_dir() { return Err("项目文件夹不存在".into()); }
     #[cfg(windows)]
     {
         use std::process::Command;
-        // 在 PowerShell 里先进文件夹再运行；-NoExit 让工具退出后窗口还在
+        // 在 PowerShell 里先进文件夹再运行；-NoExit 让工具退出后窗口还在。
+        // 用 -EncodedCommand：wt 把参数里的 ; 当成自己的分隔符，cmd start 会重新拆引号，Base64 里两样都没有
         let ps = format!("Set-Location -LiteralPath {}; {}", quote_ps(&dir.display().to_string()), line);
+        let enc = encode_ps(&ps);
         let shell = if term == "pwsh" { "pwsh" } else if term == "wt" && which("pwsh", &std::env::var("PATH").unwrap_or_default(), &[".exe"]).is_some() { "pwsh" } else { "powershell" };
         let r = if term == "wt" {
-            Command::new("wt").args(["-d"]).arg(dir).args(["--", shell, "-NoExit", "-NoLogo", "-Command", &ps]).spawn()
+            Command::new("wt").args(["-d"]).arg(dir).args(["--", shell, "-NoExit", "-NoLogo", "-EncodedCommand", &enc]).spawn()
         } else {
             // 用 cmd 的 start 开一个新的控制台窗口
-            Command::new("cmd").args(["/C", "start", "", shell, "-NoExit", "-NoLogo", "-Command", &ps]).current_dir(dir).spawn()
+            Command::new("cmd").args(["/C", "start", "", shell, "-NoExit", "-NoLogo", "-EncodedCommand", &enc]).current_dir(dir).spawn()
         };
         r.map(|_| ()).map_err(|e| format!("终端没打开：{e}"))
     }
@@ -264,6 +280,11 @@ mod tests {
 
     #[test]
     fn quoting_survives_spaces_and_quotes() {
+        // -EncodedCommand：UTF-16LE + Base64（参考值用 Python base64 算的）
+        assert_eq!(encode_ps("a"), "YQA=");
+        assert_eq!(encode_ps("ab"), "YQBiAA==");
+        assert_eq!(encode_ps("abc"), "YQBiAGMA");
+        assert_eq!(encode_ps("读 x；y"), "+4sgAHgAG/95AA==");
         assert_eq!(quote_ps("C:\\Users\\J's dir"), "'C:\\Users\\J''s dir'");
         assert_eq!(quote_sh("/Users/j/it's"), "'/Users/j/it'\\''s'");
         assert_eq!(quote_as("a \"b\" \\c"), "\"a \\\"b\\\" \\\\c\"");
