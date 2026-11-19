@@ -44,7 +44,7 @@ async function place(p) {
   try { bd = await invoke("sel_place", { ...size(), x: p.x, y: p.y }); } catch (_) { bd = null; }
   glassPlace();
 }
-function applyTint(c) { document.documentElement.style.setProperty("--tint", String(1 - (c && c.glass != null ? c.glass : 25) / 100)); }
+function applyTint(c) { document.documentElement.style.setProperty("--tint", String(+(0.58 * (1 - Math.min(40, (c && c.glass) || 0) / 100)).toFixed(3))); } // 同 app.js：原型墨层 0.58
 const size = () => { const r = $("wrap").getBoundingClientRect(); return { w: Math.ceil(r.width), h: Math.ceil(r.height) }; };
 function ddToggle(open) {
   const m = bar.querySelector(".x-selmore"); if (!m) return;

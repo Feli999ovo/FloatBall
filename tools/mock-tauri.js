@@ -16,6 +16,7 @@
     switch (cmd) {
       case "get_config": return view();
       // 划词
+      case "settings_backdrop": { const b = st.settingsBd || null; st.settingsBd = null; return b; }
       case "sel_status": return { supported: st.cfg.platform !== "linux", trusted: !st.untrusted, recent: ["微信", "Microsoft Edge"] };
       case "sel_place": st.selPlace = a; st.selShown = true; return st.selBackdrop || null;
       case "sel_resize": st.selResize = a; return null;
@@ -76,6 +77,7 @@
       case "test_connection": st.testArgs = a; if (/bad/.test(a.baseUrl)) throw "API Key 不对或没有权限（401）：Incorrect API key provided: sk-xx****. You can find your API key at https://platform.openai.com/account/api-keys."; return "连接成功，用时 412 毫秒";
       case "backdrop": st.backdropArgs = a; return (typeof st.backdrop === "function" ? st.backdrop(a) : st.backdrop) || null;
       case "show_context_menu": st.menuShown = true; return null;
+      case "ctx_act": (st.ctxActs ||= []).push(a.id); return null;
       case "capture_screen": return "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
       case "read_text_file": return { name: a.path.split("/").pop(), text: "第一行\n第二行" };
       case "history_append": {

@@ -333,7 +333,7 @@ impl Default for Config {
             tasks_shortcut: "Alt+T".into(),
             position: None,
             orb_size: 72,
-            glass: 25,
+            glass: 0,
             eye: "#FFF1DC".into(),
             idle_ms: 10 * 60 * 1000,
             follow_system: false,

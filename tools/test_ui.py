@@ -53,6 +53,8 @@ async def main():
         m = await pg.evaluate("__mock")
         bodycls = await pg.get_attribute("body", "class")
         check("flip-x" in bodycls, f"小球在右侧时卡片向左展开 ({bodycls})")
+        eyes = await pg.evaluate("(() => { const o = document.querySelector('#orb').getBoundingClientRect(), b = document.querySelector('#bar').getBoundingClientRect(), a = document.querySelector('#ask').getBoundingClientRect(); return [o.left - b.left, a.left > o.right]; })()")
+        check(abs(eyes[0]) < 1 and eyes[1], f"往左长时眼睛在胶囊左头、输入框在右边（照原型） {eyes}")
         check(m["pos"]["x"] + 420 <= 1440, f"展开后不超出屏幕右边 x={m['pos']['x']}")
 
         # 2 设置窗口里加好了模型：小球窗口收到通知，提示换成正常的引导
@@ -120,8 +122,24 @@ async def main():
         check("我先看看下载文件夹。" in await last.locator(".txt").first.inner_text(), "药丸前的文字")
         ap = await last.locator(".x-ap").inner_text()
         check("高风险" in ap and "删除 /Users/j/Downloads/报告 (1).pdf" in ap and "允许一次" in ap and "总是允许" in ap, f"确认卡片 {ap!r}")
-        check("s-curious" in await pg.get_attribute("#orb", "class"), "等确认时小球好奇地看着你")
+        oc = await pg.get_attribute("#orb", "class")
+        check("s-wait" in oc and "need" in oc, f"等确认时小球是「等你」表情（同原型 setState('wait')）{oc}")
         await shot("06b_ask")
+        check(await pg.evaluate("getComputedStyle(document.querySelector('#orb .need')).opacity") == "0", "卡片开着时不显示「!」")
+        await pg.evaluate("collapse()"); await pg.wait_for_timeout(800)
+        g = await pg.evaluate("""(() => { const n = document.querySelector('#orb .need'), o = document.querySelector('#orb').getBoundingClientRect(), r = n.getBoundingClientRect(),
+            ring = getComputedStyle(document.querySelector('#orb .breath'), '::before');
+            return { op: getComputedStyle(n).opacity, txt: n.textContent, topRight: r.right <= o.right + 1 && r.left > o.left + o.width / 2 && r.top < o.top + o.height / 3,
+                     ring: ring.content !== 'none' && ring.borderTopStyle === 'solid', eyeTop: getComputedStyle(document.querySelector('#orb .eye')).animationName }; })()""")
+        check(g["op"] == "1" and g["txt"] == "!" and g["topRight"], f"收起后球右上角亮「!」{g}")
+        check(g["ring"] and g["eyeTop"] == "slowblink", f"收起后「等你」：暖白呼吸光环 + 慢速眨眼 {g}")
+        await shot("06b2_wait_orb")
+        await pg.evaluate("document.body.classList.add('x'); document.querySelector('#orb').dataset.edge = 'r'"); await pg.wait_for_timeout(300)
+        g2 = await pg.evaluate("(() => { const n = document.querySelector('#orb .need').getBoundingClientRect(), o = document.querySelector('#orb').getBoundingClientRect(); return n.left < o.left + o.width / 2; })()")
+        check(g2, "贴右边时「!」换到左上角")
+        await pg.evaluate("document.querySelector('#orb').dataset.edge = ''")
+        await pg.click("#orb"); await pg.wait_for_timeout(900)
+        last = pg.locator(".m.ai").last
         await last.locator(".x-tw.done .x-tool").click()
         check("报告 (1).pdf（20480 字节）" in await last.locator(".x-tw.done .x-tres").inner_text(), "点完成的药丸看结果")
         await last.locator(".x-ap button:has-text('允许一次')").click()
@@ -132,6 +150,7 @@ async def main():
         check(txts == ["我先看看下载文件夹。", "删好了，重复的那份在悬浮球回收站里。"], f"药丸后面的字另起一段 {txts}")
         nd, meta = await last.locator(".x-ap button:disabled").count(), await last.locator(".meta").inner_text()
         check(nd >= 4 and "1.8K tokens" in meta, f"确认后按钮变灰，结束显示用量 {nd} {meta!r}")
+        check("need" not in await pg.get_attribute("#orb", "class"), "确认后去掉「!」")
         hist = await pg.evaluate("__mock.convs[0].msgs.slice(-1)[0].content")
         check(hist == "我先看看下载文件夹。\n\n删好了，重复的那份在悬浮球回收站里。", f"历史里存整条回复 {hist!r}")
         await shot("06c_allowed")
@@ -147,7 +166,7 @@ async def main():
         check("已拒绝" in await last.locator(".x-tw.no").inner_text() and "好的，没删。" in await last.inner_text(), "拒绝后药丸标已拒绝")
 
         # 7 截屏提问：附件 + 发送带图片
-        await pg.click("#shotBtn"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__emit('menu','capture')"); await pg.wait_for_timeout(300)  # 胶囊里不再有截屏按钮（照原型），走菜单/快捷键
         check(await pg.locator("#attach .chip").count() == 1, "截图出现在输入框")
         await shot("07_screenshot_attached")
         await pg.fill("#ask", "这张图里是什么")
@@ -200,7 +219,7 @@ async def main():
             check(("flip-x" in cls) == fx and ("flip-y" in cls) == fy, f"{name} 展开方向 ({cls})")
             check(m["pos"]["y"] >= 50 and m["pos"]["y"] + m["size"]["h"] <= 875, f"{name} 不超出工作区 y={m['pos']['y']}")
             await shot(name)
-            await pg.click("#closeBtn"); await pg.wait_for_timeout(400)
+            await pg.click("#orb"); await pg.wait_for_timeout(400)  # 卡片上不再有 ×（照原型），点小球收起
 
         # 11b 拿不到显示器信息时仍能展开
         await pg.evaluate("__mock.monitorFails = true; __mock.pos = {x: 300, y: 200}")
@@ -208,7 +227,7 @@ async def main():
         mm = await pg.evaluate("[__mock.size, __mock.pos, document.body.className, screen.availWidth, screen.availHeight, innerWidth, innerHeight]")
         print("   monitorFails:", mm)
         check(mm[0]["w"] == 420, "拿不到显示器信息也能展开")
-        await pg.click("#closeBtn"); await pg.wait_for_timeout(400)
+        await pg.click("#orb"); await pg.wait_for_timeout(400)  # 卡片上不再有 ×（照原型），点小球收起
         await pg.evaluate("__mock.monitorFails = false")
         errs[:] = [e for e in errs if "currentMonitor" not in e]
 
@@ -221,7 +240,7 @@ async def main():
         await shot("11a_tasks")
         await pg.click("#tasks .tk"); await pg.wait_for_timeout(150)
         check(await pg.is_visible("#vChat"), "点完成的任务回到对话")
-        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+        await pg.click("#orb"); await pg.wait_for_timeout(800)  # 卡片上不再有 ×（照原型），点小球收起
 
         # 11a2 卡片收起时回复完成：小球旁冒气泡，小球留在原地；点气泡打开对话
         before = await pg.evaluate("__mock.pos")
@@ -235,7 +254,7 @@ async def main():
         await shot("11a2_peek")
         await pg.click("#peek"); await pg.wait_for_timeout(1000)
         check((await pg.evaluate("__mock"))["size"]["w"] == 420 and await pg.is_visible("#vChat"), "点气泡打开对话")
-        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+        await pg.click("#orb"); await pg.wait_for_timeout(800)  # 卡片上不再有 ×（照原型），点小球收起
         await pg.evaluate("showPeek('好了')"); await pg.wait_for_timeout(600)
         await pg.evaluate("hidePeek()"); await pg.wait_for_timeout(700)
         m = await pg.evaluate("__mock")
@@ -264,13 +283,15 @@ async def main():
         check(g["pos"] == {"x": 300, "y": 196}, f"卡片在上方时小球留在原地（窗口往上长） {g['pos']}")
         check(g["glassy"] and g["args"]["w"] == 840 and g["args"]["h"] == 1200 and g["args"]["y"] == 392, f"展开前截下窗口后面的桌面当毛玻璃底 {g['args']}")
         await shot("12_capsule_glass")
+        capk = await pg.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--capk').trim()")
+        check(capk not in ("", "0.3"), f"胶囊按身后底图的亮度自适应加深 --capk={capk}")
         await pg.evaluate("__mock.backdrop = null")
-        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+        await pg.click("#orb"); await pg.wait_for_timeout(800)  # 卡片上不再有 ×（照原型），点小球收起
         m = await pg.evaluate("__mock")
         check(m["size"] == {"w": 96, "h": 96} and m["pos"] == {"x": 300, "y": 700}, "收起后小球回到原位")
         await pg.click("#orb"); await pg.wait_for_timeout(900)
         check(not await pg.evaluate("document.querySelector('#card').classList.contains('glassy')"), "拿不到底图时卡片用不透明的底")
-        await pg.click("#closeBtn"); await pg.wait_for_timeout(800)
+        await pg.click("#orb"); await pg.wait_for_timeout(800)  # 卡片上不再有 ×（照原型），点小球收起
 
         # 12 菜单事件与快捷键事件
         await pg.evaluate("__emit('menu','tasks')"); await pg.wait_for_timeout(900)
@@ -278,12 +299,19 @@ async def main():
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(1000)
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(900)
         check((await pg.evaluate("__mock"))["size"]["w"] == 420, "快捷键呼出")
-        await pg.click("#setBtn"); await pg.wait_for_timeout(200)
-        check((await pg.evaluate("__mock")).get("settingsOpened") == 2, "卡片上的设置按钮打开设置窗口")
+        # 卡片头照原型：没有设置和 ×，⋯ 里是钉住
+        check(await pg.locator("#setBtn, #closeBtn").count() == 0, "卡片头照原型：设置在右键菜单，收起点小球")
+        await pg.click("#moreBtn"); await pg.wait_for_timeout(200)
+        check(await pg.evaluate("document.querySelector('#moreDd').classList.contains('on')"), "⋯ 打开下拉")
+        await shot("12b_more_menu")
+        await pg.click("#moreDd [data-cm=pin]"); await pg.wait_for_timeout(200)
+        check(await pg.is_visible("#pinMark") and await pg.get_attribute("#moreDd [data-cm=pin]", "aria-checked") == "true", "钉住后标题旁出现实心图钉")
+        await pg.click("#pinMark"); await pg.wait_for_timeout(200)
+        check(await pg.is_hidden("#pinMark"), "点图钉取消钉住")
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(800)
         check((await pg.evaluate("__mock"))["size"]["w"] == 96, "快捷键收起")
         await pg.click("#orb", button="right")
-        check((await pg.evaluate("__mock")).get("menuShown"), "右键弹出系统菜单")
+        check((await pg.evaluate("__mock")).get("menuShown"), "右键弹出菜单（自绘玻璃窗口，由程序放到鼠标旁）")
 
         # 13 拖动：贴边吸附
         await pg.evaluate("__mock.pos = {x: 1355, y: 400}; __mock.moved.forEach(f=>f())")
@@ -379,14 +407,14 @@ async def main():
         check(m.get("dragStarted") and m["size"]["w"] == 96, "拖动不会误触展开")
 
         # 14 外观设置：小球大小、眼睛颜色、卡片透明度
-        await pg.evaluate("""() => { Object.assign(__mock.cfg, { orb_size: 84, eye: "#CFE3FF", glass: 50 }); __emit("config"); }""")
+        await pg.evaluate("""() => { Object.assign(__mock.cfg, { orb_size: 84, eye: "#CFE3FF", glass: 20 }); __emit("config"); }""")
         await pg.wait_for_timeout(400)
         look = await pg.evaluate("""() => { const s = getComputedStyle(document.documentElement); return {
             size: __mock.size, orb: document.querySelector('#orb').offsetWidth, eye: s.getPropertyValue('--eye').trim(), tint: s.getPropertyValue('--tint').trim(),
             // 眼睛那一层和它外面那一层一样大才对（两者一起做呼吸动画，所以比的是相对大小）
             face: Math.abs(document.querySelector('.face').getBoundingClientRect().width - document.querySelector('.face').parentElement.getBoundingClientRect().width) }; }""")
         check(look["size"] == {"w": 108, "h": 108} and look["orb"] == 84 and look["face"] < 1, f"小球调大后窗口和眼睛跟着变大 {look}")
-        check(look["eye"] == "#CFE3FF" and look["tint"] == "0.5", "眼睛颜色和卡片透明度生效")
+        check(look["eye"] == "#CFE3FF" and look["tint"] == "0.464", "眼睛颜色和卡片透明度生效（原型墨层 0.58，更通透 +20%）")
         await shot("13_big_orb")
 
         lu = lambda lm: [m for m in lm if m["role"] == "user"][-1]["content"]
@@ -549,6 +577,47 @@ async def main():
 
         check(not errs, "页面无 JS 错误 " + "; ".join(errs))
 
+        # ───────── 右键菜单窗口（原型 #menu） ─────────
+        # 底图：壁纸（铺满 1440×900）里菜单将要盖住的那块（小球旁 1180,420），和 capture.rs 一样缩小 8 倍、模糊、提饱和度
+        from PIL import Image as _I, ImageFilter, ImageEnhance
+        import io
+        _w = _I.open(os.path.join(ROOT, "design-reference", "wallpaper.jpg")).convert("RGB"); _k = max(1440 / _w.width, 900 / _w.height)
+        _w = _w.resize((round(_w.width * _k), round(_w.height * _k))); _ox, _oy = (_w.width - 1440) // 2, (_w.height - 900) // 2
+        _c = ImageEnhance.Color(_w.crop((_ox + 1180, _oy + 420, _ox + 1396, _oy + 725)).resize((54, 76)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
+        _bb = io.BytesIO(); _c.save(_bb, "JPEG", quality=85)
+        sbd_url_small = "data:image/jpeg;base64," + base64.b64encode(_bb.getvalue()).decode()
+        ctxm = await b.new_context(viewport={"width": 216, "height": 305}, device_scale_factor=2)
+        mp = await ctxm.new_page(); merrs = []
+        mp.on("pageerror", lambda e: merrs.append(str(e)))
+        await mp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
+        await mp.goto("file://" + os.path.join(ROOT, "src", "ctxmenu.html")); await mp.wait_for_timeout(200)
+        items = [{"id": "new_chat", "label": "新对话", "check": None, "sep": False}, {"id": "history", "label": "历史记录", "check": None, "sep": False},
+                 {"id": "capture", "label": "截屏提问", "check": None, "sep": False}, {"id": "settings", "label": "设置", "check": None, "sep": False},
+                 {"id": "toggle_ball", "label": "隐藏小球", "check": None, "sep": False}, {"id": "autostart", "label": "开机启动", "check": True, "sep": False},
+                 {"id": "quit", "label": "退出", "check": None, "sep": True}]
+        await mp.evaluate("([it, bd]) => __emit('ctx:show', { items: it, bd })", [items, sbd_url_small])
+        await mp.wait_for_timeout(300)
+        g = await mp.evaluate("""(() => { const m = document.querySelector('#menu'), r = m.getBoundingClientRect();
+            return { labels: [...m.querySelectorAll('button')].map(b => b.firstChild.textContent), hr: m.querySelectorAll('hr').length,
+                     ck: m.querySelector('[data-id=autostart]').getAttribute('aria-checked'), glassy: m.classList.contains('glassy'),
+                     x: r.x, y: r.y, w: r.width, h: Math.round(r.height), bottom: innerHeight - r.bottom, focus: document.activeElement.id }; })()""")
+        check(g["labels"] == ["新对话", "历史记录", "截屏提问", "设置", "隐藏小球", "开机启动", "退出"] and g["hr"] == 1, f"右键菜单：项目照原型顺序（暂只放已有功能）{g['labels']}")
+        check(g["ck"] == "true", "开机启动打勾")
+        check(g["glassy"] and g["x"] == 8 and g["y"] == 8 and g["w"] == 200 and abs(g["bottom"] - 8) <= 1, f"菜单 200 宽、四周留 8 给阴影、窗口大小正好（和 Rust ctx_size 一致）{g}")
+        check(g["focus"] == "menu", "打开后焦点在菜单上，不预先高亮任何一项（同原型）")
+        await mp.screenshot(path=f"{OUT}/14_ctx_menu.png", omit_background=True)
+        await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown")
+        check(await mp.evaluate("document.activeElement.dataset.id") == "capture", "方向键在菜单里移动")
+        await mp.click("[data-id=settings]"); await mp.wait_for_timeout(100)
+        calls = (await mp.evaluate("__mock")).get("ctxActs") or []
+        check(calls == ["settings"], f"点一项：关掉菜单并执行 {calls}")
+        await mp.evaluate("([it, bd]) => __emit('ctx:show', { items: it, bd: null })", [items, None]); await mp.wait_for_timeout(200)
+        check(not await mp.evaluate("document.querySelector('#menu').classList.contains('glassy')"), "拿不到底图：用卡片同款不透明底")
+        await mp.keyboard.press("Escape"); await mp.wait_for_timeout(100)
+        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", ""], "Esc 关掉菜单，什么也不做")
+        check(not merrs, "菜单窗口无 JS 错误 " + "; ".join(merrs))
+        await ctxm.close()
+
         # ───────── 划词工具栏窗口（原型 selBar） ─────────
         ctx3 = await b.new_context(viewport={"width": 420, "height": 200}, device_scale_factor=2)
         bp = await ctx3.new_page(); berrs = []
@@ -595,7 +664,7 @@ async def main():
         await bp.evaluate("__emit('sel:show', {text: '海外支付', app: 'Word', x: 300, y: 300})"); await bp.wait_for_timeout(400)
         gs = await bp.evaluate("""(() => { const e = document.querySelector('#selBar'), r = e.getBoundingClientRect();
             return [e.classList.contains('glassy'), e.style.getPropertyValue('--bd-pos'), -Math.round(r.left) + 'px ' + -Math.round(r.top) + 'px', getComputedStyle(document.documentElement).getPropertyValue('--tint').trim()]; })()""")
-        check(gs[0] and gs[1] == gs[2] and gs[3] == "0.6", f"拿到底图：工具栏垫上模糊的桌面，对齐自己的位置，透明度跟设置·外观 {gs}")
+        check(gs[0] and gs[1] == gs[2] and gs[3] == "0.348", f"拿到底图：工具栏垫上模糊的桌面，对齐自己的位置，透明度跟设置·外观 {gs}")
         await bp.click(".x-selmore"); await bp.wait_for_timeout(250)
         check(await bp.evaluate("document.querySelector('#selDd').classList.contains('glassy')"), "⋯ 菜单也是同一种玻璃")
         await bp.screenshot(path=f"{OUT}/26_selbar_glass.png", omit_background=True)
@@ -618,6 +687,13 @@ async def main():
         # ───────── 设置窗口（单独的窗口，照原型：七个分类、模型库 / 添加模型；能力标签查 models.dev） ─────────
         wall = WALL or os.path.join(ROOT, "design-reference", "wallpaper.jpg")
         wu = "data:image/jpeg;base64," + base64.b64encode(open(wall, "rb").read()).decode()
+        from PIL import Image, ImageFilter, ImageEnhance
+        import io
+        _im = Image.open(wall).convert("RGB"); _k = max(1440 / _im.width, 900 / _im.height)
+        _im = _im.resize((round(_im.width * _k), round(_im.height * _k))); _x, _y = (_im.width - 1440) // 2, (_im.height - 900) // 2
+        _im = ImageEnhance.Color(_im.crop((_x, _y, _x + 1440, _y + 900)).resize((360, 225)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
+        _b = io.BytesIO(); _im.save(_b, "JPEG", quality=85)
+        sbd_url = "data:image/jpeg;base64," + base64.b64encode(_b.getvalue()).decode()
         # 模拟系统亚克力：窗口身后的桌面（原型里设置窗口在 1440×900 的 480,150）模糊后垫在下面，再盖原型舞台的那层暗色
         wall_css = "html{background:#111} body::before{content:'';position:fixed;inset:-40px;background:url(" + wu + ") -440px -110px/1440px 900px no-repeat;filter:blur(24px) saturate(165%);z-index:-1} body::after{content:'';position:fixed;inset:0;background:rgba(6,4,24,.4);z-index:-1}"
         # 服务商 logo 用 CSS mask 加载，file:// 下会被跨域拦掉；真实程序是同源的，这里起个本地 http 服务
@@ -633,7 +709,11 @@ async def main():
             sp.on("pageerror", lambda e: serrs.append(str(e)))
             sp.on("console", lambda m: m.type == "error" and serrs.append(m.text))
             await sp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
-            await sp.add_init_script(f"window.__mock.cfg.platform = '{plat}'")
+            await sp.add_init_script(f"window.__mock.cfg.platform = '{plat}'; window.__mock.cfg.fx = {'true' if plat == 'macos' else 'false'}")
+            if plat == "windows":
+                # Windows 不用亚克力：程序在窗口出现前截下整块屏幕（缩小 8 倍、模糊），页面按窗口位置垫在墨层下面。
+                # 这里拿同一张壁纸做一张同样的小图，屏幕 1440×900（2 倍像素），窗口在 480,150
+                await sp.add_init_script("window.__mock.settingsBd = { url: " + json.dumps(sbd_url) + ", x: 0, y: 0, w: 2880, h: 1800 }; window.__mock.pos = { x: 480, y: 150 };")
             await sp.goto(base_url + "/settings.html")
             await sp.add_style_tag(content=wall_css)
             await sp.wait_for_timeout(400)
@@ -645,7 +725,18 @@ async def main():
             mock = lambda: sp.evaluate("__mock")
             P = f"[{plat}] "
             bc = await sp.get_attribute("body", "class") or ""
-            check("fx" in bc and (("win" in bc) == (plat == "windows")), P + f"平台样式 ({bc})")
+            check((("fx" in bc.split()) == (plat == "macos")) and (("win" in bc) == (plat == "windows")), P + f"平台样式 ({bc})")
+            if plat == "windows":
+                g = await sp.evaluate("[document.body.className, getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundImage, getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundPosition]")
+                check("bd" in g[0].split() and "url(" in g[1] and "-480px -150px" in g[2], P + f"设置窗口用截图玻璃，按窗口位置对齐 {g[2]}")
+                # 拖到别的地方：底图跟着挪；挪出这块屏幕就用不透明的墨色底
+                await sp.evaluate("__mock.moved.forEach(f => f({ payload: { x: 400, y: 200 } }))"); await sp.wait_for_timeout(150)
+                g = await sp.evaluate("getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundPosition")
+                check("-200px -100px" in g, P + f"拖动设置窗口时玻璃底图跟着挪 {g}")
+                await sp.evaluate("__mock.moved.forEach(f => f({ payload: { x: 4000, y: 200 } }))"); await sp.wait_for_timeout(150)
+                g = await sp.evaluate("[document.body.className, getComputedStyle(document.querySelector('.x-win.x-setw')).backgroundImage]")
+                check("bd" not in g[0].split() and "url(" not in g[1] and "linear-gradient" in g[1], P + f"挪到没截过的屏幕上用不透明底 {g[0]}")
+                await sp.evaluate("__mock.moved.forEach(f => f({ payload: { x: 960, y: 300 } }))"); await sp.wait_for_timeout(150)
             check(await sp.get_attribute(".x-wh", "data-tauri-drag-region") is not None, P + "去掉系统标题栏后自己画了一条可拖动的标题栏")
             check((await mock()).get("catalogRefresh") == 1, P + "打开设置时检查模型资料更新")
             # S1 模型库是空的：直接进「添加模型」（原型：首次引导 → 去设置）

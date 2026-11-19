@@ -33,6 +33,22 @@ pub fn backdrop_at(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Result<S
     blur_region(DynamicImage::ImageRgba8(img), x, y, w, h)
 }
 
+/// 设置窗口的玻璃底：整块屏幕缩到八分之一、模糊、提饱和度。x、y、w、h 是这块屏幕的物理像素位置和大小，
+/// 页面按自己窗口的位置把对应那一块露出来。
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct ScreenBackdrop { pub url: String, pub x: i32, pub y: i32, pub w: u32, pub h: u32 }
+
+#[cfg(windows)]
+pub fn screen_backdrop(px: i32, py: i32) -> Result<ScreenBackdrop, String> {
+    let monitor = xcap::Monitor::from_point(px, py)
+        .or_else(|_| xcap::Monitor::all().map_err(|e| e.to_string())?.into_iter().next().ok_or_else(|| "没有找到显示器".to_string()))
+        .map_err(|e| e.to_string())?;
+    let (x, y) = (monitor.x().map_err(|e| e.to_string())?, monitor.y().map_err(|e| e.to_string())?);
+    let img = monitor.capture_image().map_err(|e| e.to_string())?;
+    let (w, h) = (img.width(), img.height());
+    Ok(ScreenBackdrop { url: blur_region(DynamicImage::ImageRgba8(img), 0, 0, w, h)?, x, y, w, h })
+}
+
 /// 取出一块、缩到八分之一再模糊：图很小，又快又省内存，放大回去正好是毛玻璃的糊。
 #[cfg(any(windows, test))]
 pub fn blur_region(img: DynamicImage, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
@@ -46,7 +62,25 @@ pub fn blur_region(img: DynamicImage, x: i32, y: i32, w: u32, h: u32) -> Result<
         .crop_imm(x as u32, y as u32, w, h)
         .resize_exact(w / 8, h / 8, FilterType::Triangle)
         .blur(2.5);
-    encode(small)
+    encode(saturate(small, 1.65))
+}
+
+/// 照原型 .x-glassy 的 backdrop-filter: saturate(165%)：按 CSS 滤镜规范的饱和度矩阵调色，让透过玻璃的桌面颜色更鲜一点
+#[cfg(any(windows, test))]
+pub fn saturate(img: DynamicImage, s: f32) -> DynamicImage {
+    let mut rgb = img.to_rgb8();
+    let m = [
+        [0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s],
+        [0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s],
+        [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s],
+    ];
+    for p in rgb.pixels_mut() {
+        let [r, g, b] = [p[0] as f32, p[1] as f32, p[2] as f32];
+        for (i, row) in m.iter().enumerate() {
+            p[i] = (row[0] * r + row[1] * g + row[2] * b).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    DynamicImage::ImageRgb8(rgb)
 }
 
 pub fn encode(img: DynamicImage) -> Result<String, String> {
@@ -85,6 +119,17 @@ pub fn read_text_file(path: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saturate_keeps_grey_and_boosts_color() {
+        let mut img = image::RgbImage::new(2, 1);
+        img.put_pixel(0, 0, image::Rgb([128, 128, 128]));
+        img.put_pixel(1, 0, image::Rgb([200, 120, 100]));
+        let out = saturate(DynamicImage::ImageRgb8(img), 1.65).to_rgb8();
+        assert_eq!(out.get_pixel(0, 0).0, [128, 128, 128]);
+        let p = out.get_pixel(1, 0).0;
+        assert!(p[0] > 200 && p[2] < 100, "{p:?}");
+    }
 
     #[test]
     fn encode_downscales() {

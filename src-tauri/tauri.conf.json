@@ -30,6 +30,23 @@
         "acceptFirstMouse": true
       },
       {
+        "label": "ctxmenu",
+        "title": "悬浮球菜单",
+        "url": "ctxmenu.html",
+        "width": 216,
+        "height": 305,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "visible": false,
+        "visibleOnAllWorkspaces": true,
+        "acceptFirstMouse": true
+      },
+      {
         "label": "selbar",
         "title": "划词工具栏",
         "url": "selbar.html",

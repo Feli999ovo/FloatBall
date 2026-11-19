@@ -154,6 +154,15 @@ try {
   Say '收起后'
   Shot '07_收起后'
 
+  # 右键小球：自绘玻璃菜单（ctxmenu 窗口）；截完按 Esc 关掉
+  [void][FloatBall.Desk]::SetCursorPos($cx, $cy); Start-Sleep -Milliseconds 150
+  [FloatBall.Desk]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 90   # 右键按下
+  [FloatBall.Desk]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero)                                  # 右键松开
+  Start-Sleep -Milliseconds 1200
+  Say '右键菜单'
+  Shot '07b_右键菜单'
+  [System.Windows.Forms.SendKeys]::SendWait('{ESC}'); Start-Sleep -Milliseconds 600
+
   # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
   Start-Process -FilePath $Exe -ArgumentList '--settings'
   Start-Sleep -Seconds 8

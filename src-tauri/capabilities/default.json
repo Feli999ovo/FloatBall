@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "settings",
-    "selbar"
+    "selbar",
+    "ctxmenu"
   ],
   "permissions": [
     "core:default",

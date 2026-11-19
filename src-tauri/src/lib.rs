@@ -43,6 +43,8 @@ pub struct AppState {
     shortcuts: Mutex<Vec<(Shortcut, &'static str)>>,
     /// 最近出现过划词的应用（设置页「添加应用」时给候选）
     sel_recent: Mutex<Vec<String>>,
+    /// 设置窗口的玻璃底图：打开窗口之前截下整块屏幕、缩小模糊（见 open_settings_window）
+    settings_bd: Mutex<Option<capture::ScreenBackdrop>>,
 }
 
 impl AppState {
@@ -104,8 +106,34 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
     v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
     v["platform"] = json!(std::env::consts::OS);
+    // fx：系统自带的毛玻璃（只有 macOS 用；Windows 的亚克力在 Server、远程桌面、省电模式下会变成一块灰，改用和卡片同一种截图玻璃）
+    v["fx"] = json!(cfg!(target_os = "macos") && system_glass());
     v["catalog_date"] = json!(state.catalog.lock().unwrap().fetched.clone());
     v
+}
+
+/// 系统毛玻璃能不能用：macOS 总能；Windows 要看「设置 → 个性化 → 颜色 → 透明效果」，关掉时亚克力会变成一块灰，
+/// 这时设置窗口不铺亚克力，改用不透明的墨色底（settings.css 的 body:not(.fx)）。Linux 没有。
+fn system_glass() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+        let key: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0".encode_utf16().collect();
+        let name: Vec<u16> = "EnableTransparency\0".encode_utf16().collect();
+        let mut v: u32 = 1;
+        let mut n = std::mem::size_of::<u32>() as u32;
+        // 读不到（老系统没有这个值）就当开着，和系统默认一致
+        let r = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), &mut v as *mut u32 as *mut _, &mut n) };
+        r != 0 || v != 0
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        false
+    }
 }
 
 /// 存盘，并告诉小球窗口设置变了
@@ -438,26 +466,43 @@ fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
             let _ = w.set_focus();
             return;
         }
-        // 去掉系统标题栏（界面里自己画），窗口透明，后面铺系统自带的毛玻璃：Windows 用亚克力，macOS 用系统材质。
-        // Linux 没有这个效果，保留系统标题栏和不透明的底。
+        // Windows：和对话卡片同一种玻璃。窗口还没出现，先截下鼠标所在的整块屏幕、缩小模糊，
+        // 页面把它按窗口位置垫在墨层下面，拖动时跟着挪（见 settings.js 的 placeBackdrop）。
+        // 「透明效果」被用户关掉时不截，用不透明的墨色底。
+        #[cfg(windows)]
+        if system_glass() {
+            let at = app.cursor_position().map(|p| (p.x as i32, p.y as i32)).unwrap_or((0, 0));
+            let bd = capture::screen_backdrop(at.0, at.1).map_err(|e| log::warn!("设置窗口底图：{e}")).ok();
+            if let Some(st) = app.try_state::<AppState>() {
+                *st.settings_bd.lock().unwrap() = bd;
+            }
+        }
+        // 去掉系统标题栏（界面里自己画），窗口透明。macOS 后面铺系统材质；Linux 保留系统标题栏和不透明的底。
         let b = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
             .title("悬浮球设置")
             .inner_size(480.0, 600.0)
             .min_inner_size(440.0, 480.0)
             .center();
         #[cfg(any(windows, target_os = "macos"))]
-        use tauri::{utils::config::WindowEffectsConfig, window::Effect};
-        #[cfg(any(windows, target_os = "macos"))]
-        let b = b.decorations(false).transparent(true).shadow(true).effects(WindowEffectsConfig {
-            effects: vec![Effect::Acrylic, Effect::HudWindow],
-            radius: Some(12.0),
-            ..Default::default()
-        });
+        let b = b.decorations(false).transparent(true).shadow(true);
+        #[cfg(target_os = "macos")]
+        let b = if system_glass() {
+            use tauri::{utils::config::WindowEffectsConfig, window::Effect};
+            b.effects(WindowEffectsConfig { effects: vec![Effect::HudWindow], radius: Some(12.0), ..Default::default() })
+        } else {
+            b
+        };
         let built = b.build();
         if let Err(e) = built {
             log::error!("settings window: {e}");
         }
     });
+}
+
+/// 设置窗口取走它的玻璃底图（只取一次，图只在内存里）
+#[tauri::command]
+fn settings_backdrop(state: State<'_, AppState>) -> Option<capture::ScreenBackdrop> {
+    state.settings_bd.lock().unwrap().take()
 }
 
 // ───────── 划词工具栏 ─────────
@@ -846,10 +891,97 @@ fn on_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
     }
 }
 
+/// 右键菜单：照原型 .x-menu，自绘在一个透明小窗口（ctxmenu.html）里，和卡片同一种玻璃。
+/// 项目先放程序已有的功能；以后的功能 PR 再往 ctx_items 里加。
+#[derive(Serialize, Clone)]
+struct CtxItem { id: &'static str, label: &'static str, check: Option<bool>, sep: bool }
+
+fn ctx_items<R: Runtime>(app: &AppHandle<R>) -> Vec<CtxItem> {
+    let auto = app.autolaunch().is_enabled().unwrap_or(false);
+    let it = |id, label| CtxItem { id, label, check: None, sep: false };
+    vec![
+        it("new_chat", "新对话"),
+        it("history", "历史记录"),
+        it("capture", "截屏提问"),
+        it("settings", "设置"),
+        it("toggle_ball", "隐藏小球"),
+        CtxItem { id: "autostart", label: "开机启动", check: Some(auto), sep: false },
+        CtxItem { id: "quit", label: "退出", check: None, sep: true },
+    ]
+}
+
+/// 菜单窗口的逻辑大小：原型 .x-menu 宽 200、上下各 6 内边距、每项 38、分隔线 11；四周留 8 给阴影
+const CTX_PAD: f64 = 8.0;
+fn ctx_size(items: &[CtxItem]) -> (f64, f64) {
+    let seps = items.iter().filter(|i| i.sep).count() as f64;
+    (200.0 + CTX_PAD * 2.0, 12.0 + 38.0 * items.len() as f64 + 11.0 * seps + CTX_PAD * 2.0)
+}
+
+/// 放在鼠标右下方；右边或下边放不下就翻到左边、上边（和系统菜单一样）。返回物理像素的 (左, 上, 宽, 高)
+fn ctx_rect(cx: f64, cy: f64, w: f64, h: f64, mon: (f64, f64, f64, f64)) -> (f64, f64) {
+    let (mx, my, mw, mh) = mon;
+    let x = if cx + w > mx + mw { (cx - w).max(mx) } else { cx };
+    let y = if cy + h > my + mh { (cy - h).max(my) } else { cy };
+    (x, y)
+}
+
+#[derive(Serialize, Clone)]
+struct CtxShow { items: Vec<CtxItem>, bd: Option<String> }
+
 #[tauri::command]
-fn show_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
-    let menu = build_menu(&app, false).map_err(|e| e.to_string())?;
-    window.popup_menu(&menu).map_err(|e| e.to_string())
+async fn show_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    let Some(menu) = app.get_webview_window("ctxmenu") else {
+        // 没有菜单窗口（不该发生）：退回系统菜单
+        let m = build_menu(&app, false).map_err(|e| e.to_string())?;
+        return window.popup_menu(&m).map_err(|e| e.to_string());
+    };
+    let items = ctx_items(&app);
+    let c = app.cursor_position().map_err(|e| e.to_string())?;
+    let mon = app.monitor_from_point(c.x, c.y).ok().flatten().or_else(|| window.current_monitor().ok().flatten());
+    // 翻向按工作区算（不压住任务栏 / Dock）；截底图按整块显示器的坐标算
+    let (sf, mrect, work) = match &mon {
+        Some(m) => {
+            let (wp, wz) = (m.work_area().position, m.work_area().size);
+            (m.scale_factor(), (m.position().x as f64, m.position().y as f64), (wp.x as f64, wp.y as f64, wz.width as f64, wz.height as f64))
+        }
+        None => (1.0, (0.0, 0.0), (c.x - 4000.0, c.y - 4000.0, 8000.0, 8000.0)),
+    };
+    let (lw, lh) = ctx_size(&items);
+    let (w, h) = (lw * sf, lh * sf);
+    // 菜单的左上角（不含阴影边）对准鼠标
+    let (x, y) = ctx_rect(c.x - CTX_PAD * sf, c.y - CTX_PAD * sf, w, h, work);
+    let _ = menu.set_size(tauri::PhysicalSize::new(w.round() as u32, h.round() as u32));
+    let _ = menu.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
+    #[cfg(windows)]
+    let bd = {
+        let (bx, by) = ((x - mrect.0).round() as i32, (y - mrect.1).round() as i32);
+        let (bw, bh) = (w.round() as u32, h.round() as u32);
+        let (px, py) = ((x + w / 2.0) as i32, (y + h / 2.0) as i32);
+        let shot = tauri::async_runtime::spawn_blocking(move || capture::backdrop_at(px, py, bx, by, bw, bh));
+        match tokio::time::timeout(std::time::Duration::from_millis(250), shot).await {
+            Ok(Ok(Ok(url))) => Some(url),
+            _ => None,
+        }
+    };
+    #[cfg(not(windows))]
+    let bd = None;
+    let _ = app.emit_to("ctxmenu", "ctx:show", CtxShow { items, bd });
+    let _ = app.emit_to("main", "ctx", true);
+    menu.show().map_err(|e| e.to_string())?;
+    let _ = menu.set_focus();
+    Ok(())
+}
+
+/// 菜单里点了一项（或点别处、Esc 关掉时 id 为空）
+#[tauri::command]
+fn ctx_act(app: AppHandle, id: String) {
+    if let Some(m) = app.get_webview_window("ctxmenu") {
+        let _ = m.hide();
+    }
+    let _ = app.emit_to("main", "ctx", false);
+    if !id.is_empty() {
+        on_menu(&app, &id);
+    }
 }
 
 #[tauri::command]
@@ -975,6 +1107,7 @@ pub fn run() {
                 asks: Arc::new(agent::Asks::default()),
                 shortcuts: Mutex::new(vec![]),
                 sel_recent: Mutex::new(vec![]),
+                settings_bd: Mutex::new(None),
             });
             let handle = app.handle().clone();
             refresh_catalog(&handle, false);
@@ -1013,7 +1146,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
+            save_prefs, settings_backdrop, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,
@@ -1033,7 +1166,7 @@ pub fn run() {
             capture_screen,
             backdrop,
             read_text_file,
-            show_context_menu,
+            show_context_menu, ctx_act,
             hide_ball,
             js_log,
             transcribe
@@ -1058,5 +1191,26 @@ mod tests {
         let out = prepare_messages(" ", true, msgs);
         assert_eq!(out.len(), 1);
         assert!(out[0]["content"].is_array());
+    }
+}
+
+#[cfg(test)]
+mod ctx_tests {
+    use super::*;
+    #[test]
+    fn ctx_menu_flips_near_edges() {
+        let mon = (0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(ctx_rect(100.0, 100.0, 216.0, 300.0, mon), (100.0, 100.0));
+        assert_eq!(ctx_rect(1800.0, 100.0, 216.0, 300.0, mon), (1584.0, 100.0));
+        assert_eq!(ctx_rect(100.0, 1000.0, 216.0, 300.0, mon), (100.0, 700.0));
+        // 第二块屏幕在左边（负坐标）
+        assert_eq!(ctx_rect(-50.0, 10.0, 216.0, 300.0, (-1920.0, 0.0, 1920.0, 1080.0)), (-266.0, 10.0));
+    }
+    #[test]
+    fn ctx_menu_size_matches_prototype() {
+        let it = |sep| CtxItem { id: "a", label: "a", check: None, sep };
+        // 7 项、1 条分隔线：12 + 38×7 + 11 = 289，加阴影边 16
+        let items: Vec<_> = (0..7).map(|i| it(i == 6)).collect();
+        assert_eq!(ctx_size(&items), (216.0, 305.0));
     }
 }
