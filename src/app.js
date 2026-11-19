@@ -726,8 +726,7 @@ function run() {
   ch.onmessage = (ev) => {
     if (S.busy !== id) return;
     if (ev.type === "delta") {
-      if (!out) mood("work");
-      out += ev.text; seg += ev.text;
+      out += ev.text; seg += ev.text; // 说话时保持思考的光点（照原型：流式输出时是 think）
       if (!raf) raf = requestAnimationFrame(paint);
     } else if (ev.type === "tool") {
       toolPill(el, ev);
@@ -761,7 +760,7 @@ function run() {
       S.msgs.push({ role: "assistant", content: out });
       invoke("history_append", { convId: S.convId, role: "assistant", content: out }).catch(() => {});
       setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
-      mood("done", 1800);
+      mood("done", 1500);
       vcSpeak(el, out);
       if (!S.open) { poke(); showPeek(out || "回复好了"); }
     } else if (ev.type === "error") {

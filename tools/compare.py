@@ -23,6 +23,8 @@ PAIRS = [
     # 小球表情：原型点「状态预览」里的按钮；程序直接切 #orb 的状态类（真实流程见 test_ui：确认卡 → 等你 + 「!」）
     ("小球等你", ["[data-s=wait]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-wait','need')"]),
     ("小球需要确认", ["[data-s=confirm]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-confirm')"]),
+    ("小球说话", ["[data-s=think]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-think')"]),
+    ("小球完成", ["[data-s=done]", "wait:300"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-done')"]),
     # 多 Agent（B1）：原型点「多 Agent」演示，等它跑到第 2 步；程序用 mock 的 team 事件，停在第 2 步进行中
     ("多Agent计划卡", ["#teamBtn", "wait:3600"], ["#orb", "js:" + "__TEAM__", "team"]),
     ("预算暂停卡", ["#budgetBtn", "wait:6000"], ["#orb", "js:" + "__BUDGET__", "team", "wait:1500"]),
