@@ -55,7 +55,7 @@ async def main():
         check("flip-x" in bodycls, f"小球在右侧时卡片向左展开 ({bodycls})")
         eyes = await pg.evaluate("(() => { const o = document.querySelector('#orb').getBoundingClientRect(), b = document.querySelector('#bar').getBoundingClientRect(), a = document.querySelector('#ask').getBoundingClientRect(); return [o.left - b.left, a.left > o.right]; })()")
         check(abs(eyes[0]) < 1 and eyes[1], f"往左长时眼睛在胶囊左头、输入框在右边（照原型） {eyes}")
-        check(m["pos"]["x"] + 420 <= 1440, f"展开后不超出屏幕右边 x={m['pos']['x']}")
+        check(m["pos"]["x"] + 364 <= 1440, f"展开后不超出屏幕右边 x={m['pos']['x']}")
 
         # 2 设置窗口里加好了模型：小球窗口收到通知，提示换成正常的引导
         await pg.evaluate("""() => {
@@ -287,13 +287,18 @@ async def main():
             check(m["pos"]["y"] >= 50 and m["pos"]["y"] + m["size"]["h"] <= 875, f"{name} 不超出工作区 y={m['pos']['y']}")
             await shot(name)
             await pg.click("#orb"); await pg.wait_for_timeout(400)  # 卡片上不再有 ×（照原型），点小球收起
+        await pg.evaluate("__mock.pos = {x: 600, y: 420}")
+        await pg.click("#orb"); await pg.wait_for_timeout(900)
+        mid = await pg.evaluate("(() => { const b = document.querySelector('#bar').getBoundingClientRect(), c = document.querySelector('#card').getBoundingClientRect(); return [document.body.classList.contains('flip-y'), c.bottom <= b.top]; })()")
+        check(mid == [True, True], f"小球在屏幕中部时卡片在胶囊上方（照原型） {mid}")
+        await pg.click("#orb"); await pg.wait_for_timeout(500)
 
         # 11b 拿不到显示器信息时仍能展开
         await pg.evaluate("__mock.monitorFails = true; __mock.pos = {x: 300, y: 200}")
         await pg.click("#orb"); await pg.wait_for_timeout(500)
         mm = await pg.evaluate("[__mock.size, __mock.pos, document.body.className, screen.availWidth, screen.availHeight, innerWidth, innerHeight]")
         print("   monitorFails:", mm)
-        check(mm[0]["w"] == 420, "拿不到显示器信息也能展开")
+        check(mm[0]["w"] == 364, "拿不到显示器信息也能展开")
         await pg.click("#orb"); await pg.wait_for_timeout(400)  # 卡片上不再有 ×（照原型），点小球收起
         await pg.evaluate("__mock.monitorFails = false")
         errs[:] = [e for e in errs if "currentMonitor" not in e]
@@ -320,7 +325,7 @@ async def main():
         check(pk["size"]["w"] > 96 and abs(ox - before["x"]) < 1 and abs(oy - before["y"]) < 1, f"冒泡时窗口临时变大，小球留在原地 {pk} {before}")
         await shot("11a2_peek")
         await pg.click("#peek"); await pg.wait_for_timeout(1000)
-        check((await pg.evaluate("__mock"))["size"]["w"] == 420 and await pg.is_visible("#vChat"), "点气泡打开对话")
+        check((await pg.evaluate("__mock"))["size"]["w"] == 364 and await pg.is_visible("#vChat"), "点气泡打开对话")
         await pg.click("#orb"); await pg.wait_for_timeout(800)  # 卡片上不再有 ×（照原型），点小球收起
         await pg.evaluate("showPeek('好了')"); await pg.wait_for_timeout(600)
         await pg.evaluate("hidePeek()"); await pg.wait_for_timeout(700)
@@ -342,13 +347,15 @@ async def main():
         await pg.click("#orb"); await pg.wait_for_timeout(900)
         g = await pg.evaluate("""() => {
             const bar = document.querySelector('#bar').getBoundingClientRect(), card = document.querySelector('#card');
-            return { barW: Math.round(bar.width), barTop: bar.top, cardBottom: card.getBoundingClientRect().bottom,
+            const cr = card.getBoundingClientRect();
+            return { barW: Math.round(bar.width), cardW: Math.round(cr.width), cardH: Math.round(cr.height), barTop: bar.top, cardBottom: card.getBoundingClientRect().bottom,
                      cls: document.body.className, glassy: card.classList.contains('glassy'), args: __mock.backdropArgs, pos: __mock.pos };
         }""")
-        check(g["barW"] == 396, f"展开后小球拉长成和窗口一样宽的胶囊 {g['barW']}")
+        check(g["barW"] == 288, f"展开后胶囊照原型 288 长，不跟窗口宽 {g['barW']}")
+        check(g["cardW"] == 340 and g["cardH"] == 260, f"卡片照原型 340×260 {g['cardW']}×{g['cardH']}")
         check("flip-y" in g["cls"] and g["cardBottom"] <= g["barTop"], "上方放得下时卡片在胶囊上方")
-        check(g["pos"] == {"x": 300, "y": 196}, f"卡片在上方时小球留在原地（窗口往上长） {g['pos']}")
-        check(g["glassy"] and g["args"]["w"] == 840 and g["args"]["h"] == 1200 and g["args"]["y"] == 392, f"展开前截下窗口后面的桌面当毛玻璃底 {g['args']}")
+        check(g["pos"] == {"x": 274, "y": 432}, f"卡片在上方时小球留在原地（窗口往上长） {g['pos']}")
+        check(g["glassy"] and g["args"]["w"] == 728 and g["args"]["h"] == 728 and g["args"]["y"] == 864, f"展开前截下窗口后面的桌面当毛玻璃底 {g['args']}")
         await shot("12_capsule_glass")
         capk = await pg.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--capk').trim()")
         check(capk not in ("", "0.3"), f"胶囊按身后底图的亮度自适应加深 --capk={capk}")
@@ -362,10 +369,10 @@ async def main():
 
         # 12 菜单事件与快捷键事件
         await pg.evaluate("__emit('menu','tasks')"); await pg.wait_for_timeout(900)
-        check(not await pg.is_hidden("#vTask") and (await pg.evaluate("__mock"))["size"]["w"] == 420, "快捷键「打开任务」")
+        check(not await pg.is_hidden("#vTask") and (await pg.evaluate("__mock"))["size"]["w"] == 364, "快捷键「打开任务」")
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(1000)
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(900)
-        check((await pg.evaluate("__mock"))["size"]["w"] == 420, "快捷键呼出")
+        check((await pg.evaluate("__mock"))["size"]["w"] == 364, "快捷键呼出")
         # 卡片头照原型：没有设置和 ×，⋯ 里是钉住
         check(await pg.locator("#setBtn, #closeBtn").count() == 0, "卡片头照原型：设置在右键菜单，收起点小球")
         await pg.click("#moreBtn"); await pg.wait_for_timeout(200)
@@ -403,7 +410,7 @@ async def main():
         await pg.evaluate("__mock.cfg.auto_dock = true; __emit('config')"); await pg.wait_for_timeout(500)
         # 贴着边点开：卡片从完整露出的位置展开，收起后贴回去
         await pg.click("#orb"); await pg.wait_for_timeout(900)
-        check(not await pg.evaluate("orb.classList.contains('docked')") and (await pg.evaluate("__mock"))["size"]["w"] == 420, "贴边时点开正常展开")
+        check(not await pg.evaluate("orb.classList.contains('docked')") and (await pg.evaluate("__mock"))["size"]["w"] == 364, "贴边时点开正常展开")
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(1200)
         m = await pg.evaluate("__mock")
         check(abs(m["pos"]["x"] - (1440 - 12 - 72 * 0.9)) < 0.01 and await pg.evaluate("orb.classList.contains('docked')"), f"收起后贴回边上 x={m['pos']['x']}")
@@ -422,7 +429,7 @@ async def main():
         await pg.mouse.move(5, 5); await pg.wait_for_timeout(100)
         await pg.hover("#orb"); await pg.wait_for_timeout(900)
         await pg.click("#hvq [aria-label='历史记录']"); await pg.wait_for_timeout(1200)
-        check(not await pg.is_hidden("#vHist") and (await pg.evaluate("__mock"))["size"]["w"] == 420, "点小泡「历史记录」打开历史")
+        check(not await pg.is_hidden("#vHist") and (await pg.evaluate("__mock"))["size"]["w"] == 364, "点小泡「历史记录」打开历史")
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(1000)
         # 小泡弹出时直接点小球（Windows 真机截图里的做法）：等小泡收完再展开，卡片不被缩回去的窗口截掉
         await pg.mouse.move(5, 5); await pg.wait_for_timeout(100)
@@ -430,7 +437,7 @@ async def main():
         assert await pg.evaluate("hv.shown")
         await pg.click("#orb"); await pg.wait_for_timeout(1500)
         m = await pg.evaluate("__mock")
-        check(await pg.evaluate("S.open") and m["size"]["w"] == 420 and not await pg.evaluate("document.body.classList.contains('hovering')"), f"小泡弹出时点小球：照常展开成卡片 {m['size']}")
+        check(await pg.evaluate("S.open") and m["size"]["w"] == 364 and not await pg.evaluate("document.body.classList.contains('hovering')"), f"小泡弹出时点小球：照常展开成卡片 {m['size']}")
         await pg.evaluate("__emit('menu','toggle')"); await pg.wait_for_timeout(1000)
         await pg.evaluate("__mock.cfg.hover.on = false; __emit('config')"); await pg.wait_for_timeout(300)
         await pg.mouse.move(5, 5); await pg.hover("#orb"); await pg.wait_for_timeout(900)

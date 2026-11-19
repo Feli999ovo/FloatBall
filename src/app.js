@@ -20,7 +20,10 @@ const ask = $("#ask");
 // 尺寸（逻辑像素）
 const PAD = 12;
 let SMALL = 72 + PAD * 2; // 收起时的窗口边长 = 小球直径 + 两边留白；小球大小在设置里能改（见 applyLook）
-const BIG_W = 420, BIG_H = 600;
+// 展开后照原型：卡片 340×260，胶囊 288 长；卡片在胶囊上居中，所以小球那一侧多出 OVER
+const CARD_W = 340, CARD_H = 260, CAP_W = 288, OVER = (CARD_W - CAP_W) / 2;
+const BIG_W = CARD_W + PAD * 2;
+const bigH = () => PAD * 2 + (SMALL - PAD * 2) + 8 + CARD_H; // 留白 + 胶囊（小球高）+ 间距 + 卡片
 
 const S = {
   open: false,
@@ -149,12 +152,10 @@ async function expand(view) {
     const a = await monitorArea();
     const cx = S.anchor.x + SMALL / 2;
     const flipX = cx > a.x + a.w / 2;
-    // 卡片优先放在胶囊上方（和设计稿一样）；上面放不下时，哪边地方大放哪边。
-    // 两边都放不下完整的卡片就把卡片缩短，小球留在原地不动；实在太挤（不到 360）才挪窗口。
-    const above = S.anchor.y + SMALL - a.y - 4, below = a.y + a.h - S.anchor.y - 4;
-    const flipY = above >= BIG_H || above > below;
-    const h = Math.max(360, Math.min(BIG_H, flipY ? above : below));
-    let x = flipX ? S.anchor.x + SMALL - BIG_W : S.anchor.x;
+    // 卡片放在胶囊上方（照原型）；只有贴着屏幕顶、上面放不下时才翻到下面。两边都放不下就挪窗口
+    const h = bigH(), above = S.anchor.y + SMALL - a.y - 4, below = a.y + a.h - S.anchor.y - 4;
+    const flipY = above >= h || above > below;
+    let x = flipX ? S.anchor.x + SMALL + OVER - BIG_W : S.anchor.x - OVER;
     let y = flipY ? S.anchor.y + SMALL - h : S.anchor.y;
     x = Math.max(a.x + 4, Math.min(x, a.x + a.w - BIG_W - 4));
     y = Math.max(a.y + 4, Math.min(y, a.y + a.h - h - 4));
@@ -164,6 +165,7 @@ async function expand(view) {
     await reshape(BIG_W, h, x, y, flipX || flipY, () => {
       body.classList.toggle("flip-x", flipX);
       body.classList.toggle("flip-y", flipY);
+      body.classList.add("big");
     });
     void body.offsetWidth; // 让小球先在新版面里排好，胶囊才是从小球的位置开始拉长
     S.open = true;
@@ -190,7 +192,7 @@ async function collapse() {
     await new Promise((r) => setTimeout(r, 340)); // 等胶囊缩回小球
     const flipped = body.classList.contains("flip-x") || body.classList.contains("flip-y");
     const p = S.anchor || (await winPos());
-    await reshape(SMALL, SMALL, p.x, p.y, flipped, () => body.classList.remove("flip-x", "flip-y"));
+    await reshape(SMALL, SMALL, p.x, p.y, flipped, () => body.classList.remove("flip-x", "flip-y", "big"));
     if (!S.busy) mood("idle");
   } finally { morphing = false; }
   if (S.redock) { S.redock = 0; settle(); } // 展开前贴着边：缩回后贴回去
@@ -251,7 +253,7 @@ async function settle() {
     const flipX = body.classList.contains("flip-x"), flipY = body.classList.contains("flip-y");
     const size = await appWin.outerSize(), s = await appWin.scaleFactor();
     const w = size.width / s, h = size.height / s;
-    S.anchor = { x: flipX ? p.x + w - SMALL : p.x, y: flipY ? p.y + h - SMALL : p.y };
+    S.anchor = { x: flipX ? p.x + w - SMALL - OVER : p.x + OVER, y: flipY ? p.y + h - SMALL : p.y };
     invoke("save_position", S.anchor).catch(() => {});
     return;
   }
