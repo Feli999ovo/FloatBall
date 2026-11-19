@@ -28,7 +28,8 @@ body.flip-y #app { flex-direction: column-reverse; }
 #bar { position: relative; display: flex; align-items: center; width: 100%; height: var(--orb); flex: none; align-self: flex-start;
   transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
 body.collapsed #bar { width: var(--orb); transition-duration: 0.32s; }
-body.flip-x #bar { align-self: flex-end; flex-direction: row-reverse; }
+/* 往左长时小球（眼睛）跟着胶囊左端走，展开后眼睛总在左头、输入框在右边（照原型）；收起时再滑回右边原位 */
+body.flip-x #bar { align-self: flex-end; }
 body.resizing #app { visibility: hidden; }
 /* 裁成胶囊形：缩回小球的途中，玻璃边两头不能再缩，会比底宽出一截，不裁就露出一个空心的圈 */
 .cap { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 99px; opacity: 0; transition: opacity 0.15s 0.3s; }
@@ -40,7 +41,6 @@ body:not(.collapsed) .cap { opacity: 1; transition: opacity 0.1s; }
 /* 玻璃边：素材里自带输入框那一圈轮廓。两头（左边含眼睛的位置和输入框的左端）不变形，只拉伸中间的直线段。 */
 .cap-glass { position: absolute; inset: 0; border: solid transparent; border-width: 0 calc(var(--orb) * 0.595) 0 calc(var(--orb) * 0.982);
   border-image: url(assets/capsule.png) 0 100 0 165 fill / 0 calc(var(--orb) * 0.595) 0 calc(var(--orb) * 0.982) stretch; }
-body.flip-x .cap { transform: scaleX(-1); }
 
 /* ───────── 小球 ───────── */
 #orb { position: relative; z-index: 2; width: var(--orb); height: var(--orb); flex: none; border-radius: 50%; outline: none; cursor: grab; touch-action: none; }
@@ -157,7 +157,6 @@ body.collapsed #orb.need .need { opacity: 1; scale: 1; }
 #capsule { position: relative; z-index: 1; flex: 1; min-width: 0; height: calc(var(--orb) * 0.64); margin: 0 calc(var(--orb) * 0.2) 0 calc(var(--orb) * -0.28); display: flex; align-items: center; gap: 2px; padding: 0 5px 0 calc(var(--orb) * 0.47);
   border-radius: 99px; background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
   opacity: 0; transition: opacity 0.25s 0.2s; }
-body.flip-x #capsule { margin: 0 calc(var(--orb) * -0.28) 0 calc(var(--orb) * 0.2); padding: 0 calc(var(--orb) * 0.47) 0 14px; }
 body:not(.collapsed) #capsule { opacity: 1; }
 #ask { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--eye); caret-color: var(--eye);
   font: inherit; font-size: 15px; line-height: 20px; max-height: 40px; padding: 0; user-select: text; -webkit-user-select: text; }

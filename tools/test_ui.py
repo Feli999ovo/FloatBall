@@ -53,6 +53,8 @@ async def main():
         m = await pg.evaluate("__mock")
         bodycls = await pg.get_attribute("body", "class")
         check("flip-x" in bodycls, f"小球在右侧时卡片向左展开 ({bodycls})")
+        eyes = await pg.evaluate("(() => { const o = document.querySelector('#orb').getBoundingClientRect(), b = document.querySelector('#bar').getBoundingClientRect(), a = document.querySelector('#ask').getBoundingClientRect(); return [o.left - b.left, a.left > o.right]; })()")
+        check(abs(eyes[0]) < 1 and eyes[1], f"往左长时眼睛在胶囊左头、输入框在右边（照原型） {eyes}")
         check(m["pos"]["x"] + 420 <= 1440, f"展开后不超出屏幕右边 x={m['pos']['x']}")
 
         # 2 设置窗口里加好了模型：小球窗口收到通知，提示换成正常的引导
