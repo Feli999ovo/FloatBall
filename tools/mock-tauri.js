@@ -59,6 +59,20 @@
         (st.saved ||= []).push(r.id); changed(); return r.id;
       }
       case "delete_routine": st.cfg.routines = (st.cfg.routines || []).filter((r) => r.id !== a.id); changed(); return null;
+      // 交给终端（B4）：扫描结果由测试放在 st.hoScan；go 记下参数，和 Rust 一样记住这次的选择
+      case "handoff_scan": return st.hoScan || { tools: [], terms: [{ id: "wt", name: "Windows Terminal" }, { id: "powershell", name: "Windows PowerShell" }] };
+      case "handoff_pick": return st.hoPick === undefined ? null : st.hoPick;
+      case "handoff_go": {
+        if (!a.dir) throw "项目文件夹不存在";
+        (st.hoGo ||= []).push(a);
+        const t = ((st.hoScan || {}).tools || []).find((x) => x.id === a.tool);
+        const file = a.save ? a.dir + "\\.floatball\\handoff.md" : "D:\\FloatBall\\data\\handoff\\handoff-1.md";
+        const h = (st.cfg.handoff ||= { dirs: [] });
+        Object.assign(h, { tool: a.tool, term: a.term, save: a.save, custom: a.custom, dirs: [a.dir, ...(h.dirs || []).filter((d) => d !== a.dir)].slice(0, 5) });
+        changed();
+        const direct = a.tool === "custom" ? a.custom.includes("{file}") : t && t.direct;
+        return [file, direct ? "" : `读 ${file} ，按里面的交接说明继续做。`];
+      }
       case "routine_next": return Object.fromEntries((st.cfg.routines || []).filter((r) => r.on).map((r) => [r.id, st.rtNextAt || Math.floor(Date.now() / 1000) + 86400]));
       case "routine_done": {
         const r = (st.cfg.routines || []).find((x) => x.id === a.id);

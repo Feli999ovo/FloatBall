@@ -56,6 +56,7 @@
     </header>
     <div class="cmdd" id="moreDd" role="menu" aria-label="对话卡片更多操作">
       <button type="button" role="menuitemcheckbox" aria-checked="false" data-cm="pin" title="钉住：点别处不收起"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="pnh" d="M9 3.5h6l-.9 5.6 3.4 3.4v1.6h-11v-1.6l3.4-3.4z"/><path d="M12 14.1v6.4"/></svg><span>钉住</span><i class="cmck" aria-hidden="true">✓</i></button>
+      <button type="button" role="menuitem" data-cm="ho" title="交给终端：把要写代码的活交给终端里的编程工具"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M7.5 9.5l2.5 2.5-2.5 2.5M12.5 15h4"/></svg><span>交给终端</span></button>
     </div>
 
     <!-- 对话 -->
@@ -81,6 +82,23 @@
     <!-- 历史 -->
     <!-- 任务：这次打开以来发出的请求 -->
     <div class="view" id="vTask" role="tabpanel" aria-labelledby="tabTask" hidden><div id="tasks"></div></div>
+
+    <!-- 交给终端（B4，照原型 #ho）：交给哪个工具、哪个终端、项目文件夹、交接说明 -->
+    <div class="view" id="vHo" role="dialog" aria-label="交给终端" hidden>
+      <div class="vh"><b>交给终端</b><span class="grow"></span><button type="button" class="txt" id="hoReScan">重新扫描</button></div>
+      <div class="ho">
+        <div class="hof"><span id="hoToL">交给</span><select class="x-in" id="hoTo" aria-labelledby="hoToL" aria-describedby="hoToN"><option value="">正在找本机的工具</option></select></div>
+        <p class="hon" id="hoToN" aria-live="polite"></p>
+        <input class="x-in" id="hoCustom" placeholder="自定义命令，{file} = 交接说明文件" aria-label="自定义命令" spellcheck="false" hidden />
+        <div class="hof"><span id="hoTmL">终端</span><select class="x-in" id="hoTm" aria-labelledby="hoTmL"></select></div>
+        <div class="hof"><span id="hoDirL">项目</span><select class="x-in" id="hoDir" aria-labelledby="hoDirL"></select><button type="button" class="x-sb" id="hoPick">选择</button></div>
+        <div class="hof"><span id="hoMdL">说明</span><span class="homd" id="hoMdS"></span><button type="button" class="txt" id="hoEdit" aria-expanded="false" aria-controls="hoMd">查看和修改</button></div>
+        <textarea class="x-in" id="hoMd" spellcheck="false" rows="7" aria-labelledby="hoMdL" hidden></textarea>
+        <div class="hof hosw"><span id="hoSaveL">同时存到项目里的 .floatball/handoff.md<small>Git 不会提交它</small></span><button type="button" class="x-sw" id="hoSave" role="switch" aria-checked="true" aria-labelledby="hoSaveL"></button></div>
+        <p class="hon">终端里的工具要执行命令时会先问你，悬浮球不替它批准。</p>
+      </div>
+      <div class="hob"><button type="button" class="x-sb" id="hoCancel">取消</button><button type="button" class="x-sb x-pri" id="hoGo" disabled>打开终端</button></div>
+    </div>
 
     <div class="view" id="vHist" hidden>
       <div class="vh"><b>历史记录</b><span class="grow"></span><button class="txt danger" id="clearHist">全部删除</button></div>

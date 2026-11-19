@@ -107,6 +107,25 @@ pub struct Allow {
 }
 
 /// 预算：单个任务最多用多少 token（0 不限）、最多多少步、最多同时几个子 Agent
+/// 交给终端：上次用的工具、终端、项目文件夹（最近 5 个）、要不要存进项目、自定义命令
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Handoff {
+    pub tool: String,
+    pub term: String,
+    pub dirs: Vec<String>,
+    /// 同时存到 项目/.floatball/handoff.md（旁边的 .gitignore 让 Git 看不到它）
+    pub save: bool,
+    /// 自定义命令，{file} = 交接说明文件
+    pub custom: String,
+}
+
+impl Default for Handoff {
+    fn default() -> Self {
+        Self { tool: String::new(), term: String::new(), dirs: vec![], save: true, custom: String::new() }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Limits {
@@ -137,6 +156,8 @@ pub struct Config {
     pub limits: Limits,
     /// 定时任务（B5）
     pub routines: Vec<crate::routine::Routine>,
+    /// 交给终端（B4）：上次的选择
+    pub handoff: Handoff,
     /// 权限：总是允许的操作
     pub always_allow: Vec<Allow>,
     /// 离开电脑时暂停敏感操作：确认卡片一直等；关掉则 5 分钟没确认就跳过
@@ -328,6 +349,7 @@ impl Default for Config {
             agents: default_agents(),
             limits: Limits::default(),
             routines: vec![],
+            handoff: Handoff::default(),
             always_allow: vec![],
             pause_away: true,
             shortcut: "Alt+Space".into(),
