@@ -154,6 +154,13 @@ body.collapsed #orb.s-wait .breath::before { content: ""; position: absolute; in
   opacity: 0; scale: 0.4; transition: opacity 0.2s, scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
 body.collapsed #orb.need .need { opacity: 1; scale: 1; }
 #orb[data-edge="r"] .need { right: auto; left: 12%; }
+/* 在后台做完、还没看的任务数（照原型的角标）：收起时显示在球的左上角；有「!」时让给「!」 */
+#orb .dn { position: absolute; left: 12%; top: 6%; z-index: 3; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 9px; background: #FFF1DC; color: #1a1640; font: 700 11px/1 var(--ff, system-ui); font-style: normal; box-shadow: 0 0 10px rgba(255, 200, 140, 0.85); pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+#orb .dn::before { content: attr(data-n); }
+body.collapsed #orb[data-done] .dn { opacity: 1; }
+#orb[data-edge="r"] .dn { left: auto; right: 12%; }
+body.collapsed #orb.need[data-done] .dn { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .s-wait .eye, body.collapsed #orb.s-wait .breath::before, .s-confirm .amb, .s-confirm .breath { animation: none; } }
 /* 喂文件（拖进来） */
 .s-feed .breath { transform: scale(1.14); animation: none; }
