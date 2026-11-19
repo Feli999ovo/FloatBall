@@ -956,14 +956,18 @@ async fn show_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), 
     let items = ctx_items(&app);
     let c = app.cursor_position().map_err(|e| e.to_string())?;
     let mon = app.monitor_from_point(c.x, c.y).ok().flatten().or_else(|| window.current_monitor().ok().flatten());
-    let (sf, mrect) = match &mon {
-        Some(m) => (m.scale_factor(), (m.position().x as f64, m.position().y as f64, m.size().width as f64, m.size().height as f64)),
-        None => (1.0, (c.x - 4000.0, c.y - 4000.0, 8000.0, 8000.0)),
+    // 翻向按工作区算（不压住任务栏 / Dock）；截底图按整块显示器的坐标算
+    let (sf, mrect, work) = match &mon {
+        Some(m) => {
+            let (wp, wz) = (m.work_area().position, m.work_area().size);
+            (m.scale_factor(), (m.position().x as f64, m.position().y as f64), (wp.x as f64, wp.y as f64, wz.width as f64, wz.height as f64))
+        }
+        None => (1.0, (0.0, 0.0), (c.x - 4000.0, c.y - 4000.0, 8000.0, 8000.0)),
     };
     let (lw, lh) = ctx_size(&items);
     let (w, h) = (lw * sf, lh * sf);
     // 菜单的左上角（不含阴影边）对准鼠标
-    let (x, y) = ctx_rect(c.x - CTX_PAD * sf, c.y - CTX_PAD * sf, w, h, mrect);
+    let (x, y) = ctx_rect(c.x - CTX_PAD * sf, c.y - CTX_PAD * sf, w, h, work);
     let _ = menu.set_size(tauri::PhysicalSize::new(w.round() as u32, h.round() as u32));
     let _ = menu.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
     #[cfg(windows)]
