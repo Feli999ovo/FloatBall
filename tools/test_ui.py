@@ -272,6 +272,27 @@ async def main():
         await pg.click("#histList li"); await pg.wait_for_timeout(200)
         check(await pg.locator(".m.user").count() >= 3, "打开历史对话恢复消息")
 
+        # 9a 后台任务（B3）：新对话不会停掉正在生成的那个；它在后台写完，任务页点它回到那条对话
+        await pg.click("#newBtn"); await pg.wait_for_timeout(100)
+        await pg.evaluate("__mock.slow = true; __mock.cancelled = null")
+        await pg.fill("#ask", "后台写一首诗"); await pg.press("#ask", "Enter")
+        await pg.wait_for_timeout(700)
+        await pg.click("#newBtn"); await pg.wait_for_timeout(150)
+        g = await pg.evaluate("[document.querySelectorAll('.m').length, document.querySelector('#stopRow').hidden, __mock.cancelled || null, document.querySelector('#tBadge').textContent]")
+        check(g[0] == 0 and g[1] and g[2] is None and g[3] == "1", f"新对话时原来那个继续在后台生成，没有被停掉 {g}")
+        await pg.fill("#ask", "前台问一句"); await pg.press("#ask", "Enter")
+        await pg.wait_for_timeout(200)
+        check(await pg.evaluate("document.querySelector('#tBadge').textContent") == "2", "两个对话同时在生成：任务角标是 2")
+        await pg.evaluate("__mock.slow = false")
+        await pg.wait_for_function("document.querySelector('#tBadge').hidden", timeout=15000)
+        g = await pg.evaluate("[document.querySelectorAll('.m.user').length, document.querySelector('.m.user').textContent, document.querySelector('#title').textContent]")
+        check(g[:2] == [1, "前台问一句"] and g[2] == "前台问一句", f"后台那个写完没有串到当前对话里 {g}")
+        check(await pg.evaluate("document.querySelector('#orb').dataset.done") == "1", "后台做完的任务记在球角的数字上")
+        await pg.click("#tabTask"); await pg.wait_for_timeout(200)
+        await pg.click("#tasks .tk >> nth=1"); await pg.wait_for_timeout(200)
+        g = await pg.evaluate("[document.querySelector('#vChat').hidden, [...document.querySelectorAll('.m.user')].map(m => m.textContent), !!document.querySelector('.m.ai .meta:not([hidden])'), document.querySelector('#orb').dataset.done || null, document.querySelector('#title').textContent]")
+        check(not g[0] and g[1] == ["后台写一首诗"] and g[2] and g[3] is None and g[4] == "后台写一首诗", f"任务页点后台那个：回到它的对话，回复已经写好，角标清掉 {g}")
+
         # 9b 展开后程序挪窗口触发的 moved 事件，不能改掉收起位置
         await pg.evaluate("__mock.moved.forEach(f=>f())"); await pg.wait_for_timeout(600)
 

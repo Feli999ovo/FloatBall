@@ -28,9 +28,10 @@ const bigH = () => PAD * 2 + (SMALL - PAD * 2) + 8 + CARD_H; // 留白 + 胶囊�
 const S = {
   open: false,
   pinned: false,
-  busy: null,          // 正在生成的请求 id
+  busy: null,          // 当前对话里正在生成的请求 id（别的对话在后台跑的不算）
   convId: null,        // 历史里的对话 id
   msgs: [],            // 发给模型的消息 {role, content}
+  conv: null,          // 当前对话（见 Conv，启动时建一个空的）。切走时它的气泡收进 conv.dom，在后台接着生成
   attach: [],          // 待发送的附件 {kind:'image'|'file', url|name,text}
   anchor: null,        // 收起时小球窗口左上角（逻辑坐标）
   cfg: null,
@@ -372,13 +373,15 @@ function renderTasks() {
     row.append(name, when);
     d.appendChild(row);
     if (t.st === "run") {
-      const b = document.createElement("button"); b.type = "button"; b.textContent = "停止"; b.onclick = stop; row.appendChild(b);
+      const b = document.createElement("button"); b.type = "button"; b.textContent = "停止";
+      b.onclick = (e) => { e.stopPropagation(); if (t.conv && t.conv.stop) t.conv.stop(); }; row.appendChild(b);
       const bar = document.createElement("div"); bar.className = "bar"; bar.appendChild(document.createElement("i")); d.appendChild(bar);
-    } else d.onclick = () => { showView("chat"); focusAsk(); };
+    }
+    d.onclick = () => (t.conv ? goConv(t.conv) : (showView("chat"), focusAsk()));
     box.appendChild(d);
   }
 }
-setInterval(() => { if (S.busy && !$("#vTask").hidden) renderTasks(); }, 1000);
+setInterval(() => { if (convs.size && !$("#vTask").hidden) renderTasks(); }, 1000);
 
 /* ───────── 悬停快捷入口（原型的 hoverEntries）：指针停在球上，旁边沿弧线弹出几个小泡 ─────────
    收起时窗口只有小球那么大，放不下小泡：弹出时把窗口扩成以小球为中心的方块，小球留在原地；收起时缩回。 */
@@ -475,10 +478,12 @@ const PEEK_W = 260, PEEK_H = 60;
 let peekTimer = 0, peekBox = null;
 // err：出错提示。小泡只放得下 20 个字，点开后把整句（去哪设置）完整显示出来
 let peekFull = "";
-async function showPeek(text, err) {
+let peekGo = null; // 点小泡时要回到的对话（后台任务的提示）
+async function showPeek(text, err, go) {
   const t = String(text).replace(/\s+/g, " ").trim();
   if (!t || S.open || morphing || peekBox || hv.shown) return;
   peekFull = err && t.length > 20 ? t : "";
+  peekGo = go || null;
   morphing = true;
   try {
     const p = await winPos(), a = await monitorArea();
@@ -523,8 +528,8 @@ $("#peek").onclick = async () => {
     try { await reshape(SMALL, SMALL, box.p.x, box.p.y, false, () => { body.classList.remove("peeking"); $("#app").style.padding = ""; }); }
     finally { morphing = false; peekBox = null; }
   }
-  const full = peekFull; peekFull = "";
-  await expand("chat");
+  const full = peekFull, go = peekGo; peekFull = ""; peekGo = null;
+  if (go) go(); else await expand("chat");
   if (full) toast(full);
 };
 $("#newBtn").onclick = () => { newChat(); showView("chat"); focusAsk(); };
@@ -642,11 +647,37 @@ function updateEmpty() {
   msgsEl.hidden = msgsEl.children.length === 0;
 }
 function scrollEnd() { msgsEl.scrollTop = msgsEl.scrollHeight; }
+/* 后台任务（B3）：每个对话一份气泡 + 消息 + 正在跑的请求。新对话、打开历史只是换一个显示，
+   原来那个对话的请求在后台接着跑，回复写进它自己的气泡（收在 conv.dom 里，不在屏幕上）。 */
+const convs = new Set(); // 有请求在跑的对话（跑完就删掉）
+function Conv(id, title) { return { id, title: title || "新对话", msgs: [], dom: document.createDocumentFragment(), busy: null, stop: null, task: null }; }
+S.conv = Conv(null);
+// 把当前对话的气泡收起来，换上 c 的
+function showConv(c) {
+  const o = S.conv;
+  if (o === c) return;
+  if (o) { o.id = S.convId; o.msgs = S.msgs; o.title = $("#title").textContent; o.dom.append(...msgsEl.childNodes); }
+  S.conv = c; S.convId = c.id; S.msgs = c.msgs; S.busy = c.busy; S.stopFn = c.stop;
+  msgsEl.innerHTML = ""; msgsEl.append(...c.dom.childNodes);
+  $("#title").textContent = c.title;
+  $("#stopRow").hidden = !c.busy;
+  needOn([...convs].some((x) => x.need));
+  seen(c);
+  updateEmpty(); scrollEnd();
+}
 function newChat() {
-  if (S.busy) stop();
-  S.convId = null; S.msgs = []; msgsEl.innerHTML = "";
-  $("#title").textContent = "新对话";
-  updateEmpty();
+  showConv(Conv(null));
+}
+// 在后台做完、还没看的对话：球角上的数字（照原型），点开那条对话就清掉
+const unseen = new Set();
+function doneMark(c) { unseen.add(c); badge(); }
+function seen(c) { unseen.delete(c); badge(); }
+function badge() { const n = unseen.size; orb.querySelector(".dn").dataset.n = n; if (n) orb.dataset.done = n; else delete orb.dataset.done; }
+// 回到某条对话（任务页点一行、点后台任务的小泡）
+function goConv(c) {
+  showConv(c); seen(c);
+  if (S.open) showView("chat"); else expand("chat");
+  focusAsk();
 }
 function addUserBubble(text, attach) {
   const el = document.createElement("div");
@@ -703,28 +734,33 @@ async function send(textArg) {
   addUserBubble(text, attach);
   S.msgs.push({ role: "user", content: buildContent(text, attach) });
   try {
-    S.convId = await invoke("history_append", { convId: S.convId, role: "user", content: historyText(text, attach) });
-    if (S.msgs.length === 1) $("#title").textContent = text.slice(0, 24) || "截图提问";
+    const c = S.conv;
+    c.id = await invoke("history_append", { convId: c.id, role: "user", content: historyText(text, attach) });
+    if (c === S.conv) S.convId = c.id;
+    if (c.msgs.length === 1) { c.title = text.slice(0, 24) || "截图提问"; if (c === S.conv) $("#title").textContent = c.title; }
   } catch (_) { /* 历史写不进去不影响对话 */ }
   run();
 }
 
 function run() {
-  const id = "c" + Date.now();
-  S.busy = id;
+  const id = "c" + Date.now(), conv = S.conv;
+  const here = () => conv === S.conv; // 这个对话是不是正显示在卡片里
+  conv.busy = S.busy = id; convs.add(conv);
   $("#stopRow").hidden = false;
   mood("think");
-  const task = { title: (S.msgs[S.msgs.length - 1] && historyText(lastText(), [])) || "提问", st: "run", t0: Date.now() };
+  const task = { title: (S.msgs[S.msgs.length - 1] && historyText(lastText(), [])) || "提问", st: "run", t0: Date.now(), conv };
+  conv.task = task;
   S.tasks.unshift(task); renderTasks();
   const el = addAiBubble();
+  const scrollEnd = () => { if (here()) msgsEl.scrollTop = msgsEl.scrollHeight; };
   const think = el.querySelector(".think");
   let txt = el.querySelector(".txt");
   // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
   let out = "", seg = "", reasoning = "", usage = null, raf = 0;
-  const paint = () => { raf = 0; const live = S.busy === id; txt.innerHTML = live && !seg ? "" : live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
+  const paint = () => { raf = 0; const live = conv.busy === id; txt.innerHTML = live && !seg ? "" : live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
   const ch = new Channel();
   ch.onmessage = (ev) => {
-    if (S.busy !== id) return;
+    if (conv.busy !== id) return;
     if (ev.type === "delta") {
       out += ev.text; seg += ev.text; // 说话时保持思考的光点（照原型：流式输出时是 think）
       if (!raf) raf = requestAnimationFrame(paint);
@@ -732,23 +768,23 @@ function run() {
       toolPill(el, ev);
       if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
       el.insertBefore(txt, el.querySelector(".meta"));
-      if (ev.status === "run") mood("work");
+      if (ev.status === "run" && here()) mood("work");
       scrollEnd();
     } else if (ev.type === "team") {
       teamRow(el, ev);
       if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
       el.insertBefore(txt, el.querySelector(".meta"));
-      mood("work");
+      if (here()) mood("work");
       scrollEnd();
     } else if (ev.type === "budget") {
       budgetCard(el, ev, task);
-      needOn(true); mood("wait");
-      if (!S.open) showPeek(`预算用完，已暂停：${task.title}`);
+      conv.need = true; needOn(true); mood("wait");
+      if (!S.open || !here()) showPeek(`预算用完，已暂停：${task.title}`, false, () => goConv(conv));
       scrollEnd();
     } else if (ev.type === "ask") {
       askCard(el, ev);
-      needOn(true); mood("wait"); // 原型：等你确认 → 「等你」表情，收起时球角上亮「!」
-      if (!S.open) showPeek("需要你确认：" + ev.desc);
+      conv.need = true; needOn(true); mood("wait"); // 原型：等你确认 → 「等你」表情，收起时球角上亮「!」
+      if (!S.open || !here()) showPeek("需要你确认：" + ev.desc, false, () => goConv(conv));
       scrollEnd();
     } else if (ev.type === "usage") {
       usage = ev;
@@ -757,39 +793,41 @@ function run() {
       txt.classList.remove("cursor"); paint();
       out = out.replace(/\n\n$/, "");
       if (!out) { txt.textContent = "（模型没有返回内容）"; }
-      S.msgs.push({ role: "assistant", content: out });
-      invoke("history_append", { convId: S.convId, role: "assistant", content: out }).catch(() => {});
+      conv.msgs.push({ role: "assistant", content: out });
+      invoke("history_append", { convId: conv.id, role: "assistant", content: out }).catch(() => {});
       setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
       mood("done", 1500);
-      vcSpeak(el, out);
-      if (!S.open) { poke(); showPeek(out || "回复好了"); }
+      if (here()) vcSpeak(el, out);
+      // 在后台做完的：球角上记一个数，点开回到那条对话（照原型：完成时小球开心 + 角标）
+      if (!S.open || !here()) { if (!here()) doneMark(conv); poke(); showPeek(out || "回复好了", false, here() ? null : () => goConv(conv)); }
     } else if (ev.type === "error") {
       finish("err");
       txt.classList.remove("cursor");
       el.classList.add("err");
       txt.textContent = ev.message;
       const noKey = /API Key|设置/.test(ev.message);
-      setMeta(el, "", { retry: () => { el.remove(); run(); }, settings: noKey });
+      setMeta(el, "", { retry: () => { el.remove(); goConv(conv); run(); }, settings: noKey });
       mood("error", 4000);
+      if (!here()) doneMark(conv);
     }
   };
   function finish(st = "done") {
-    if (S.busy === id) S.busy = null;
-    if (Object.keys(S.agBusy).length) { S.agBusy = {}; agSync(); }
-    needOn(false);
-    $("#stopRow").hidden = true;
+    if (conv.busy === id) { conv.busy = conv.stop = null; conv.need = false; convs.delete(conv); }
+    if (here()) { S.busy = S.stopFn = null; $("#stopRow").hidden = true; }
+    if (Object.keys(S.agBusy).length && !convs.size) { S.agBusy = {}; agSync(); }
+    needOn([...convs].some((x) => x.need));
     if (task.st === "run") { task.st = st; task.t1 = Date.now(); renderTasks(); }
   }
   el._stop = () => {
     invoke("cancel_chat", { id }).catch(() => {});
     finish("stop"); txt.classList.remove("cursor");
     el.querySelectorAll(".x-ap button, .x-ap input").forEach((b) => (b.disabled = true));
-    if (out) { txt.innerHTML = md(seg); S.msgs.push({ role: "assistant", content: out }); invoke("history_append", { convId: S.convId, role: "assistant", content: out + "\n\n（已停止）" }).catch(() => {}); }
+    if (out) { txt.innerHTML = md(seg); conv.msgs.push({ role: "assistant", content: out }); invoke("history_append", { convId: conv.id, role: "assistant", content: out + "\n\n（已停止）" }).catch(() => {}); }
     else txt.textContent = "（已停止）";
     setMeta(el, "已停止", out ? { copy: out } : {});
-    mood("idle");
+    if (here() || !convs.size) mood("idle");
   };
-  S.stopFn = el._stop;
+  conv.stop = el._stop; if (here()) S.stopFn = el._stop;
   invoke("chat", { id, messages: S.msgs, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 // ───────── 多 Agent 计划卡（照搬原型 runTeam 的 .x-plan）：主控每交给一个 Agent 一步，卡里多一行 ─────────
@@ -1086,17 +1124,17 @@ async function loadHistory() {
     li.querySelector(".x").onclick = async (e) => {
       e.stopPropagation();
       await invoke("history_delete", { convId: c.id });
-      if (S.convId === c.id) newChat();
+      if (S.convId === c.id && !S.busy) newChat();
       loadHistory();
     };
     ul.appendChild(li);
   }
 }
 async function openConv(c) {
-  newChat();
+  const live = [...convs].find((x) => x.id === c.id);
+  if (live) { showConv(live); showView("chat"); return; }
   const rows = await invoke("history_load", { convId: c.id });
-  S.convId = c.id;
-  $("#title").textContent = c.title;
+  showConv(Conv(c.id, c.title));
   for (const r of rows) {
     if (r.role === "user") { addUserBubble(r.content); S.msgs.push({ role: "user", content: r.content }); }
     else {
