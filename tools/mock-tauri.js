@@ -48,6 +48,23 @@
       }
       case "delete_agent": if (a.id === "lead") throw "主控不能删"; st.cfg.agents = st.cfg.agents.filter((x) => x.id !== a.id); changed(); return null;
       case "save_limits": st.cfg.limits = { ...a.limits }; changed(); return null;
+      // 定时任务（B5）：规则和 Rust 的 save_routine 一样（新建 id = rtN，空指令报错）
+      case "save_routine": {
+        const r = { ...a.routine }, list = (st.cfg.routines ||= []);
+        if (!String(r.prompt || "").trim()) throw "要写上每次让它做什么";
+        r.name = String(r.name || "").trim() || r.prompt.trim().slice(0, 12);
+        const old = list.find((x) => r.id && x.id === r.id);
+        if (old) Object.assign(old, r, { runs: old.runs || [] });
+        else { let i = 1; while (list.some((x) => x.id === "rt" + i)) i++; r.id = "rt" + i; r.runs = []; list.push(r); }
+        (st.saved ||= []).push(r.id); changed(); return r.id;
+      }
+      case "delete_routine": st.cfg.routines = (st.cfg.routines || []).filter((r) => r.id !== a.id); changed(); return null;
+      case "routine_next": return Object.fromEntries((st.cfg.routines || []).filter((r) => r.on).map((r) => [r.id, st.rtNextAt || Math.floor(Date.now() / 1000) + 86400]));
+      case "routine_done": {
+        const r = (st.cfg.routines || []).find((x) => x.id === a.id);
+        if (r) (r.runs ||= []).unshift({ at: Math.floor(Date.now() / 1000), ok: a.ok, note: a.note });
+        (st.rtDone ||= []).push([a.id, a.ok, a.note]); changed(); return null;
+      }
       case "answer_ask": (st.answers ||= []).push(a); if (st.onAnswer) { const f = st.onAnswer; st.onAnswer = null; setTimeout(() => f(a.answer), 30); return true; } return false;
       case "save_perm": st.cfg.always_allow = a.alwaysAllow; st.cfg.pause_away = a.pauseAway; changed(); return null;
       case "save_prefs": Object.assign(st.cfg, a.prefs); changed(); return st.shortcutBusy ? a.prefs.shortcut + " 被别的程序占用了" : null;
