@@ -372,6 +372,8 @@ function renderTasks() {
   const n = document.createElement("p"); n.className = "rnote"; n.textContent = "电脑睡眠或关机时不运行，开机后只补跑最近一次"; box.appendChild(n);
   if (fin.length) { head("已完成"); fin.slice(0, 30).forEach((t) => box.appendChild(taskRow(t))); }
   if (rtFocus) { const el = document.getElementById(rtFocus); rtFocus = ""; if (el) el.focus({ preventScroll: true }); }
+  // 卡片只有 260 高：展开的详情 / 表单滚到看得见
+  const open = box.querySelector(".rd"); if (open) open.scrollIntoView({ block: "nearest" });
 }
 function taskRow(t) {
   {
