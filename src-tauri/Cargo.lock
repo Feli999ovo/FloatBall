@@ -1446,6 +1446,7 @@ dependencies = [
  "arboard",
  "base64 0.22.1",
  "block2 0.6.2",
+ "chrono",
  "futures-util",
  "get-selected-text",
  "image",
