@@ -30,6 +30,10 @@ body.flip-y #app { flex-direction: column-reverse; }
 body.collapsed #bar { width: var(--orb); transition-duration: 0.32s; }
 /* 往左长时小球（眼睛）跟着胶囊左端走，展开后眼睛总在左头、输入框在右边（照原型）；收起时再滑回右边原位 */
 body.flip-x #bar { align-self: flex-end; }
+/* 展开后胶囊照原型固定 288 长，不跟窗口宽；卡片 340 在胶囊上居中，所以小球那一侧让出 26（app.js 的 OVER） */
+body.big #bar { width: 288px; margin-left: 26px; }
+body.big.flip-x #bar { margin: 0 26px 0 0; }
+body.big.collapsed #bar { width: var(--orb); }
 body.resizing #app { visibility: hidden; }
 /* 裁成胶囊形：缩回小球的途中，玻璃边两头不能再缩，会比底宽出一截，不裁就露出一个空心的圈 */
 .cap { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 99px; opacity: 0; transition: opacity 0.15s 0.3s; }
