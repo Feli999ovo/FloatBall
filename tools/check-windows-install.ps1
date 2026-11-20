@@ -117,7 +117,14 @@ try {
 
   Write-Host '== 第一次运行'
   $app = Start-Process -FilePath $exe -PassThru
-  Check (Wait-For { Test-Path (Join-Path $data 'history.db') } 60) '历史记录建在 安装目录\data'
+  $historyReady = Wait-For { Test-Path (Join-Path $data 'history.db') } 60
+  Check $historyReady '历史记录建在 安装目录\data'
+  if (-not $historyReady) {
+    Get-ChildItem -LiteralPath $data -Force -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  data: $($_.Name)" }
+    foreach ($log in (Join-Path $data 'logs\floatball.log'), (Join-Path $data 'floatball.log')) {
+      if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 25 | ForEach-Object { Write-Host $_ } }
+    }
+  }
   Check (Wait-For { Test-Path (Join-Path $data 'EBWebView') } 60) '界面缓存建在 安装目录\data'
   Start-Sleep -Seconds 3
   Check (-not $app.HasExited) '程序在运行，没有闪退'
