@@ -545,7 +545,7 @@ impl Config {
         if self.agents.len() >= MAX_AGENTS {
             return Err(format!("最多 {MAX_AGENTS} 个 Agent"));
         }
-        a.id = (1..).map(|i| format!("ag{i}")).find(|id| !self.agents.iter().any(|x| &x.id == id)).unwrap();
+        a.id = format!("ag-{}", uuid::Uuid::new_v4());
         self.agents.push(a.clone());
         Ok(a.id)
     }
