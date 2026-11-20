@@ -257,6 +257,7 @@ struct Prefs {
     capture_shortcut: String,
     win_shortcut: Option<String>,
     share_shortcut: Option<String>,
+    feed_shortcut: Option<String>,
     #[serde(default)]
     new_shortcut: Option<String>,
     #[serde(default)]
@@ -311,6 +312,7 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     next.capture_shortcut = prefs.capture_shortcut.trim().to_string();
     if let Some(v) = prefs.win_shortcut { next.win_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.share_shortcut { next.share_shortcut = v.trim().to_string(); }
+    if let Some(v) = prefs.feed_shortcut { next.feed_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.new_shortcut { next.new_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.tasks_shortcut { next.tasks_shortcut = v.trim().to_string(); }
     next.orb_size = prefs.orb_size.clamp(56, 88);
@@ -1282,6 +1284,18 @@ pub fn run() {
                         let down = ev.state() == ShortcutState::Pressed;
                         if down { show_ball(app); }
                         let _ = app.emit_to("main", "voice:key", down);
+                        return;
+                    }
+                    if act == Some("feed") {
+                        if ev.state() == ShortcutState::Released {
+                            let app = app.clone();
+                            let settings = st.cfg.lock().unwrap().sel.clone();
+                            tauri::async_runtime::spawn_blocking(move || {
+                                let result = selection::feed(&settings);
+                                show_ball(&app);
+                                let _ = app.emit_to("main", "sel:feed", result);
+                            });
+                        }
                         return;
                     }
                     if ev.state() != ShortcutState::Pressed {

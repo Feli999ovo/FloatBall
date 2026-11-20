@@ -171,6 +171,7 @@ pub struct Config {
     pub capture_shortcut: String,
     pub win_shortcut: String,
     pub share_shortcut: String,
+    pub feed_shortcut: String,
     /// 新对话
     pub new_shortcut: String,
     /// 打开任务
@@ -361,6 +362,7 @@ impl Default for Config {
             capture_shortcut: "Alt+S".into(),
             win_shortcut: "Alt+W".into(),
             share_shortcut: "Alt+Shift+S".into(),
+            feed_shortcut: "Alt+C".into(),
             new_shortcut: "Alt+N".into(),
             tasks_shortcut: "Alt+T".into(),
             position: None,
@@ -430,10 +432,10 @@ impl Config {
         c
     }
 
-    pub fn shortcut_bindings(&self) -> [(&str, &'static str); 7] {
+    pub fn shortcut_bindings(&self) -> [(&str, &'static str); 8] {
         [(&self.shortcut, "toggle"), (&self.new_shortcut, "new_chat"), (&self.capture_shortcut, "capture"),
          (&self.tasks_shortcut, "tasks"), (&self.talk_shortcut, "talk"), (&self.win_shortcut, "capture_window"),
-         (&self.share_shortcut, "share")]
+         (&self.share_shortcut, "share"), (&self.feed_shortcut, "feed")]
     }
 
     fn clear_conflicting_shortcut_defaults(&mut self, raw: &Value) {
@@ -443,8 +445,10 @@ impl Config {
         };
         let window = raw.get("win_shortcut").is_none() && conflicts("capture_window", &self.win_shortcut);
         let share = raw.get("share_shortcut").is_none() && conflicts("share", &self.share_shortcut);
+        let feed = raw.get("feed_shortcut").is_none() && conflicts("feed", &self.feed_shortcut);
         if window { self.win_shortcut.clear(); }
         if share { self.share_shortcut.clear(); }
+        if feed { self.feed_shortcut.clear(); }
     }
 
     /// 主控永远在第一个；早期版本的系统提示词搬进主控的指令；指向已删模型的 Agent 改回跟随默认
@@ -680,10 +684,22 @@ mod tests {
     fn new_capture_shortcuts_have_defaults() {
         let d = tempfile::tempdir().unwrap();
         let c = Config::load(d.path());
-        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+W", "Alt+Shift+S"));
+        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str(), c.feed_shortcut.as_str()), ("Alt+W", "Alt+Shift+S", "Alt+C"));
         fs::write(Config::path(d.path()), r#"{"capture_shortcut":"Alt+S"}"#).unwrap();
         let c = Config::load(d.path());
-        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+W", "Alt+Shift+S"));
+        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str(), c.feed_shortcut.as_str()), ("Alt+W", "Alt+Shift+S", "Alt+C"));
+    }
+
+    #[test]
+    fn feed_shortcut_only_clears_missing_default_on_conflict() {
+        let d = tempfile::tempdir().unwrap();
+        let path = Config::path(d.path());
+        fs::write(&path, r#"{"win_shortcut":"Alt+C"}"#).unwrap();
+        let c = Config::load(d.path());
+        assert_eq!(c.win_shortcut, "Alt+C");
+        assert!(c.feed_shortcut.is_empty());
+        fs::write(&path, r#"{"win_shortcut":"Alt+C","feed_shortcut":"Alt+C"}"#).unwrap();
+        assert_eq!(Config::load(d.path()).feed_shortcut, "Alt+C");
     }
 
     #[test]

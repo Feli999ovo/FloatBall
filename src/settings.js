@@ -631,7 +631,8 @@ function hvRender(focusId, focusSel) {
 // 快捷键：原型的「录制」。写进配置用 Tauri 的写法（Alt+Space），显示用原型的写法（⌥ Space）
 const KEY_DEF = [["shortcut", "唤起/收起", "Alt+Space"], ["new_shortcut", "新对话", "Alt+N"],
   ["capture_shortcut", "截屏提问", "Alt+S"], ["win_shortcut", "发送当前窗口", "Alt+W"],
-  ["share_shortcut", "开始/停止共享", "Alt+Shift+S"], ["tasks_shortcut", "打开任务", "Alt+T"], ["talk_shortcut", "按住说话", "RightAlt"]];
+  ["share_shortcut", "开始/停止共享", "Alt+Shift+S"], ["feed_shortcut", "喂当前选中的文字", "Alt+C"],
+  ["tasks_shortcut", "打开任务", "Alt+T"], ["talk_shortcut", "按住说话", "RightAlt"]];
 const keyVal = Object.fromEntries(KEY_DEF.map(([k]) => [k, ""]));
 let keyRec = null;
 const isMac = /Mac/.test(navigator.platform);

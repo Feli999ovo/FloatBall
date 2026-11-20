@@ -326,7 +326,8 @@ appWin.onFocusChanged(({ payload: focused }) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.open) {
-    if (!$("#vShare").hidden) closeShareView();
+    if (!$("#feedPermission").hidden) closeFeedPermission();
+    else if (!$("#vShare").hidden) closeShareView();
     else if (S.busy) stop();
     else if (!$("#vChat").hidden) collapse();
     else showView("chat");
@@ -335,6 +336,7 @@ document.addEventListener("keydown", (e) => {
 
 /* ───────── 视图 ───────── */
 function showView(v) {
+  $("#feedPermission").hidden = true;
   $("#vChat").hidden = v !== "chat";
   $("#vTask").hidden = v !== "task";
   $("#tabChat").setAttribute("aria-selected", v !== "task"); $("#tabTask").setAttribute("aria-selected", v === "task");
@@ -1699,6 +1701,24 @@ async function selAct({ act, text }) {
   run();
 }
 listen("sel:act", ({ payload }) => selAct(payload));
+
+function closeFeedPermission() { $("#feedPermission").hidden = true; focusAsk(); }
+$("#feedClose").onclick = closeFeedPermission;
+$("#feedSettings").onclick = () => invoke("sel_open_privacy").then(closeFeedPermission).catch(toastErr);
+listen("sel:feed", async ({ payload }) => {
+  const conv = S.conv;
+  await expand("chat");
+  if (conv !== S.conv) return;
+  await appWin.setFocus();
+  if (payload.Err === "permission") {
+    $("#feedPermission").hidden = false;
+    $("#feedSettings").focus();
+    return;
+  }
+  if (!payload.Ok) { toast("没读到选中的文字"); return; }
+  ask.value = ask.value ? ask.value + "\n" + payload.Ok : payload.Ok;
+  autosize(); ask.focus(); ask.setSelectionRange(ask.value.length, ask.value.length);
+});
 
 /* ───────── 语音（原型的 vcStart / vcRelease / vcDict） ─────────
    三种开始方式：长按小球（按住说话，松开结束）· 「按住说话」快捷键（默认单独按住右 Alt）· 胶囊里的麦克风（听写进输入框）。

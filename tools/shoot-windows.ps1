@@ -225,6 +225,9 @@ try {
     DoubleClick ($nr.Left + 40) ($nr.Top + 62)
     Start-Sleep -Milliseconds 1200
     Shot '11_划词工具栏'
+    [System.Windows.Forms.SendKeys]::SendWait('%c')
+    Start-Sleep -Milliseconds 900
+    Shot '11b_快捷键喂选中文字'
   } else { Write-Host '记事本窗口没找到' }
   Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue
   Start-Sleep -Seconds 1
