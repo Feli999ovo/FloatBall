@@ -113,13 +113,17 @@
       case "capture_screen": return "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
       case "read_text_file": return { name: a.path.split("/").pop(), text: "第一行\n第二行" };
       case "history_append": {
+        if (st.historyAppendDelay) await new Promise((r) => setTimeout(r, st.historyAppendDelay));
         let c = st.convs.find((c) => c.id === a.convId);
         if (!c) { c = { id: st.nextId++, title: a.content.slice(0, 24), updated: Date.now(), msgs: [] }; st.convs.unshift(c); }
         c.msgs.push({ role: a.role, content: a.content }); c.updated = Date.now(); return c.id;
       }
       case "history_list": return st.convs.map((c) => ({ id: c.id, title: c.title, updated: c.updated, count: c.msgs.length }));
       case "history_load": return st.convs.find((c) => c.id === a.convId).msgs;
-      case "history_delete": st.convs = st.convs.filter((c) => c.id !== a.convId); return null;
+      case "history_delete":
+        if (st.historyDeleteDelay) await new Promise((r) => setTimeout(r, st.historyDeleteDelay));
+        if (st.historyDeleteFail) throw st.historyDeleteFail;
+        st.convs = st.convs.filter((c) => c.id !== a.convId); (st.deletedConvs ||= []).push(a.convId); return null;
       case "history_clear": st.convs = []; return null;
       case "cancel_chat": st.cancelled = a.id; return null;
       case "chat": {

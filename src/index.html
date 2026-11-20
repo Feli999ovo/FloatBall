@@ -52,12 +52,16 @@
       <button type="button" class="ib pnb" id="pinMark" title="取消钉住" aria-label="取消钉住" aria-pressed="true" hidden><svg viewBox="0 0 24 24"><path class="pnh" d="M9 3.5h6l-.9 5.6 3.4 3.4v1.6h-11v-1.6l3.4-3.4z"/><path d="M12 14.1v6.4"/></svg></button>
       <button class="ib" id="newBtn" title="新对话" aria-label="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
       <button class="ib" id="histBtn" title="历史记录" aria-label="历史记录"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></button>
-      <button type="button" class="ib" id="moreBtn" title="更多" aria-label="更多：钉住" aria-haspopup="menu" aria-expanded="false" aria-controls="moreDd"><svg viewBox="0 0 24 24" class="dots"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></button>
+      <button type="button" class="ib" id="moreBtn" title="更多" aria-label="更多：钉住、临时对话、交给终端" aria-haspopup="menu" aria-expanded="false" aria-controls="moreDd"><svg viewBox="0 0 24 24" class="dots"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></button>
     </header>
     <div class="cmdd" id="moreDd" role="menu" aria-label="对话卡片更多操作">
       <button type="button" role="menuitemcheckbox" aria-checked="false" data-cm="pin" title="钉住：点别处不收起"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="pnh" d="M9 3.5h6l-.9 5.6 3.4 3.4v1.6h-11v-1.6l3.4-3.4z"/><path d="M12 14.1v6.4"/></svg><span>钉住</span><i class="cmck" aria-hidden="true">✓</i></button>
+      <button type="button" role="menuitemcheckbox" aria-checked="false" data-cm="tmp" title="临时对话：关闭后不保存"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/><path d="M9.5 9v6M14.5 9v6"/></svg><span>临时对话</span><i class="cmck" aria-hidden="true">✓</i></button>
       <button type="button" role="menuitem" data-cm="ho" title="交给终端：把要写代码的活交给终端里的编程工具"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M7.5 9.5l2.5 2.5-2.5 2.5M12.5 15h4"/></svg><span>交给终端</span></button>
     </div>
+
+    <p id="tmpBanner" hidden><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/><path d="M9.5 9v6M14.5 9v6"/></svg>临时对话 · 关闭后不保存</p>
+    <div class="tmpq" id="tmpQ" role="alertdialog" aria-labelledby="tmpQT" hidden><p id="tmpQT"></p><div class="tmpqb"><button type="button" class="x-sb" id="tmpNo">取消</button><button type="button" class="x-sb x-pri" id="tmpOk">转成临时</button></div></div>
 
     <!-- 对话 -->
     <div class="view" id="vChat">

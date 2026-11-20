@@ -20,6 +20,7 @@ PAIRS = [
     ("小球待机", ["待机"], []),
     ("对话卡片", ["对话卡片"], ["#orb", "ask"]),
     ("更多菜单", ["对话卡片", "#chatMore"], ["#orb", "ask", "#moreBtn"]),
+    ("临时对话", ["对话卡片", "ask:帮我总结一下今天的待办", "#chatMore", "#chatMoreDd [data-cm=tmp]", "#chatTmpOk"], ["#orb", "ask", "#moreBtn", "#moreDd [data-cm=tmp]", "#tmpOk", "wait:2500"]),
     # 小球表情：原型点「状态预览」里的按钮；程序直接切 #orb 的状态类（真实流程见 test_ui：确认卡 → 等你 + 「!」）
     ("小球等你", ["[data-s=wait]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-wait','need')"]),
     ("小球需要确认", ["[data-s=confirm]"], ["js:document.querySelector('#orb').classList.remove('s-idle');document.querySelector('#orb').classList.add('s-confirm')"]),
@@ -52,6 +53,8 @@ async def proto_shots(b, url, out):
         await pg.goto(url); await pg.wait_for_timeout(1500)
         for c in clicks:
             if c.startswith("wait:"): await pg.wait_for_timeout(int(c[5:])); continue
+            if c.startswith("ask:"):
+                await pg.fill("#ask", c[4:]); await pg.press("#ask", "Enter"); await pg.wait_for_timeout(3500); continue
             if c[0] in "#[.": await pg.click(c)
             else: await pg.get_by_text(c, exact=True).click()
             await pg.wait_for_timeout(1200)
