@@ -343,10 +343,39 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
 /// 新建或修改一个 Agent，返回它的 id
 #[tauri::command]
 fn save_agent(app: AppHandle, state: State<'_, AppState>, agent: config::Agent) -> Result<String, String> {
-    let mut next = state.cfg.lock().unwrap().clone();
+    let mut cfg = state.cfg.lock().unwrap();
+    let mut next = cfg.clone();
     let id = next.upsert_agent(agent)?;
-    commit(&app, &state, next)?;
+    next.save(&state.cfg_dir)?;
+    *cfg = next;
+    drop(cfg);
+    selection::wake();
+    let _ = app.emit_to("main", "config", ());
     Ok(id)
+}
+
+#[tauri::command]
+fn save_skill(app: AppHandle, state: State<'_, AppState>, skill: config::Skill) -> Result<(), String> {
+    let mut cfg = state.cfg.lock().unwrap();
+    let mut next = cfg.clone();
+    next.save_skill(skill)?;
+    next.save(&state.cfg_dir)?;
+    *cfg = next;
+    drop(cfg);
+    let _ = app.emit("skills:changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_skill(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut cfg = state.cfg.lock().unwrap();
+    let mut next = cfg.clone();
+    next.remove_skill(&id);
+    next.save(&state.cfg_dir)?;
+    *cfg = next;
+    drop(cfg);
+    let _ = app.emit("skills:changed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -1383,7 +1412,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
+            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_skill, delete_skill, save_limits, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,

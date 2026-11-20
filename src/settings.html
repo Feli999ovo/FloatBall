@@ -66,6 +66,16 @@
           <label class="x-field"><span>最多同时子 Agent</span><select class="x-in" id="bPar"><option>1</option><option>3</option><option>5</option></select></label>
         </div>
       </div>
+      <section class="x-bud" id="skillLibrary" aria-labelledby="skillLibTitle">
+        <p class="x-bh" id="skillLibTitle">技能库</p>
+        <div id="skillEntries"></div>
+        <form id="skillEditor" hidden>
+          <label class="x-field"><span>名字</span><input class="x-in" id="libSkillName" maxlength="60" required /></label>
+          <label class="x-field"><span>什么时候用</span><input class="x-in" id="libSkillWhen" maxlength="500" /></label>
+          <label class="x-field"><span>步骤</span><textarea class="x-in" id="libSkillSteps" rows="5" maxlength="6000" required></textarea></label>
+          <div class="x-ar"><button type="button" class="x-sb" id="libSkillCancel">取消</button><button class="x-sb" id="libSkillSave" type="submit">保存</button></div>
+        </form>
+      </section>
       <section class="x-bud x-hoset" id="hoSettings" aria-labelledby="hoSettingsT">
         <div class="x-lh"><p id="hoSettingsT">交给终端</p><small id="hoScanR" aria-live="polite"></small><button type="button" class="x-sb" id="hoReScan">重新扫描</button></div>
         <ul id="hoTools" aria-label="本机编程工具"></ul>

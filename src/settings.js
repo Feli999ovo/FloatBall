@@ -293,9 +293,86 @@ function agentModelName(a) { const m = modelOf(a.model), d = modelOf(cfg.default
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const avHTML = (a, big) => `<span class="x-av${big ? " x-avl" : ""}${a.emoji ? " x-ave" : ""}" style="--t:${esc(a.tint)}" aria-hidden="true">${a.emoji ? esc(a.emoji) : ""}</span>`;
 let agEd = null;
+let editingSkill = null;
+const skills = () => cfg?.skills || [];
+
+function editSkill(skill) {
+  editingSkill = skill;
+  $("skillEntries").hidden = true;
+  $("skillEditor").hidden = false;
+  $("libSkillName").value = skill.name;
+  $("libSkillWhen").value = skill.when;
+  $("libSkillSteps").value = skill.steps;
+  $("libSkillName").focus();
+}
+function closeSkillEditor() {
+  editingSkill = null;
+  $("skillEntries").hidden = false;
+  $("skillEditor").hidden = true;
+}
+$("libSkillCancel").onclick = closeSkillEditor;
+$("skillEditor").onsubmit = async (e) => {
+  e.preventDefault();
+  const editing = editingSkill, save = $("libSkillSave");
+  if (!editing || save.disabled) return;
+  const skill = { id: editing.id, name: $("libSkillName").value, when: $("libSkillWhen").value, steps: $("libSkillSteps").value };
+  save.disabled = true;
+  try {
+    await invoke("save_skill", { skill });
+    if (editingSkill === editing) closeSkillEditor();
+    await reload(); toast("已保存技能");
+  } catch (err) { toast(String(err)); }
+  finally { save.disabled = false; }
+};
+
+function renderSkillLibrary() {
+  const list = $("skillEntries");
+  list.replaceChildren();
+  if (!skills().length) { list.append(mk("p", "x-note", "还没有技能。可从对话回复存入。")); return; }
+  for (const skill of skills()) {
+    const item = mk("details");
+    const title = mk("summary", "", skill.name);
+    const when = mk("p", "x-note", skill.when);
+    const steps = mk("p", "skill-steps", skill.steps);
+    const edit = mk("button", "x-sb", "编辑");
+    const remove = mk("button", "x-sb", "删除");
+    remove.type = edit.type = "button";
+    edit.onclick = () => editSkill(skill);
+    remove.onclick = async () => {
+      if (remove.dataset.confirm !== "true") {
+        remove.dataset.confirm = "true";
+        remove.textContent = "确认删除";
+        return;
+      }
+      remove.disabled = true;
+      try { await invoke("delete_skill", { id: skill.id }); await reload(); toast("已删除技能"); }
+      catch (err) { toast(String(err)); remove.disabled = false; }
+    };
+    item.append(title, when, steps, edit, remove);
+    list.append(item);
+  }
+}
+
+function renderAgentSkills(group, draft) {
+  group.replaceChildren();
+  if (!skills().length) group.append(mk("span", "x-aelk", "技能库里还没有技能"));
+  for (const skill of skills()) {
+    const button = mk("button", "x-lbtl", skill.name);
+    button.type = "button";
+    button.setAttribute("aria-pressed", draft.skills.includes(skill.id));
+    button.onclick = () => {
+      const selected = !draft.skills.includes(skill.id);
+      if (selected) draft.skills.push(skill.id);
+      else draft.skills = draft.skills.filter((id) => id !== skill.id);
+      button.setAttribute("aria-pressed", selected);
+    };
+    group.append(button);
+  }
+}
 
 function renderAgents() {
   renderHandoffPrefs();
+  renderSkillLibrary();
   $("paneAgEd").hidden = true; $("paneAgents").hidden = false;
   const ul = $("agList"); ul.innerHTML = "";
   agents().forEach((a) => {
@@ -303,7 +380,7 @@ function renderAgents() {
     li.innerHTML = avHTML(a, true) + '<div><b></b><p></p><div class="x-caps"><span class="x-cap"></span><span class="x-cap"></span><span class="x-cap"></span></div></div><button type="button" class="x-sb">编辑</button>';
     li.querySelector("b").textContent = a.name; li.querySelector("p").textContent = a.role || "还没写职责";
     const [c1, c2, c3] = li.querySelectorAll(".x-cap");
-    c1.textContent = agentModelName(a); c2.textContent = `工具 ${a.tools.length}`; c3.textContent = "技能 0";
+    c1.textContent = agentModelName(a); c2.textContent = `工具 ${a.tools.length}`; c3.textContent = `技能 ${skills().filter((s) => a.skills?.includes(s.id)).length}`;
     const b = li.querySelector("button"); b.dataset.ag = a.id; b.setAttribute("aria-label", "编辑 " + a.name);
     b.addEventListener("click", () => agEdit(a));
     ul.appendChild(li);
@@ -382,7 +459,7 @@ function gotoAgent(id) {
 }
 function agEdit(a, tpl) {
   const src = a || { id: "", emoji: "", model: 0, fallback: 0, auto: false, ...tpl };
-  const d = { ...src, tools: src.tools.slice() };
+  const d = { ...src, tools: src.tools.slice(), skills: (src.skills || []).slice() };
   agEd = { a, d, del: false, tryText: "" };
   $("paneAgents").hidden = true; $("paneAgEd").hidden = false; agDraw(); $("paneAgEd").scrollTop = 0;
   setTimeout(() => { const el = agEd && $("aeName"); if (el) el.focus({ preventScroll: true }); }, 60);
@@ -454,9 +531,8 @@ function agDraw() {
     tl.appendChild(b);
   });
   p.appendChild(fld("能用的工具", null, tl, mk("small", "x-lbhint", lead ? "需确认的工具每次用前先问你 · 主控至少保留「读文件」" : "需确认的工具每次用前先问你")));
-  // 会的技能：程序里还没有技能库，显示原型的空状态
-  const sk = mk("div", "x-lbcs"); sk.setAttribute("role", "group"); sk.setAttribute("aria-label", "会的技能");
-  sk.appendChild(mk("span", "x-aelk", "技能库里还没有技能"));
+  const sk = mk("div", "x-lbcs"); sk.id = "aeSkills"; sk.setAttribute("role", "group"); sk.setAttribute("aria-label", "会的技能");
+  renderAgentSkills(sk, d);
   p.appendChild(fld("会的技能", null, sk));
   // 模型 · 备用模型 · 自动省钱
   const g2 = mk("div", "x-g2");
@@ -518,7 +594,7 @@ function agRedraw(sel) {
 async function agSave() {
   const { a, d } = agEd, name = d.name.trim() || "未命名", old = a && a.name;
   try {
-    const id = await invoke("save_agent", { agent: { id: d.id || "", name, role: d.role, prompt: d.prompt, tint: d.tint, emoji: d.emoji, tools: d.tools, model: d.model || 0, fallback: d.fallback || 0, auto: !!d.auto } });
+    const id = await invoke("save_agent", { agent: { id: d.id || "", name, role: d.role, prompt: d.prompt, tint: d.tint, emoji: d.emoji, tools: d.tools, skills: d.skills, model: d.model || 0, fallback: d.fallback || 0, auto: !!d.auto } });
     await reload(); agBack(id);
     toast(!a ? `已新建 Agent：${name}` : old !== name ? `已改名：${old} → ${name}` : "已保存");
   } catch (e) { toast(String(e)); }
@@ -870,6 +946,13 @@ async function reload() {
 }
 // 对话里点了「总是允许」，设置窗口开着时跟着刷新
 T.event.listen("config", () => reload().then(() => document.body.classList.toggle("fx", cfg.fx === true)));
+T.event.listen("skills:changed", async () => {
+  await reload();
+  if (agEd && !$("paneAgEd").hidden) {
+    agEd.d.skills = agEd.d.skills.filter((id) => skills().some((s) => s.id === id));
+    renderAgentSkills($("aeSkills"), agEd.d);
+  }
+});
 T.event.listen("catalog-updated", async () => { await reload(); if (!$("paneModel").hidden && (!detected || detected.src !== "manual")) lookupCaps(0); });
 
 $("setClose").addEventListener("click", () => win.close());
