@@ -1,0 +1,65 @@
+{
+  "source_sha": "2a8f5842bd2d024bf7b40346b053327215a4d0a4",
+  "pr": 33,
+  "ci_run": "https://github.com/Feli999ovo/FloatBall/actions/runs/44753322410",
+  "ci_attempt": 1,
+  "ci_conclusion": "success",
+  "jobs": [
+    {
+      "name": "test-ui",
+      "conclusion": "success",
+      "rust": [],
+      "checks": {
+        "pass": 534,
+        "fail": []
+      },
+      "signing": []
+    },
+    {
+      "name": "build (windows-latest, --bundles nsis)",
+      "conclusion": "success",
+      "rust": [
+        "test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.34s"
+      ],
+      "checks": {
+        "pass": 35,
+        "fail": []
+      },
+      "signing": []
+    },
+    {
+      "name": "build (macos-latest, --bundles app,dmg)",
+      "conclusion": "success",
+      "rust": [
+        "test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.66s"
+      ],
+      "checks": null,
+      "signing": [
+        "src-tauri/target/release/bundle/macos/悬浮球.app: valid on disk",
+        "Signature=adhoc"
+      ]
+    },
+    {
+      "name": "release",
+      "conclusion": "success",
+      "rust": [],
+      "checks": null,
+      "signing": []
+    }
+  ],
+  "browser_mock": {
+    "gallery": "mock-overview.png",
+    "kind": "Browser mock with test data; not native desktop"
+  },
+  "windows_ci": {
+    "image": "windows-ci-context-menu.png",
+    "kind": "Windows CI real desktop; not a user physical-machine test",
+    "archive_member": "07b_右键菜单.png",
+    "size": [
+      1024,
+      768
+    ],
+    "png_sha256": "e4b9aff375701efc8348cdd7c1d66059f7d6880ff4a038c45d5d2f84abebf415",
+    "artifact_zip_sha256": "d5e8274b2c88f27066a8fd19dd026c409bea5d932acc56081347099683babf1d"
+  }
+}
