@@ -43,6 +43,9 @@ pub struct AppState {
     asks: Arc<agent::Asks>,
     /// 已注册的全局快捷键和它触发的动作（发给小球窗口的 menu 事件名）
     shortcuts: Mutex<Vec<(Shortcut, &'static str)>>,
+    menu_window: Mutex<Option<capture::WindowKey>>,
+    current_window: Mutex<Option<capture::WindowKey>>,
+    screen_capture: tokio::sync::Mutex<()>,
     /// 最近出现过划词的应用（设置页「添加应用」时给候选）
     sel_recent: Mutex<Vec<String>>,
     /// 设置窗口的玻璃底图：打开窗口之前截下整块屏幕、缩小模糊（见 open_settings_window）
@@ -108,6 +111,7 @@ fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
         m["has_key"] = json!(has_key(id));
     }
     v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
+    v["lead_vision"] = json!(cfg.effective_model_for(cfg.lead()).map(|m| m.vision));
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
     v["platform"] = json!(std::env::consts::OS);
     // fx：系统自带的毛玻璃（只有 macOS 用；Windows 的亚克力在 Server、远程桌面、省电模式下会变成一块灰，改用和卡片同一种截图玻璃）
@@ -251,6 +255,8 @@ fn today() -> String {
 struct Prefs {
     shortcut: String,
     capture_shortcut: String,
+    win_shortcut: Option<String>,
+    share_shortcut: Option<String>,
     #[serde(default)]
     new_shortcut: Option<String>,
     #[serde(default)]
@@ -303,6 +309,8 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     let mut next = state.cfg.lock().unwrap().clone();
     next.shortcut = prefs.shortcut.trim().to_string();
     next.capture_shortcut = prefs.capture_shortcut.trim().to_string();
+    if let Some(v) = prefs.win_shortcut { next.win_shortcut = v.trim().to_string(); }
+    if let Some(v) = prefs.share_shortcut { next.share_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.new_shortcut { next.new_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.tasks_shortcut { next.tasks_shortcut = v.trim().to_string(); }
     next.orb_size = prefs.orb_size.clamp(56, 88);
@@ -944,20 +952,65 @@ async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<St
 
 #[tauri::command]
 async fn capture_screen(app: AppHandle) -> Result<String, String> {
-    let win = main_window(&app).ok_or("no window")?;
-    let (cx, cy) = app
-        .cursor_position()
-        .map(|p| (p.x as i32, p.y as i32))
-        .unwrap_or((0, 0));
-    // 先把自己藏起来，别把小球截进去
-    hide_win(&win);
-    tokio::time::sleep(std::time::Duration::from_millis(220)).await;
-    let res = tauri::async_runtime::spawn_blocking(move || capture::capture_at(cx, cy))
-        .await
-        .map_err(|e| e.to_string())?;
-    show_win(&win);
-    let _ = win.set_focus();
-    res
+    let (cx, cy) = app.cursor_position().map(|p| (p.x as i32, p.y as i32)).unwrap_or((0, 0));
+    capture_without_ball(&app, move || capture::capture_at(cx, cy)).await
+}
+
+async fn capture_without_ball(app: &AppHandle, take: impl FnOnce() -> Result<String, String> + Send + 'static) -> Result<String, String> {
+    capture::check_permission()?;
+    let state = app.state::<AppState>();
+    let _guard = state.screen_capture.lock().await;
+    let win = main_window(app).ok_or("no window")?;
+    let was_visible = win.is_visible().unwrap_or(false);
+    let was_focused = win.is_focused().unwrap_or(false);
+    if was_visible {
+        hide_win(&win);
+        tokio::time::sleep(std::time::Duration::from_millis(220)).await;
+    }
+    let res = tauri::async_runtime::spawn_blocking(take).await;
+    if was_visible { show_win(&win); }
+    if was_focused { let _ = win.set_focus(); }
+    res.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn capture_window(app: AppHandle) -> Result<String, String> {
+    let key = app.state::<AppState>().current_window.lock().unwrap().take().ok_or(capture::WINDOW_UNAVAILABLE)?;
+    capture::check_permission()?;
+    tauri::async_runtime::spawn_blocking(move || capture::capture_window(key)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn share_sources() -> Result<Vec<capture::Source>, String> {
+    capture::check_permission()?;
+    tauri::async_runtime::spawn_blocking(capture::sources).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn capture_shared(app: AppHandle, target: capture::Target) -> Result<Option<String>, String> {
+    let supported = {
+        let state = app.state::<AppState>();
+        let cfg = state.cfg.lock().unwrap();
+        cfg.effective_model_for(cfg.lead()).is_some_and(|model| model.vision)
+    };
+    if !supported { return Ok(None); }
+    let image = match target {
+        capture::Target::Screen { id } => capture_without_ball(&app, move || capture::capture_monitor(id)).await?,
+        capture::Target::Window { key } => {
+            capture::check_permission()?;
+            tauri::async_runtime::spawn_blocking(move || capture::capture_window(key)).await.map_err(|e| e.to_string())??
+        }
+    };
+    Ok(Some(image))
+}
+
+#[tauri::command]
+fn open_screen_privacy() -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        open_external("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Serialize)]
@@ -1028,6 +1081,13 @@ fn on_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
             refresh_menus(app);
         }
         "settings" => open_settings_window(app),
+        "capture_window" => {
+            let state = app.state::<AppState>();
+            let key = state.menu_window.lock().unwrap().take().or_else(capture::foreground_window);
+            *state.current_window.lock().unwrap() = key;
+            show_ball(app);
+            let _ = app.emit_to("main", "menu", id.to_string());
+        }
         other => {
             show_ball(app);
             let _ = app.emit_to("main", "menu", other.to_string());
@@ -1040,7 +1100,7 @@ fn on_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
 #[derive(Serialize, Clone)]
 struct CtxItem { id: &'static str, label: &'static str, check: Option<bool>, sep: bool }
 
-fn ctx_items<R: Runtime>(app: &AppHandle<R>) -> Vec<CtxItem> {
+fn ctx_items<R: Runtime>(app: &AppHandle<R>, sharing: bool) -> Vec<CtxItem> {
     let auto = app.autolaunch().is_enabled().unwrap_or(false);
     let it = |id, label| CtxItem { id, label, check: None, sep: false };
     vec![
@@ -1048,6 +1108,8 @@ fn ctx_items<R: Runtime>(app: &AppHandle<R>) -> Vec<CtxItem> {
         it("new_tmp", "新临时对话"),
         it("history", "历史记录"),
         it("capture", "截屏提问"),
+        it("capture_window", "发送当前窗口"),
+        it("share", if sharing { "停止共享" } else { "共享屏幕" }),
         it("handoff", "交给终端"),
         it("routines", "定时任务"),
         it("settings", "设置"),
@@ -1077,13 +1139,15 @@ fn ctx_rect(cx: f64, cy: f64, w: f64, h: f64, mon: (f64, f64, f64, f64)) -> (f64
 struct CtxShow { items: Vec<CtxItem>, bd: Option<String> }
 
 #[tauri::command]
-async fn show_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+async fn show_context_menu(app: AppHandle, window: WebviewWindow, sharing: bool) -> Result<(), String> {
+    let key = capture::foreground_window();
+    *app.state::<AppState>().menu_window.lock().unwrap() = key;
     let Some(menu) = app.get_webview_window("ctxmenu") else {
         // 没有菜单窗口（不该发生）：退回系统菜单
         let m = build_menu(&app, false).map_err(|e| e.to_string())?;
         return window.popup_menu(&m).map_err(|e| e.to_string());
     };
-    let items = ctx_items(&app);
+    let items = ctx_items(&app, sharing);
     let c = app.cursor_position().map_err(|e| e.to_string())?;
     let mon = app.monitor_from_point(c.x, c.y).ok().flatten().or_else(|| window.current_monitor().ok().flatten());
     // 翻向按工作区算（不压住任务栏 / Dock）；截底图按整块显示器的坐标算
@@ -1130,6 +1194,7 @@ fn ctx_act(app: AppHandle, id: String) {
     if !id.is_empty() {
         on_menu(&app, &id);
     }
+    *app.state::<AppState>().menu_window.lock().unwrap() = None;
 }
 
 #[tauri::command]
@@ -1149,11 +1214,10 @@ fn register_shortcuts<R: Runtime>(app: &AppHandle<R>, state: &AppState, cfg: &Co
         }
         Shortcut::from_str(s).map(Some).map_err(|e| format!("快捷键「{s}」写法不对：{e}"))
     };
-    // 原型的快捷键页：唤起/收起、新对话、截屏提问、打开任务
     let mut list: Vec<(Shortcut, &'static str)> = vec![];
-    // 按住说话：默认的右 Alt 由划词的后台线程读按键状态，不在这里注册；改成组合键时才注册
-    let talk = if cfg.talk_shortcut == config::TALK_RALT { "" } else { cfg.talk_shortcut.as_str() };
-    for (v, act) in [(&cfg.shortcut, "toggle"), (&cfg.new_shortcut, "new_chat"), (&cfg.capture_shortcut, "capture"), (&cfg.tasks_shortcut, "tasks"), (&talk.to_string(), "talk")] {
+    for (v, act) in cfg.shortcut_bindings() {
+        // 默认的右 Alt 由划词线程读按键状态。
+        if act == "talk" && v == config::TALK_RALT { continue; }
         if let Some(sc) = parse(v)? {
             if list.iter().any(|(o, _)| *o == sc) {
                 return Err(format!("快捷键「{v}」重复了，每个只能用一次"));
@@ -1224,6 +1288,10 @@ pub fn run() {
                         return;
                     }
                     if let Some(act) = act {
+                        if act == "capture_window" {
+                            let key = capture::foreground_window();
+                            *st.current_window.lock().unwrap() = key;
+                        }
                         show_ball(app);
                         let _ = app.emit_to("main", "menu", act.to_string());
                     }
@@ -1254,10 +1322,15 @@ pub fn run() {
                 chats: Mutex::new(HashMap::new()),
                 asks: Arc::new(agent::Asks::default()),
                 shortcuts: Mutex::new(vec![]),
+                menu_window: Mutex::new(None),
+                current_window: Mutex::new(None),
+                screen_capture: tokio::sync::Mutex::new(()),
                 sel_recent: Mutex::new(vec![]),
                 settings_bd: Mutex::new(None),
                 settings_goto: Mutex::new(None),
             });
+            #[cfg(windows)]
+            capture::watch_foreground();
             let handle = app.handle().clone();
             refresh_catalog(&handle, false);
             selection::spawn(handle.clone());
@@ -1313,7 +1386,7 @@ pub fn run() {
             history_load,
             history_delete,
             history_clear,
-            capture_screen,
+            capture_screen, capture_window, share_sources, capture_shared, open_screen_privacy,
             backdrop,
             read_text_file,
             show_context_menu, ctx_act,
@@ -1359,11 +1432,10 @@ mod ctx_tests {
     #[test]
     fn ctx_menu_size_matches_prototype() {
         let it = |sep| CtxItem { id: "a", label: "a", check: None, sep };
-        // 高：11 项×38 + 1 条分隔线×11 + 上下 6×2 + 四周 8×2 = 457；宽：200 + 8×2 = 216
-        let items: Vec<_> = (0..11).map(|i| it(i == 10)).collect();
+        // 高：13 项×38 + 1 条分隔线×11 + 上下 6×2 + 四周 8×2 = 533；宽：200 + 8×2 = 216
+        let items: Vec<_> = (0..13).map(|i| it(i == 12)).collect();
         let (w, h) = ctx_size(&items);
-        assert_eq!((w, h), (216.0, 457.0));
-        // 1024×768 屏幕右下角：翻到鼠标左上方，整个菜单仍在屏幕内
-        assert_eq!(ctx_rect(1000.0, 740.0, w, h, (0.0, 0.0, 1024.0, 768.0)), (784.0, 283.0));
+        assert_eq!((w, h), (216.0, 533.0));
+        assert_eq!(ctx_rect(1000.0, 740.0, w, h, (0.0, 0.0, 1024.0, 768.0)), (784.0, 207.0));
     }
 }

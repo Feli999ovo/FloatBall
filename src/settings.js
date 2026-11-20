@@ -552,7 +552,7 @@ $("awaySw").addEventListener("click", async () => { if (await savePerm(cfg.alway
 function prefs() {
   const on = (g) => { const b = $(g).querySelector('[aria-checked="true"]'); return b && b.dataset.v; };
   return {
-    shortcut: keyVal.shortcut, capture_shortcut: keyVal.capture_shortcut, new_shortcut: keyVal.new_shortcut, tasks_shortcut: keyVal.tasks_shortcut, talk_shortcut: keyVal.talk_shortcut,
+    ...keyVal,
     orb_size: +(on("lkSize") || cfg.orb_size), glass: +$("lkGlass").value, eye: on("lkEye") || cfg.eye,
     idle_ms: +$("lkIdle").value, follow_system: sw("lkSys"), auto_dock: sw("lkDock"), calm: sw("lkCalm"),
     hover: { on: sw("hvOn"), delay: +(on("hvSpd") || 350), order: hvOrder },
@@ -629,8 +629,9 @@ function hvRender(focusId, focusSel) {
 }
 
 // 快捷键：原型的「录制」。写进配置用 Tauri 的写法（Alt+Space），显示用原型的写法（⌥ Space）
-// 原型的 KEY_DEF（程序里已有的四个动作），默认值同原型
-const KEY_DEF = [["shortcut", "唤起/收起", "Alt+Space"], ["new_shortcut", "新对话", "Alt+N"], ["capture_shortcut", "截屏提问", "Alt+S"], ["tasks_shortcut", "打开任务", "Alt+T"], ["talk_shortcut", "按住说话", "RightAlt"]];
+const KEY_DEF = [["shortcut", "唤起/收起", "Alt+Space"], ["new_shortcut", "新对话", "Alt+N"],
+  ["capture_shortcut", "截屏提问", "Alt+S"], ["win_shortcut", "发送当前窗口", "Alt+W"],
+  ["share_shortcut", "开始/停止共享", "Alt+Shift+S"], ["tasks_shortcut", "打开任务", "Alt+T"], ["talk_shortcut", "按住说话", "RightAlt"]];
 const keyVal = Object.fromEntries(KEY_DEF.map(([k]) => [k, ""]));
 let keyRec = null;
 const isMac = /Mac/.test(navigator.platform);

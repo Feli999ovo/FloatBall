@@ -163,6 +163,17 @@ try {
   Shot '07b_右键菜单'
   [System.Windows.Forms.SendKeys]::SendWait('{ESC}'); Start-Sleep -Milliseconds 600
 
+  # Alt+Shift+S 打开悬浮球自己的选择器。第一个来源是整个屏幕。
+  [System.Windows.Forms.SendKeys]::SendWait('%+s')
+  Start-Sleep -Seconds 2
+  Shot '07c_选择共享来源'
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 800
+  Shot '07d_共享中'
+  [System.Windows.Forms.SendKeys]::SendWait('%+s')
+  Start-Sleep -Milliseconds 300
+  [System.Windows.Forms.SendKeys]::SendWait('{ESC}'); Start-Sleep -Milliseconds 600
+
   # 设置是单独的窗口：再启动一次并带上 --settings，已经在运行的那个会把设置窗口打开
   Start-Process -FilePath $Exe -ArgumentList '--settings'
   Start-Sleep -Seconds 8

@@ -801,22 +801,81 @@ async def main():
 
         check(not errs, "页面无 JS 错误 " + "; ".join(errs))
 
+        # B6 使用独立对话，测试共享只在明确提问时采集。
+        await pg.evaluate("__emit('menu', 'new_chat'); __emit('menu', 'capture_window')")
+        await pg.wait_for_selector("#attach img")
+        check(await pg.locator("#attach img").count() == 1, "发送当前窗口：附件栏有一张截图")
+        await pg.click("#attach button")
+        await pg.evaluate("__mock.captureError = '这个窗口截不了，改用截屏提问'; __emit('menu', 'capture_window')")
+        await pg.wait_for_function("document.querySelector('#toast').textContent.includes('这个窗口截不了')")
+        check(await pg.locator("#attach img").count() == 0, "截不到当前窗口时提示改用截屏提问")
+        await pg.wait_for_function("!document.querySelector('#toast').classList.contains('on')")
+        await pg.evaluate("delete __mock.captureError; __emit('menu', 'share')")
+        await pg.wait_for_selector("#shareList button:nth-child(2)")
+        check(await pg.locator("#shareList button").all_text_contents() == ["整个屏幕", "项目笔记 · 记事本"] and await pg.is_visible("#shareList img"), "选择器列出屏幕及带缩略图的窗口")
+        await shot("14f_share_picker")
+        await pg.click("#shareList button:nth-child(2)")
+        check(await pg.is_visible("#shareBanner") and await pg.is_visible("#orb.sharing .share-arc") and "项目笔记" in await pg.text_content("#shareName"), "选中窗口后显示共享标记、来源和停止按钮")
+        await shot("14g_share_active")
+        await pg.evaluate("window.__sharedConv = S.conv")
+        captures = lambda: pg.evaluate("__mock.calls.filter(x => x === 'capture_shared').length")
+        async def shared_question(question):
+            await pg.fill("#ask", question)
+            await pg.press("#ask", "Enter")
+            await pg.wait_for_function("q => { const last = __mock.lastMessages?.at(-1)?.content; return (typeof last === 'string' ? last : last?.[0]?.text) === q; }", arg=question)
+            await pg.wait_for_function("!S.busy")
+            return await pg.evaluate("__mock.lastMessages.map(m => Array.isArray(m.content) ? m.content.filter(p => p.type === 'image_url').length : 0)")
+        n = await captures()
+        await pg.wait_for_timeout(300)
+        check(await captures() == n, "共享空闲期间不截图")
+        first = await shared_question("共享期间第一问")
+        second = await shared_question("共享期间第二问")
+        check(sum(first) == sum(second) == 1 and first[-1] == second[-1] == 1 and await captures() == n + 2, "连续两次提问各截一张，只在本轮附上")
+        check(await pg.evaluate("__mock.sharedTarget") == {"kind": "window", "key": {"id": 7, "pid": 11}}, "按选择的窗口截图")
+        await pg.locator("#orb").click(button="right")
+        check(await pg.evaluate("__mock.menuSharing"), "共享时右键菜单收到停止状态")
+        await pg.evaluate("__emit('menu', 'new_chat')")
+        check(sum(await shared_question("另一条对话")) == 0 and await captures() == n + 2, "切换对话不继承共享内容")
+        await pg.evaluate("goConv(__sharedConv); __mock.cfg.models[0].vision = false; __emit('config')")
+        await pg.wait_for_function("S.cfg.lead_vision === false")
+        check(sum(await shared_question("文本模型的一问")) == 0 and await captures() == n + 2 and "不支持图片" in await pg.text_content("#toast"), "文字模型不截图，并提示原因")
+        await pg.evaluate("__mock.cfg.models[0].vision = true; __emit('config'); __mock.holdCapture = true")
+        await pg.wait_for_function("S.cfg.lead_vision === true")
+        await pg.fill("#ask", "截图时停止共享"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("typeof __mock.finishCapture === 'function'")
+        await pg.click("#shareStop")
+        await pg.evaluate("__mock.holdCapture = false; __mock.finishCapture(); delete __mock.finishCapture")
+        await pg.wait_for_function("__mock.lastMessages.at(-1).content === '截图时停止共享' && !S.busy")
+        check(not await pg.is_visible("#orb.sharing .share-arc"), "停止时丢弃正在返回的共享截图")
+        check(sum(await shared_question("停止后的一问")) == 0 and await captures() == n + 3, "停止后继续提问不截图")
+        await pg.evaluate("window.__timer = window.setTimeout; window.setTimeout = (f, ms, ...args) => __timer(f, ms === 600000 ? 350 : ms, ...args); __emit('menu', 'share')")
+        await pg.click("#shareList button:first-child")
+        await pg.wait_for_function("document.querySelector('#shareBanner').hidden && document.querySelector('#toast').textContent.includes('10 分钟')")
+        check(await captures() == n + 3, "满 10 分钟自动停止并提示，期间没有额外截图")
+        await pg.evaluate("window.setTimeout = __timer; delete window.__sharedConv; __mock.captureError = 'screen_permission'; __emit('menu', 'share')")
+        await pg.click("#shareSettings")
+        check(await pg.evaluate("__mock.screenPrivacyOpened") and "屏幕录制" in await pg.text_content("#shareStatus"), "权限不足时说明怎么授权，按钮打开系统页")
+        await pg.keyboard.press("Escape")
+        await pg.evaluate("delete __mock.captureError")
+        check(not errs, "B6 界面无 JS 错误 " + "; ".join(errs))
+
         # ───────── 右键菜单窗口（原型 #menu） ─────────
         # 底图：壁纸（铺满 1440×900）里菜单将要盖住的那块（小球旁 1180,420），和 capture.rs 一样缩小 8 倍、模糊、提饱和度
         from PIL import Image as _I, ImageFilter, ImageEnhance
         import io
         _w = _I.open(os.path.join(ROOT, "design-reference", "wallpaper.jpg")).convert("RGB"); _k = max(1440 / _w.width, 900 / _w.height)
         _w = _w.resize((round(_w.width * _k), round(_w.height * _k))); _ox, _oy = (_w.width - 1440) // 2, (_w.height - 900) // 2
-        _c = ImageEnhance.Color(_w.crop((_ox + 1180, _oy + 420, _ox + 1396, _oy + 877)).resize((54, 114)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
+        _c = ImageEnhance.Color(_w.crop((_ox + 1180, _oy + 420, _ox + 1396, _oy + 953)).resize((54, 133)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
         _bb = io.BytesIO(); _c.save(_bb, "JPEG", quality=85)
         sbd_url_small = "data:image/jpeg;base64," + base64.b64encode(_bb.getvalue()).decode()
-        ctxm = await b.new_context(viewport={"width": 216, "height": 457}, device_scale_factor=2)
+        ctxm = await b.new_context(viewport={"width": 216, "height": 533}, device_scale_factor=2)
         mp = await ctxm.new_page(); merrs = []
         mp.on("pageerror", lambda e: merrs.append(str(e)))
         await mp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
         await mp.goto("file://" + os.path.join(ROOT, "src", "ctxmenu.html")); await mp.wait_for_timeout(200)
         items = [{"id": "new_chat", "label": "新对话", "check": None, "sep": False}, {"id": "new_tmp", "label": "新临时对话", "check": None, "sep": False},
                  {"id": "history", "label": "历史记录", "check": None, "sep": False}, {"id": "capture", "label": "截屏提问", "check": None, "sep": False},
+                 {"id": "capture_window", "label": "发送当前窗口", "check": None, "sep": False}, {"id": "share", "label": "共享屏幕", "check": None, "sep": False},
                  {"id": "handoff", "label": "交给终端", "check": None, "sep": False}, {"id": "routines", "label": "定时任务", "check": None, "sep": False},
                  {"id": "settings", "label": "设置", "check": None, "sep": False}, {"id": "sleep", "label": "睡眠", "check": None, "sep": False},
                  {"id": "toggle_ball", "label": "隐藏小球", "check": None, "sep": False}, {"id": "autostart", "label": "开机启动", "check": True, "sep": False},
@@ -827,7 +886,7 @@ async def main():
             return { labels: [...m.querySelectorAll('button')].map(b => b.firstChild.textContent), hr: m.querySelectorAll('hr').length,
                      ck: m.querySelector('[data-id=autostart]').getAttribute('aria-checked'), glassy: m.classList.contains('glassy'),
                      x: r.x, y: r.y, w: r.width, h: Math.round(r.height), bottom: innerHeight - r.bottom, focus: document.activeElement.id }; })()""")
-        check(g["labels"] == ["新对话", "新临时对话", "历史记录", "截屏提问", "交给终端", "定时任务", "设置", "睡眠", "隐藏小球", "开机启动", "退出"] and g["hr"] == 1, f"右键菜单：11 项和一条分隔线照原型顺序 {g['labels']}")
+        check(g["labels"] == ["新对话", "新临时对话", "历史记录", "截屏提问", "发送当前窗口", "共享屏幕", "交给终端", "定时任务", "设置", "睡眠", "隐藏小球", "开机启动", "退出"] and g["hr"] == 1, f"右键菜单：13 项和一条分隔线照原型顺序 {g['labels']}")
         check(g["ck"] == "true", "开机启动打勾")
         check(g["glassy"] and g["x"] == 8 and g["y"] == 8 and g["w"] == 200 and abs(g["bottom"] - 8) <= 1, f"菜单 200 宽、四周留 8 给阴影、窗口大小正好（和 Rust ctx_size 一致）{g}")
         check(g["focus"] == "menu", "打开后焦点在菜单上，不预先高亮任何一项（同原型）")
@@ -837,14 +896,14 @@ async def main():
         await mp.click("[data-id=settings]"); await mp.wait_for_timeout(100)
         calls = (await mp.evaluate("__mock")).get("ctxActs") or []
         check(calls == ["settings"], f"点一项：关掉菜单并执行 {calls}")
-        for mid in ["new_tmp", "handoff", "routines", "sleep"]:
+        for mid in ["capture_window", "share", "new_tmp", "handoff", "routines", "sleep"]:
             await mp.evaluate("it => __emit('ctx:show', { items: it, bd: null })", items); await mp.wait_for_timeout(150)
             await mp.click(f"[data-id={mid}]")
-        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "new_tmp", "handoff", "routines", "sleep"], "新增四项点击后传回正确的菜单 id")
+        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "capture_window", "share", "new_tmp", "handoff", "routines", "sleep"], "点击后传回正确的菜单 id")
         await mp.evaluate("([it, bd]) => __emit('ctx:show', { items: it, bd: null })", [items, None]); await mp.wait_for_timeout(200)
         check(not await mp.evaluate("document.querySelector('#menu').classList.contains('glassy')"), "拿不到底图：用卡片同款不透明底")
         await mp.keyboard.press("Escape"); await mp.wait_for_timeout(100)
-        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "new_tmp", "handoff", "routines", "sleep", ""], "Esc 关掉菜单，什么也不做")
+        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "capture_window", "share", "new_tmp", "handoff", "routines", "sleep", ""], "Esc 关掉菜单，什么也不做")
         check(not merrs, "菜单窗口无 JS 错误 " + "; ".join(merrs))
         await ctxm.close()
 
@@ -1415,7 +1474,12 @@ async def main():
             kc = lambda k: txt(f"#keyList [data-k={k}] .x-kc")
             check(await kc("shortcut") == ("⌥ Space" if False else "Alt+Space"), P + f"显示当前快捷键 {await kc('shortcut')}")
             rows = await sp.eval_on_selector_all("#keyList li", "x => x.map(l => l.dataset.k + ':' + l.querySelector('b').textContent + ':' + l.querySelector('.x-kc').textContent)")
-            check(rows == ["shortcut:唤起/收起:Alt+Space", "new_shortcut:新对话:Alt+N", "capture_shortcut:截屏提问:Alt+Shift+S", "tasks_shortcut:打开任务:Alt+T", "talk_shortcut:按住说话:右 Alt（按住）"], P + f"五个快捷键，按住说话默认右 Alt（同原型）{rows}")
+            check(rows == ["shortcut:唤起/收起:Alt+Space", "new_shortcut:新对话:Alt+N", "capture_shortcut:截屏提问:Alt+S",
+                           "win_shortcut:发送当前窗口:Alt+W", "share_shortcut:开始/停止共享:Alt+Shift+S",
+                           "tasks_shortcut:打开任务:Alt+T", "talk_shortcut:按住说话:右 Alt（按住）"], P + f"快捷键含发送窗口和共享{rows}")
+            await sp.click("#keyList [data-k=share_shortcut] .x-sb"); await sp.keyboard.press("Alt+KeyW")
+            check("发送当前窗口" in await txt("#keyList [data-k=share_shortcut] .x-kw") and await kc("win_shortcut") == "Alt+W", P + "共享快捷键也检查冲突")
+            await sp.keyboard.press("Escape")
             await sp.click("#keyList [data-k=shortcut] .x-sb")
             check("按下新的组合键" in await kc("shortcut"), P + "点录制进入录入")
             await sp.keyboard.press("KeyK")
@@ -1423,9 +1487,9 @@ async def main():
             await sp.keyboard.press("Control+Shift+KeyK"); await sp.wait_for_timeout(150)
             check((await mock())["cfg"]["shortcut"] == "Control+Shift+K" and await kc("shortcut") == "Ctrl+Shift+K", P + "录入新的快捷键")
             await sp.click("#keyList [data-k=capture_shortcut] .x-sb"); await sp.keyboard.press("Control+Shift+KeyK"); await sp.wait_for_timeout(150)
-            check("相同" in await txt("#keyList [data-k=capture_shortcut] .x-kw") and (await mock())["cfg"]["capture_shortcut"] == "Alt+Shift+S", P + "两个快捷键不能一样")
+            check("相同" in await txt("#keyList [data-k=capture_shortcut] .x-kw") and (await mock())["cfg"]["capture_shortcut"] == "Alt+S", P + "两个快捷键不能一样")
             await sp.keyboard.press("Escape")
-            check(await kc("capture_shortcut") == "Alt+Shift+S" and (await mock()).get("closed") == 1, P + "录快捷键时 Esc 只取消录入，不关窗口")
+            check(await kc("capture_shortcut") == "Alt+S" and (await mock()).get("closed") == 1, P + "录快捷键时 Esc 只取消录入，不关窗口")
             await sp.evaluate("__mock.shortcutBusy = true")
             await sp.click("#keyList [data-k=shortcut] .x-sb"); await sp.keyboard.press("Alt+KeyJ"); await sp.wait_for_timeout(150)
             w = await txt("#keyList [data-k=shortcut] .x-kw")
@@ -1443,7 +1507,7 @@ async def main():
             await sp.click("#keyReset"); await sp.wait_for_timeout(200)
             c = (await mock())["cfg"]
             check(c["talk_shortcut"] == "RightAlt", P + "恢复默认：按住说话回到右 Alt")
-            check([c["shortcut"], c["new_shortcut"], c["capture_shortcut"], c["tasks_shortcut"]] == ["Alt+Space", "Alt+N", "Alt+S", "Alt+T"] and "恢复默认" in await txt("#toast"), P + "恢复默认（同原型）")
+            check([c["shortcut"], c["new_shortcut"], c["capture_shortcut"], c["tasks_shortcut"], c["win_shortcut"], c["share_shortcut"]] == ["Alt+Space", "Alt+N", "Alt+S", "Alt+T", "Alt+W", "Alt+Shift+S"] and "恢复默认" in await txt("#toast"), P + "恢复默认（同原型）")
             await sp.keyboard.press("Escape")
             check((await mock()).get("closed") == 2, P + "Esc 关闭设置窗口")
             await sp.click("#setClose")

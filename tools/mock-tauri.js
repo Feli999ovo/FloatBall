@@ -1,14 +1,20 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+Shift+S", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", talk_shortcut: "RightAlt", voice: { lang: "auto", after: "send", tts: false, model: 0, stt: "whisper-1", engine: "system" }, position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, catalog_auto: false, sel: { on: false, mode: "instant", tr: "auto", apps: ["1Password", "KeePass", "Bitwarden"], order: ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"].map((id, i) => ({ id, show: i < 6 })) }, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
+    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+S", win_shortcut: "Alt+W", share_shortcut: "Alt+Shift+S", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", talk_shortcut: "RightAlt", voice: { lang: "auto", after: "send", tts: false, model: 0, stt: "whisper-1", engine: "system" }, position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, catalog_auto: false, sel: { on: false, mode: "instant", tr: "auto", apps: ["1Password", "KeePass", "Bitwarden"], order: ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"].map((id, i) => ({ id, show: i < 6 })) }, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
   const reply = (q) => q.includes("错误") ? null :
     "好的，这是**三个要点**：\n\n1. 先把窗口做成透明置顶\n2. 再接上 `chat/completions` 流式接口\n3. 最后加托盘和快捷键\n\n```rust\nfn main() {\n    floatball_lib::run()\n}\n```\n\n需要的话我可以继续展开。";
   const cur = () => st.cfg.models.find((m) => m.id === st.cfg.default_model);
-  const view = () => { const m = cur(); return { ...st.cfg, models: st.cfg.models.map((x) => ({ ...x })), ready: !!m && (m.no_key || m.has_key) }; };
+  const view = () => {
+    const m = cur(), a = st.cfg.agents[0] || {};
+    const cheap = a.auto ? st.cfg.models.find((x) => x.no_key && x.tools !== false) : null;
+    const lead = cheap || st.cfg.models.find((x) => x.id === a.model) || m;
+    return { ...st.cfg, models: st.cfg.models.map((x) => ({ ...x })), ready: !!m && (m.no_key || m.has_key), lead_vision: lead?.vision ?? null };
+  };
+  const image = "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
   // 真实程序里设置变了会给小球窗口发 config 事件
   const changed = () => setTimeout(() => window.__emit("config"), 0);
   async function invoke(cmd, a = {}) {
@@ -114,9 +120,20 @@
       case "save_position": st.cfg.position = [a.x, a.y]; return null;
       case "test_connection": st.testArgs = a; if (/bad/.test(a.baseUrl)) throw "API Key 不对或没有权限（401）：Incorrect API key provided: sk-xx****. You can find your API key at https://platform.openai.com/account/api-keys."; return "连接成功，用时 412 毫秒";
       case "backdrop": st.backdropArgs = a; return (typeof st.backdrop === "function" ? st.backdrop(a) : st.backdrop) || null;
-      case "show_context_menu": st.menuShown = true; return null;
+      case "show_context_menu": st.menuShown = true; st.menuSharing = !!a.sharing; return null;
       case "ctx_act": (st.ctxActs ||= []).push(a.id); return null;
-      case "capture_screen": return "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#4b6cb7"/><rect x="20" y="20" width="80" height="12" fill="#fff"/></svg>');
+      case "capture_screen": return image;
+      case "capture_window": if (st.captureError) throw st.captureError; return image;
+      case "share_sources":
+        if (st.captureError) throw st.captureError;
+        return [{ title: "整个屏幕", target: { kind: "screen", id: 3 } },
+                { title: "项目笔记 · 记事本", target: { kind: "window", key: { id: 7, pid: 11 } }, thumbnail: image }];
+      case "capture_shared":
+        st.sharedTarget = a.target;
+        if (st.holdCapture) await new Promise((resolve) => { st.finishCapture = resolve; });
+        if (st.captureError) throw st.captureError;
+        return view().lead_vision ? image : null;
+      case "open_screen_privacy": st.screenPrivacyOpened = true; return null;
       case "read_text_file": return { name: a.path.split("/").pop(), text: "第一行\n第二行" };
       case "history_append": {
         if (st.historyAppendDelay) await new Promise((r) => setTimeout(r, st.historyAppendDelay));
@@ -135,7 +152,7 @@
       case "chat": {
         const last = a.messages[a.messages.length - 1];
         const q = typeof last.content === "string" ? last.content : last.content[0].text;
-        st.lastMessages = a.messages;
+        st.lastMessages = a.messages.slice();
         const ch = a.onEvent;
         if (!view().ready) { setTimeout(() => ch.onmessage({ type: "error", message: "还没有填 API Key。右键小球 → 设置 → 模型。" }), 50); return null; }
         // 用工具、需要确认（删除）：看文件夹 → 等确认 → 删或不删

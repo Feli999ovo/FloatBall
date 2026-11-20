@@ -41,7 +41,7 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_Wind
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.61"
-features = ["Foundation", "Foundation_Collections", "Globalization", "Media_SpeechRecognition", "Win32_UI_Accessibility", "Win32_System_Com"]
+features = ["Foundation", "Foundation_Collections", "Globalization", "Media_SpeechRecognition", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
