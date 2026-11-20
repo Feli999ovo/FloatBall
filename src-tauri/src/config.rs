@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tauri_plugin_global_shortcut::Shortcut;
 
 const KEYRING_SERVICE: &str = "com.floatball.desktop";
 /// 模型库最多放这么多个。Windows 卸载程序按编号逐个清 Key（src-tauri/windows/hooks.nsh），改这里要一起改。
@@ -168,6 +169,8 @@ pub struct Config {
     pub shortcut: String,
     /// 截屏提问
     pub capture_shortcut: String,
+    pub win_shortcut: String,
+    pub share_shortcut: String,
     /// 新对话
     pub new_shortcut: String,
     /// 打开任务
@@ -356,6 +359,8 @@ impl Default for Config {
             pause_away: true,
             shortcut: "Alt+Space".into(),
             capture_shortcut: "Alt+S".into(),
+            win_shortcut: "Alt+W".into(),
+            share_shortcut: "Alt+Shift+S".into(),
             new_shortcut: "Alt+N".into(),
             tasks_shortcut: "Alt+T".into(),
             position: None,
@@ -420,8 +425,26 @@ impl Config {
                 c.default_model = 1;
             }
         }
+        c.clear_conflicting_shortcut_defaults(&v);
         c.fix_agents(if v.get("agents").is_none() { v.get("system_prompt").and_then(Value::as_str) } else { None });
         c
+    }
+
+    pub fn shortcut_bindings(&self) -> [(&str, &'static str); 7] {
+        [(&self.shortcut, "toggle"), (&self.new_shortcut, "new_chat"), (&self.capture_shortcut, "capture"),
+         (&self.tasks_shortcut, "tasks"), (&self.talk_shortcut, "talk"), (&self.win_shortcut, "capture_window"),
+         (&self.share_shortcut, "share")]
+    }
+
+    fn clear_conflicting_shortcut_defaults(&mut self, raw: &Value) {
+        let conflicts = |action, key: &str| {
+            let Ok(key) = key.parse::<Shortcut>() else { return false };
+            self.shortcut_bindings().iter().any(|(other, name)| *name != action && other.trim().parse::<Shortcut>().ok() == Some(key))
+        };
+        let window = raw.get("win_shortcut").is_none() && conflicts("capture_window", &self.win_shortcut);
+        let share = raw.get("share_shortcut").is_none() && conflicts("share", &self.share_shortcut);
+        if window { self.win_shortcut.clear(); }
+        if share { self.share_shortcut.clear(); }
     }
 
     /// 主控永远在第一个；早期版本的系统提示词搬进主控的指令；指向已删模型的 Agent 改回跟随默认
@@ -485,6 +508,16 @@ impl Config {
     /// 这个 Agent 用的模型：它自己选的，没选就用默认
     pub fn model_for(&self, a: &Agent) -> Option<&Model> {
         self.models.iter().find(|m| m.id == a.model).or_else(|| self.current())
+    }
+
+    /// 自动省钱时优先使用可以调用工具的免 Key 模型。
+    pub fn effective_model_for(&self, agent: &Agent) -> Option<&Model> {
+        if agent.auto {
+            if let Some(model) = self.models.iter().find(|m| m.no_key && m.tools != Some(false)) {
+                return Some(model);
+            }
+        }
+        self.model_for(agent)
     }
 
     pub fn save(&self, dir: &Path) -> Result<(), String> {
@@ -641,6 +674,35 @@ mod tests {
         let roundtrip: Handoff = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
         assert_eq!(roundtrip, h);
         assert!(!roundtrip.hint);
+    }
+
+    #[test]
+    fn new_capture_shortcuts_have_defaults() {
+        let d = tempfile::tempdir().unwrap();
+        let c = Config::load(d.path());
+        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+W", "Alt+Shift+S"));
+        fs::write(Config::path(d.path()), r#"{"capture_shortcut":"Alt+S"}"#).unwrap();
+        let c = Config::load(d.path());
+        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+W", "Alt+Shift+S"));
+    }
+
+    #[test]
+    fn capture_shortcut_upgrade_preserves_existing_bindings() {
+        let d = tempfile::tempdir().unwrap();
+        let path = Config::path(d.path());
+        fs::write(&path, r#"{"capture_shortcut":"Alt+Shift+S"}"#).unwrap();
+        let c = Config::load(d.path());
+        assert_eq!((c.capture_shortcut.as_str(), c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+Shift+S", "Alt+W", ""));
+        let mut parsed = Vec::new();
+        for (key, _) in c.shortcut_bindings() {
+            if let Ok(key) = key.parse::<Shortcut>() {
+                assert!(!parsed.contains(&key));
+                parsed.push(key);
+            }
+        }
+        fs::write(&path, r#"{"new_shortcut":"Alt+W","capture_shortcut":"Alt+S","share_shortcut":"Alt+S"}"#).unwrap();
+        let c = Config::load(d.path());
+        assert_eq!((c.new_shortcut.as_str(), c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+W", "", "Alt+S"));
     }
 
     #[test]

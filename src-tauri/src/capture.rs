@@ -7,6 +7,139 @@ use image::{imageops::FilterType, DynamicImage, ImageFormat};
 use std::io::Cursor;
 
 pub const MAX_SIDE: u32 = 1600;
+pub const SCREEN_PERMISSION: &str = "screen_permission";
+pub const WINDOW_UNAVAILABLE: &str = "这个窗口截不了，改用截屏提问";
+
+pub fn check_permission() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGPreflightScreenCaptureAccess() -> bool;
+            fn CGRequestScreenCaptureAccess() -> bool;
+        }
+        if unsafe { !CGPreflightScreenCaptureAccess() && !CGRequestScreenCaptureAccess() } {
+            return Err(SCREEN_PERMISSION.into());
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WindowKey { pub id: u32, pub pid: u32 }
+
+fn window_key(w: &xcap::Window) -> Option<WindowKey> {
+    Some(WindowKey { id: w.id().ok()?, pid: w.pid().ok()? })
+}
+
+fn eligible(pid: u32, own: u32, title: &str, width: u32, height: u32, minimized: bool) -> bool {
+    pid != own && !title.trim().is_empty() && width > 0 && height > 0 && !minimized
+}
+
+fn find_window<T>(windows: impl IntoIterator<Item = T>, key: WindowKey, id: impl Fn(&T) -> Option<WindowKey>) -> Option<T> {
+    windows.into_iter().find(|w| id(w) == Some(key))
+}
+
+#[cfg(windows)]
+mod foreground {
+    use super::WindowKey;
+    use std::sync::Mutex;
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::{Accessibility::{HWINEVENTHOOK, SetWinEventHook}, WindowsAndMessaging::{
+            GetForegroundWindow, GetWindowThreadProcessId, EVENT_SYSTEM_FOREGROUND, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        }},
+    };
+
+    static LAST: Mutex<Option<WindowKey>> = Mutex::new(None);
+
+    fn key(hwnd: HWND) -> Option<WindowKey> {
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)); }
+        (pid != 0).then_some(WindowKey { id: hwnd.0 as u32, pid })
+    }
+
+    extern "system" fn changed(_: HWINEVENTHOOK, _: u32, hwnd: HWND, _: i32, _: i32, _: u32, _: u32) {
+        if let Some(key) = key(hwnd) {
+            *LAST.lock().unwrap() = Some(key);
+        }
+    }
+
+    pub fn watch() {
+        let active = current();
+        *LAST.lock().unwrap() = active;
+        let hook = unsafe { SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(changed), 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS) };
+        if hook.0.is_null() { log::warn!("无法跟踪前台窗口"); }
+    }
+
+    pub fn current() -> Option<WindowKey> {
+        let active = key(unsafe { GetForegroundWindow() })?;
+        if active.pid == std::process::id() { *LAST.lock().unwrap() } else { Some(active) }
+    }
+}
+
+#[cfg(windows)]
+pub use foreground::watch as watch_foreground;
+#[cfg(windows)]
+pub use foreground::current as foreground_window;
+
+#[cfg(not(windows))]
+pub fn foreground_window() -> Option<WindowKey> {
+    let windows = xcap::Window::all().ok()?;
+    let own = std::process::id();
+    let mut fallback = None;
+    for w in windows {
+        let Some(key) = window_key(&w) else { continue };
+        if !eligible(key.pid, own, &w.title().unwrap_or_default(), w.width().unwrap_or(0), w.height().unwrap_or(0), w.is_minimized().unwrap_or(true)) { continue; }
+        if w.is_focused().unwrap_or(false) { return Some(key); }
+        if fallback.is_none() { fallback = Some(key); }
+    }
+    fallback
+}
+
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Target { Window { key: WindowKey }, Screen { id: u32 } }
+
+#[derive(serde::Serialize)]
+pub struct Source { target: Target, title: String, thumbnail: Option<String> }
+
+pub fn sources() -> Result<Vec<Source>, String> {
+    let screens = xcap::Monitor::all().map_err(|e| e.to_string())?;
+    let num_screens = screens.len();
+    let mut sources: Vec<_> = screens.into_iter().enumerate().filter_map(|(i, screen)| {
+        let id = screen.id().ok()?;
+        let title = if num_screens == 1 { "整个屏幕".into() } else { format!("整个屏幕 {}", i + 1) };
+        Some(Source { target: Target::Screen { id }, title, thumbnail: None })
+    }).collect();
+    for window in xcap::Window::all().map_err(|e| e.to_string())? {
+        let Some(key) = window_key(&window) else { continue };
+        let title = window.title().unwrap_or_default();
+        if !eligible(key.pid, std::process::id(), &title, window.width().unwrap_or(0), window.height().unwrap_or(0), window.is_minimized().unwrap_or(true)) { continue; }
+        let thumbnail = window.capture_image().ok().and_then(|img| {
+            encode(DynamicImage::ImageRgba8(img).thumbnail(112, 72)).ok()
+        });
+        sources.push(Source { target: Target::Window { key }, title, thumbnail });
+    }
+    Ok(sources)
+}
+
+pub fn capture_window(key: WindowKey) -> Result<String, String> {
+    let unavailable = || WINDOW_UNAVAILABLE.to_string();
+    let windows = xcap::Window::all().map_err(|_| unavailable())?;
+    let window = find_window(windows, key, window_key).filter(|_| key.pid != std::process::id()).ok_or_else(unavailable)?;
+    if window.is_minimized().unwrap_or(true) { return Err(unavailable()); }
+    let img = window.capture_image().map_err(|_| unavailable())?;
+    if img.pixels().all(|p| p.0[..3] == [0, 0, 0]) { return Err(unavailable()); }
+    encode(DynamicImage::ImageRgba8(img))
+}
+
+pub fn capture_monitor(id: u32) -> Result<String, String> {
+    let monitor = xcap::Monitor::all().map_err(|e| e.to_string())?.into_iter()
+        .find(|m| m.id().ok() == Some(id)).ok_or("找不到共享的屏幕")?;
+    let img = monitor.capture_image().map_err(|e| e.to_string())?;
+    encode(DynamicImage::ImageRgba8(img))
+}
 
 pub fn capture_at(x: i32, y: i32) -> Result<String, String> {
     let monitor = xcap::Monitor::from_point(x, y)
@@ -119,6 +252,25 @@ pub fn read_text_file(path: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_window_requires_external_visible_content() {
+        assert!(eligible(3, 7, "编辑器", 800, 600, false));
+        assert!(!eligible(7, 7, "悬浮球", 800, 600, false));
+        assert!(!eligible(3, 7, "  ", 800, 600, false));
+        assert!(!eligible(3, 7, "编辑器", 0, 600, false));
+        assert!(!eligible(3, 7, "编辑器", 800, 0, false));
+        assert!(!eligible(3, 7, "编辑器", 800, 600, true));
+    }
+
+    #[test]
+    fn matches_foreground_by_window_and_process() {
+        let target = WindowKey { id: 8, pid: 2 };
+        let reused = WindowKey { id: 8, pid: 3 };
+        let sibling = WindowKey { id: 6, pid: 2 };
+        assert_eq!(find_window([reused, sibling, target], target, |w| Some(*w)), Some(target));
+        assert_eq!(find_window([reused, sibling], target, |w| Some(*w)), None);
+    }
 
     #[test]
     fn saturate_keeps_grey_and_boosts_color() {

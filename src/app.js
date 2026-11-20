@@ -232,7 +232,10 @@ window.addEventListener("pointerup", () => {
   if (!wasDrag) { poke(); toggle(); }
 });
 orb.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
-orb.addEventListener("contextmenu", (e) => { e.preventDefault(); invoke("show_context_menu").catch(toastErr); });
+orb.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  invoke("show_context_menu", { sharing: !!activeShare(S.conv) }).catch(toastErr);
+});
 
 // 拖完停下 350ms 后：贴边吸附 + 记住位置
 let moveTimer = 0;
@@ -317,13 +320,14 @@ async function measureOrb(p) {
 // 右键菜单是另一个小窗口，打开时焦点在它那里：这时别把卡片收起来
 T.event.listen("ctx", (e) => { S.ctx = !!e.payload; });
 appWin.onFocusChanged(({ payload: focused }) => {
-  if (focused || !S.open || S.pinned || S.busy || S.ctx) return;
+  if (focused || !S.open || S.pinned || S.busy || S.ctx || S.sending) return;
   if (ask.value.trim() || S.attach.length) return;
   setTimeout(() => { if (!document.hasFocus() && !S.ctx) collapse(); }, 150);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.open) {
-    if (S.busy) stop();
+    if (!$("#vShare").hidden) closeShareView();
+    else if (S.busy) stop();
     else if (!$("#vChat").hidden) collapse();
     else showView("chat");
   }
@@ -338,12 +342,14 @@ function showView(v) {
   $("#title").hidden = v === "task";
   $("#vHist").hidden = v !== "hist";
   $("#vHo").hidden = v !== "ho";
+  $("#vShare").hidden = v !== "share";
   $("#card").classList.toggle("ho", v === "ho"); // 交给终端打开时把「对话 | 任务」和标题栏让给面板：卡片只有 260 高
   $("#histBtn").setAttribute("aria-pressed", v === "hist");
   if (v === "hist") loadHistory();
   if (v === "task") { renderTasks(); rtRefresh().then(renderTasks); }
   if (v === "chat") updateEmpty();
   syncTmp();
+  syncShare();
 }
 $("#tabChat").onclick = () => { showView("chat"); focusAsk(); };
 $("#tabTask").onclick = () => showView("task");
@@ -954,7 +960,7 @@ function showConv(c) {
   $("#stopRow").hidden = !c.busy;
   needOn([...convs].some((x) => x.need));
   seen(c);
-  syncTmp(); updateEmpty(); scrollEnd();
+  syncTmp(); syncShare(); updateEmpty(); scrollEnd();
 }
 function newChat() {
   showConv(Conv(null));
@@ -1021,23 +1027,42 @@ function historyText(text, attach) {
 
 async function send(textArg) {
   const text = (textArg ?? ask.value).trim();
-  if ((!text && !S.attach.length) || S.busy) return;
+  if ((!text && !S.attach.length) || S.busy || S.sending) return;
+  const c = S.conv, share = activeShare(c);
+  const draft = ask.value;
+  let shared;
+  if (share) {
+    if (S.cfg?.lead_vision !== true) toast("当前模型不支持图片，这次不会截图");
+    else {
+      S.sending = true;
+      try {
+        const url = await invoke("capture_shared", { target: share.target });
+        if (S.conv !== c || ask.value !== draft || c.busy) return;
+        if (!url) toast("当前模型不支持图片，这次不会截图");
+        else if (activeShare(c) === share) shared = { kind: "image", url };
+      } catch (e) {
+        if (S.conv !== c || ask.value !== draft || c.busy) return;
+        if (e === "screen_permission") { await sharePermission(); return; }
+        toastErr(e);
+      } finally { S.sending = false; }
+    }
+  }
   const attach = S.attach.splice(0);
   renderAttach();
   ask.value = ""; autosize();
   showView("chat");
-  addUserBubble(text, attach);
+  const shown = shared ? [...attach, shared] : attach;
+  addUserBubble(text, shown);
   S.msgs.push({ role: "user", content: buildContent(text, attach) });
-  const c = S.conv;
-  saveMsg(c, "user", historyText(text, attach)).catch(() => {});
+  saveMsg(c, "user", historyText(text, shown)).catch(() => {});
   if (c.msgs.length === 1) { c.title = text.slice(0, 24) || "截图提问"; $("#title").textContent = c.title; }
-  run();
+  run(shared ? buildContent(text, shown) : undefined);
 }
 
 const HO_RE = /改代码|写代码|重构|脚本|bug|报错/i;
-function run() {
+function run(currentContent) {
   const id = "c" + Date.now(), conv = S.conv;
-  const prompt = S.msgs[S.msgs.length - 1].content;
+  const prompt = currentContent ?? S.msgs[S.msgs.length - 1].content;
   const codeTask = HO_RE.test(typeof prompt === "string" ? prompt : prompt[0].text);
   const here = () => conv === S.conv; // 这个对话是不是正显示在卡片里
   conv.busy = S.busy = id; convs.add(conv);
@@ -1130,7 +1155,8 @@ function run() {
     if (here() || !convs.size) mood("idle");
   };
   conv.stop = el._stop; if (here()) S.stopFn = el._stop;
-  invoke("chat", { id, messages: S.msgs, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
+  const messages = currentContent === undefined ? S.msgs : [...S.msgs.slice(0, -1), { role: "user", content: currentContent }];
+  invoke("chat", { id, messages, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 // ───────── 多 Agent 计划卡（照搬原型 runTeam 的 .x-plan）：主控每交给一个 Agent 一步，卡里多一行 ─────────
 S.agBusy = {}; // Agent id → 正在做的那一步（任务页 Agents 头像条的状态）
@@ -1374,18 +1400,106 @@ function renderAttach() {
   box.hidden = S.attach.length === 0;
   if (!S.attach.some((a) => a.kind === "file")) ask.placeholder = "有什么可以帮你？";
 }
-async function captureAsk() {
+async function captureAsk(command = "capture_screen") {
+  const conv = S.conv;
+  if (S.sending) return;
   try {
     mood("think");
-    const url = await invoke("capture_screen");
+    const url = await invoke(command);
+    if (conv !== S.conv) return;
     S.attach = S.attach.filter((a) => a.kind !== "image");
     S.attach.push({ kind: "image", url });
     renderAttach();
     await expand("chat");
-    if (S.cfg && !S.cfg.vision) toast("当前模型设置为不支持图片，截图不会发给它（设置里可改）");
+    if (S.cfg?.lead_vision === false) toast("当前模型设置为不支持图片，截图不会发给它（设置里可改）");
     mood("listen");
     ask.focus();
-  } catch (e) { toastErr(e); }
+  } catch (e) {
+    if (conv !== S.conv) return;
+    if (e === "screen_permission") await sharePermission();
+    else { await expand("chat"); toastErr(e); }
+  }
+}
+
+const SHARE_MS = 10 * 60 * 1000;
+const sharingConvs = new Map();
+const shareList = $("#shareList"), shareStatus = $("#shareStatus"), shareSettings = $("#shareSettings");
+function activeShare(conv) {
+  const share = sharingConvs.get(conv);
+  return share && share.until > Date.now() ? share : null;
+}
+function syncShare() {
+  const share = activeShare(S.conv);
+  orb.classList.toggle("sharing", [...sharingConvs.keys()].some(activeShare));
+  $("#shareBanner").hidden = !share || $("#vChat").hidden;
+  $("#shareName").textContent = share ? "正在共享：" + share.title : "";
+}
+function stopSharing(conv, expired = false) {
+  clearTimeout(sharingConvs.get(conv)?.timer);
+  sharingConvs.delete(conv);
+  syncShare();
+  if (!expired) toast("已停止共享");
+  else if (S.open) toast("共享已满 10 分钟，已自动结束");
+  else if (!peekBox) showPeek("共享已满 10 分钟，已自动结束", false);
+}
+let sharePicker = 0;
+function closeShareView() { sharePicker++; shareList.replaceChildren(); showView("chat"); focusAsk(); }
+$("#shareCancel").onclick = closeShareView;
+$("#shareStop").onclick = () => stopSharing(S.conv);
+shareSettings.onclick = () => invoke("open_screen_privacy").catch(toastErr);
+function showSharePermission() {
+  shareList.replaceChildren();
+  shareStatus.textContent = "请在系统设置 → 隐私与安全性 → 屏幕录制中允许悬浮球，然后重启应用。";
+  shareSettings.hidden = false;
+  shareSettings.focus();
+}
+async function sharePermission() {
+  await expand("share");
+  showSharePermission();
+}
+async function toggleShare() {
+  const conv = S.conv;
+  if (activeShare(conv)) { stopSharing(conv); return; }
+  if (!$("#vShare").hidden) { closeShareView(); return; }
+  const request = ++sharePicker;
+  await expand("share");
+  await appWin.setFocus();
+  const visible = () => sharePicker === request && S.open && conv === S.conv && !$("#vShare").hidden;
+  if (!visible()) return;
+  shareSettings.hidden = true;
+  shareList.replaceChildren();
+  shareStatus.textContent = "正在查找可共享的窗口和屏幕";
+  $("#shareCancel").focus();
+  try {
+    const sources = await invoke("share_sources");
+    if (!visible()) return;
+    shareStatus.textContent = sources.length ? "每次提问时截取一张，10 分钟后自动停止。" : "没有找到可共享的窗口或屏幕";
+    for (const source of sources) {
+      const b = document.createElement("button");
+      b.type = "button"; b.title = source.title;
+      if (source.thumbnail) {
+        const img = document.createElement("img");
+        img.alt = ""; img.src = source.thumbnail;
+        b.appendChild(img);
+      }
+      const title = document.createElement("span");
+      title.textContent = source.title;
+      b.appendChild(title);
+      b.onclick = () => {
+        if (!visible()) return;
+        const timer = setTimeout(() => stopSharing(conv, true), SHARE_MS);
+        sharingConvs.set(conv, { target: source.target, title: source.title, until: Date.now() + SHARE_MS, timer });
+        shareList.replaceChildren();
+        closeShareView();
+      };
+      shareList.appendChild(b);
+    }
+    shareList.querySelector("button")?.focus();
+  } catch (e) {
+    if (!visible()) return;
+    if (e === "screen_permission") showSharePermission();
+    else shareStatus.textContent = String(e);
+  }
 }
 
 T.webview.getCurrentWebview().onDragDropEvent(async (e) => {
@@ -1434,7 +1548,7 @@ async function loadHistory() {
   }
 }
 async function openConv(c) {
-  const live = [...convs].find((x) => x.id === c.id);
+  const live = [...convs, ...sharingConvs.keys()].find((x) => x.id === c.id);
   if (live) { showConv(live); showView("chat"); return; }
   const rows = await invoke("history_load", { convId: c.id });
   showConv(Conv(c.id, c.title));
@@ -1515,6 +1629,8 @@ listen("menu", async ({ payload }) => {
     case "new_chat": newChat(); expand("chat"); break;
     case "new_tmp": newTmpChat(); break;
     case "capture": captureAsk(); break;
+    case "capture_window": captureAsk("capture_window"); break;
+    case "share": await toggleShare(); break;
     case "history": expand("hist"); break;
     case "tasks": expand("task"); break;
     case "handoff": await expand("chat"); hoOpen(); break;

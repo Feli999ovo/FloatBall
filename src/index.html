@@ -26,6 +26,7 @@
       </div></div>
       <i class="need" aria-hidden="true">!</i>
       <i class="dn" aria-hidden="true"></i>
+      <span class="share-arc" role="img" aria-label="正在共享屏幕"></span>
     </div>
     <form id="capsule" autocomplete="off">
       <div id="attach" hidden></div>
@@ -60,6 +61,7 @@
       <button type="button" role="menuitem" data-cm="ho" title="交给终端：把要写代码的活交给终端里的编程工具"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M7.5 9.5l2.5 2.5-2.5 2.5M12.5 15h4"/></svg><span>交给终端</span></button>
     </div>
 
+    <div id="shareBanner" hidden><span id="shareName"></span><button type="button" class="txt" id="shareStop">停止</button></div>
     <p id="tmpBanner" hidden><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/><path d="M9.5 9v6M14.5 9v6"/></svg>临时对话 · 关闭后不保存</p>
     <div class="tmpq" id="tmpQ" role="alertdialog" aria-labelledby="tmpQT" hidden><p id="tmpQT"></p><div class="tmpqb"><button type="button" class="x-sb" id="tmpNo">取消</button><button type="button" class="x-sb x-pri" id="tmpOk">转成临时</button></div></div>
 
@@ -81,6 +83,13 @@
         </div>
       </div>
       <div id="stopRow" hidden><button id="stopBtn">停止生成</button></div>
+    </div>
+
+    <div class="view" id="vShare" role="dialog" aria-labelledby="shareTitle" hidden>
+      <div class="vh"><b id="shareTitle">共享屏幕</b><span class="grow"></span><button type="button" class="txt" id="shareCancel">返回</button></div>
+      <p id="shareStatus" role="status"></p>
+      <button type="button" class="x-sb" id="shareSettings" hidden>打开屏幕录制设置</button>
+      <div id="shareList" aria-label="可共享的窗口和屏幕"></div>
     </div>
 
     <!-- 历史 -->

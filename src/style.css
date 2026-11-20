@@ -49,6 +49,10 @@ body:not(.collapsed) .cap { opacity: 1; transition: opacity 0.1s; }
 /* ───────── 小球 ───────── */
 #orb { position: relative; z-index: 2; width: var(--orb); height: var(--orb); flex: none; border-radius: 50%; outline: none; cursor: grab; touch-action: none; }
 #orb:focus-visible { box-shadow: 0 0 0 3px rgba(169, 156, 255, 0.7); }
+.share-arc { display: none; position: absolute; inset: -4px; border: 2px solid transparent; border-top-color: #FFF1DC; border-radius: 50%; pointer-events: none; }
+#orb.sharing .share-arc { display: block; animation: share-arc 8s linear infinite; }
+body.calm #orb.sharing .share-arc { animation: none; }
+@keyframes share-arc { to { transform: rotate(360deg); } }
 .float, .breath { width: 100%; height: 100%; position: relative; }
 .float { animation: float 4.8s ease-in-out infinite; }
 .breath { animation: breath 3.6s ease-in-out infinite; transition: transform 0.4s var(--spring); }
@@ -255,6 +259,17 @@ body:not(.collapsed) #orb.tmp .eye { box-shadow: 0 0 5px rgba(232, 238, 255, 0.6
 .tmpqb { display: flex; justify-content: flex-end; gap: 6px; }
 .tmpqb .x-sb { min-height: 32px; font-size: 12px; padding: 0 12px; }
 .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#shareBanner { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 10px 3px 16px; font-size: 12px; color: #FFF1DC; background: rgba(255, 241, 220, 0.08); }
+#shareBanner[hidden] { display: none; }
+#shareName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#shareStop { flex: none; color: inherit; }
+#shareStatus { margin: 0; padding: 0 16px 8px; color: var(--mut); font-size: 12px; line-height: 1.5; }
+#shareSettings { align-self: flex-start; margin: 4px 16px; }
+#shareList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; overflow-y: auto; padding: 2px 12px 10px; }
+#shareList button { min-width: 0; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 241, 220, 0.06); padding: 6px; font-size: 12px; }
+#shareList button:hover, #shareList button:focus-visible { background: rgba(255, 241, 220, 0.14); }
+#shareList img { display: block; width: 100%; height: 45px; object-fit: contain; margin-bottom: 4px; }
+#shareList span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 对话 | 任务 页签（取自参考版本） */
 .seg { flex: none; display: inline-flex; padding: 2px; gap: 2px; border-radius: 99px; background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
 .seg button { position: relative; display: inline-flex; align-items: center; gap: 5px; min-height: 28px; border: 0; background: none; padding: 0 14px; border-radius: 99px; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.72); }

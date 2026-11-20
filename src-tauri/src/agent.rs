@@ -233,12 +233,7 @@ impl Task {
 
     /// 这个 Agent 用哪个模型：自动省钱时优先用本地免费的，其次自己选的，再次默认
     fn model(&self, a: &Agent) -> Option<Model> {
-        if a.auto {
-            if let Some(m) = self.cfg.models.iter().find(|m| m.no_key && m.tools != Some(false)) {
-                return Some(m.clone());
-            }
-        }
-        self.cfg.model_for(a).cloned()
+        self.cfg.effective_model_for(a).cloned()
     }
 
     fn tools_for(&self, a: &Agent, m: &Model, lead: bool) -> Vec<Value> {
