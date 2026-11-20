@@ -343,6 +343,7 @@ function showView(v) {
   if (v === "hist") loadHistory();
   if (v === "task") { renderTasks(); rtRefresh().then(renderTasks); }
   if (v === "chat") updateEmpty();
+  syncTmp();
 }
 $("#tabChat").onclick = () => { showView("chat"); focusAsk(); };
 $("#tabTask").onclick = () => showView("task");
@@ -363,11 +364,11 @@ function renderTasks() {
   box.textContent = "";
   if (agList().length > 1) { box.appendChild(agRow()); agSync(); }
   // 照原型分组：进行中、定时任务、已完成
-  const head = (t) => { const h = document.createElement("p"); h.className = "hg"; h.textContent = t; box.appendChild(h); };
+  const head = (t) => { const h = document.createElement("p"); h.className = "hg"; h.textContent = t; box.appendChild(h); return h; };
   const rts = (S.cfg && S.cfg.routines) || [];
   const act = S.tasks.filter((t) => t.st === "run"), fin = S.tasks.filter((t) => t.st !== "run");
   if (act.length) { head("进行中"); act.forEach((t) => box.appendChild(taskRow(t))); }
-  head("定时任务");
+  head("定时任务").id = "routineHead";
   rts.forEach((r) => box.appendChild(rtRow(r)));
   if (rtNew) box.appendChild(rtForm(rtNew));
   box.appendChild(rtAddBtn());
@@ -508,7 +509,7 @@ function rtRun(r, note) {
   run();
   const task = c.task;
   if (task) { task.title = "定时 · " + r.name; task.rt = { id: r.id, note }; }
-  invoke("history_append", { convId: null, role: "user", content: r.prompt }).then((id) => { c.id = id; if (c === S.conv) S.convId = id; }).catch(() => {});
+  saveMsg(c, "user", r.prompt).catch(() => {});
   if (keep !== c) showConv(keep);
   renderTasks();
   if (!S.open) showPeek(`定时任务开始：${r.name}`, false, () => goConv(c));
@@ -689,6 +690,7 @@ moreDd.addEventListener("click", (e) => {
   const b = e.target.closest("[data-cm]"); if (!b) return;
   moreOpen(false);
   if (b.dataset.cm === "pin") setPin(!S.pinned);
+  if (b.dataset.cm === "tmp") askTmp(!S.conv.tmp);
   if (b.dataset.cm === "ho") hoOpen();
 });
 
@@ -870,12 +872,81 @@ function scrollEnd() { msgsEl.scrollTop = msgsEl.scrollHeight; }
 /* 后台任务（B3）：每个对话一份气泡 + 消息 + 正在跑的请求。新对话、打开历史只是换一个显示，
    原来那个对话的请求在后台接着跑，回复写进它自己的气泡（收在 conv.dom 里，不在屏幕上）。 */
 const convs = new Set(); // 有请求在跑的对话（跑完就删掉）
-function Conv(id, title) { return { id, title: title || "新对话", msgs: [], dom: document.createDocumentFragment(), busy: null, stop: null, task: null }; }
+function Conv(id, title) { return { id, title: title || "新对话", msgs: [], dom: document.createDocumentFragment(), busy: null, stop: null, task: null, tmp: false, tmpChanging: false, history: Promise.resolve(), historyEpoch: 0 }; }
 S.conv = Conv(null);
+const ASK_PH = "有什么可以帮你？", TMP_PH = "临时对话…";
+const tmpQ = $("#tmpQ"), tmpOk = $("#tmpOk"), tmpNo = $("#tmpNo");
+let tmpTarget = null;
+// 每个对话串行写入；转临时成功后，旧队列即使迟到也不能重新创建历史。
+function saveMsg(c, role, content) {
+  if (c.tmp) return Promise.resolve();
+  const epoch = c.historyEpoch;
+  c.history = c.history.catch(() => {}).then(async () => {
+    if (c.tmp || epoch !== c.historyEpoch) return;
+    c.id = await invoke("history_append", { convId: c.id, role, content });
+    if (c === S.conv) S.convId = c.id;
+  });
+  return c.history;
+}
+function syncTmp() {
+  const c = S.conv;
+  $("#card").classList.toggle("tmp", c.tmp);
+  orb.classList.toggle("tmp", c.tmp);
+  $("#tmpBanner").hidden = !c.tmp || $("#vChat").hidden;
+  const b = moreDd.querySelector("[data-cm=tmp]");
+  b.setAttribute("aria-checked", c.tmp); b.disabled = c.tmpChanging;
+  const ph = c.tmp ? TMP_PH : ASK_PH;
+  if ((ask.placeholder === ASK_PH || ask.placeholder === TMP_PH) && ask.placeholder !== ph) ask.placeholder = ph;
+}
+// 截屏、附件或听写还原占位文字时，也要保留当前会话的临时标记。
+new MutationObserver(syncTmp).observe(ask, { attributes: true, attributeFilter: ["placeholder"] });
+function closeTmp() { tmpQ.hidden = true; tmpTarget = null; tmpOk.disabled = tmpNo.disabled = false; }
+function askTmp(on) {
+  const c = S.conv;
+  if (c.tmpChanging || c.tmp === on) return;
+  if (!c.msgs.length) { setTmp(c, on); return; }
+  tmpTarget = { conv: c, on };
+  $("#tmpQT").textContent = on ? "转为临时对话？之前的消息会从历史里删掉。" : "改回普通对话？这段对话会存进历史记录。";
+  tmpOk.textContent = on ? "转成临时" : "改回普通";
+  tmpQ.hidden = false; tmpOk.focus({ preventScroll: true });
+}
+async function setTmp(c, on) {
+  if (c.tmpChanging || c.tmp === on) return;
+  c.tmpChanging = true;
+  if (c === S.conv) syncTmp();
+  try {
+    if (on) {
+      const change = c.history.catch(() => {}).then(async () => {
+        if (c.id != null) await invoke("history_delete", { convId: c.id });
+        c.id = null; c.tmp = true; c.historyEpoch++;
+        if (c === S.conv) S.convId = null;
+      });
+      c.history = change;
+      await change;
+    } else {
+      c.tmp = false;
+      await Promise.all(c.msgs.map((m) => saveMsg(c, m.role, typeof m.content === "string" ? m.content : historyText(m.content[0].text, m.content.slice(1).map(() => ({ kind: "image" }))))));
+    }
+    if (c === S.conv) { syncTmp(); toast(on ? "已切换为临时对话 · 不会保存" : "已改回普通对话"); }
+  } catch (e) { toastErr((on ? "无法转为临时对话，历史未删除：" : "普通对话保存失败：") + e); }
+  finally { c.tmpChanging = false; if (c === S.conv) syncTmp(); }
+}
+tmpOk.onclick = async () => {
+  const target = tmpTarget; if (!target) return;
+  tmpOk.disabled = tmpNo.disabled = true;
+  await setTmp(target.conv, target.on);
+  if (tmpTarget === target) { closeTmp(); moreBtn.focus({ preventScroll: true }); }
+};
+tmpNo.onclick = () => { closeTmp(); moreBtn.focus({ preventScroll: true }); };
+tmpQ.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); tmpNo.click(); }
+  if (e.key === "Tab") { e.preventDefault(); (document.activeElement === tmpOk ? tmpNo : tmpOk).focus(); }
+});
 // 把当前对话的气泡收起来，换上 c 的
 function showConv(c) {
   const o = S.conv;
   if (o === c) return;
+  closeTmp();
   if (o) { o.id = S.convId; o.msgs = S.msgs; o.title = $("#title").textContent; o.dom.append(...msgsEl.childNodes); }
   S.conv = c; S.convId = c.id; S.msgs = c.msgs; S.busy = c.busy; S.stopFn = c.stop;
   msgsEl.innerHTML = ""; msgsEl.append(...c.dom.childNodes);
@@ -883,10 +954,14 @@ function showConv(c) {
   $("#stopRow").hidden = !c.busy;
   needOn([...convs].some((x) => x.need));
   seen(c);
-  updateEmpty(); scrollEnd();
+  syncTmp(); updateEmpty(); scrollEnd();
 }
 function newChat() {
   showConv(Conv(null));
+}
+function newTmpChat() {
+  const c = Conv(null); c.tmp = true;
+  showConv(c); expand("chat");
 }
 // 在后台做完、还没看的对话：球角上的数字（照原型），点开那条对话就清掉
 const unseen = new Set();
@@ -953,17 +1028,17 @@ async function send(textArg) {
   showView("chat");
   addUserBubble(text, attach);
   S.msgs.push({ role: "user", content: buildContent(text, attach) });
-  try {
-    const c = S.conv;
-    c.id = await invoke("history_append", { convId: c.id, role: "user", content: historyText(text, attach) });
-    if (c === S.conv) S.convId = c.id;
-    if (c.msgs.length === 1) { c.title = text.slice(0, 24) || "截图提问"; if (c === S.conv) $("#title").textContent = c.title; }
-  } catch (_) { /* 历史写不进去不影响对话 */ }
+  const c = S.conv;
+  saveMsg(c, "user", historyText(text, attach)).catch(() => {});
+  if (c.msgs.length === 1) { c.title = text.slice(0, 24) || "截图提问"; $("#title").textContent = c.title; }
   run();
 }
 
+const HO_RE = /改代码|写代码|重构|脚本|bug|报错/i;
 function run() {
   const id = "c" + Date.now(), conv = S.conv;
+  const prompt = S.msgs[S.msgs.length - 1].content;
+  const codeTask = HO_RE.test(typeof prompt === "string" ? prompt : prompt[0].text);
   const here = () => conv === S.conv; // 这个对话是不是正显示在卡片里
   conv.busy = S.busy = id; convs.add(conv);
   $("#stopRow").hidden = false;
@@ -1013,8 +1088,13 @@ function run() {
       out = out.replace(/\n\n$/, "");
       if (!out) { txt.textContent = "（模型没有返回内容）"; }
       conv.msgs.push({ role: "assistant", content: out });
-      invoke("history_append", { convId: conv.id, role: "assistant", content: out }).catch(() => {});
+      saveMsg(conv, "assistant", out).catch(() => {});
       setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
+      if (codeTask && (S.cfg.handoff || {}).hint !== false) {
+        const b = document.createElement("button"); b.type = "button"; b.className = "ho-hint"; b.textContent = "交给终端";
+        b.onclick = () => { goConv(conv); hoOpen(); };
+        const meta = el.querySelector(".meta"); meta.classList.add("with-ho"); meta.appendChild(b);
+      }
       mood("done", 1500);
       if (here()) vcSpeak(el, out);
       // 在后台做完的：球角上记一个数，点开回到那条对话（照原型：完成时小球开心 + 角标）
@@ -1044,7 +1124,7 @@ function run() {
     invoke("cancel_chat", { id }).catch(() => {});
     finish("stop"); txt.classList.remove("cursor");
     el.querySelectorAll(".x-ap button, .x-ap input").forEach((b) => (b.disabled = true));
-    if (out) { txt.innerHTML = md(seg); conv.msgs.push({ role: "assistant", content: out }); invoke("history_append", { convId: conv.id, role: "assistant", content: out + "\n\n（已停止）" }).catch(() => {}); }
+    if (out) { txt.innerHTML = md(seg); conv.msgs.push({ role: "assistant", content: out }); saveMsg(conv, "assistant", out + "\n\n（已停止）").catch(() => {}); }
     else txt.textContent = "（已停止）";
     setMeta(el, "已停止", out ? { copy: out } : {});
     if (here() || !convs.size) mood("idle");
@@ -1433,9 +1513,19 @@ listen("menu", async ({ payload }) => {
     case "toggle": toggle(); break;
     case "open": expand(); break;
     case "new_chat": newChat(); expand("chat"); break;
+    case "new_tmp": newTmpChat(); break;
     case "capture": captureAsk(); break;
     case "history": expand("hist"); break;
     case "tasks": expand("task"); break;
+    case "handoff": await expand("chat"); hoOpen(); break;
+    case "routines": await expand("task"); $("#routineHead").scrollIntoView({ block: "start" }); break;
+    case "sleep": {
+      const wake = orb.classList.contains("s-sleep");
+      await collapse();
+      S.lastActive = Date.now();
+      mood(wake ? "idle" : "sleep");
+      break;
+    }
   }
 });
 
@@ -1487,10 +1577,9 @@ async function selAct({ act, text }) {
   const label = SEL_LABEL[act];
   addSelBubble(t, label);
   S.msgs.push({ role: "user", content: selPrompt(act, t) });
-  try {
-    S.convId = await invoke("history_append", { convId: S.convId, role: "user", content: label + " · " + t });
-    if (S.msgs.length === 1) $("#title").textContent = (label + " · " + t.replace(/\s+/g, " ")).slice(0, 24);
-  } catch (_) {}
+  const c = S.conv;
+  saveMsg(c, "user", label + " · " + t).catch(() => {});
+  if (c.msgs.length === 1) { c.title = (label + " · " + t.replace(/\s+/g, " ")).slice(0, 24); $("#title").textContent = c.title; }
   run();
 }
 listen("sel:act", ({ payload }) => selAct(payload));

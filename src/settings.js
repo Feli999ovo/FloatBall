@@ -295,6 +295,7 @@ const avHTML = (a, big) => `<span class="x-av${big ? " x-avl" : ""}${a.emoji ? "
 let agEd = null;
 
 function renderAgents() {
+  renderHandoffPrefs();
   $("paneAgEd").hidden = true; $("paneAgents").hidden = false;
   const ul = $("agList"); ul.innerHTML = "";
   agents().forEach((a) => {
@@ -317,6 +318,52 @@ function renderAgents() {
     } catch (e) { toast(String(e)); }
   });
 });
+// 交给终端：扫描只读；编辑偏好走专门的保存命令，不复用 handoff_go。
+let hoScanned = false, hoPrefsPending = 0, hoSaveQueue = Promise.resolve();
+function renderHandoffPrefs() {
+  if (!hoPrefsPending) {
+    const h = cfg.handoff || {};
+    if (document.activeElement !== $("hoDefCmd")) $("hoDefCmd").value = h.custom || "";
+    $("hoDefHint").setAttribute("aria-checked", h.hint !== false);
+  }
+  if (!hoScanned) scanHandoffTools();
+}
+async function scanHandoffTools() {
+  const b = $("hoReScan"), status = $("hoScanR"), list = $("hoTools");
+  if (b.disabled) return;
+  hoScanned = true; b.disabled = true; status.textContent = "正在扫描"; list.textContent = "";
+  try {
+    const tools = (await invoke("handoff_scan")).tools;
+    tools.forEach((t) => {
+      const row = mk("li", "x-hotool"), name = mk("b", ""), bin = mk("code", ""), direct = mk("small", "");
+      name.textContent = t.name; bin.textContent = t.bin;
+      direct.textContent = t.direct ? "可直接带入说明" : "打开后粘贴说明";
+      row.append(name, direct, bin); list.appendChild(row);
+    });
+    status.textContent = tools.length ? `找到 ${tools.length} 个工具` : "未找到工具，可用自定义命令";
+  } catch (e) { status.textContent = "扫描失败：" + e; }
+  finally { b.disabled = false; }
+}
+function saveHandoffPrefs() {
+  const prefs = { custom: $("hoDefCmd").value, hint: $("hoDefHint").getAttribute("aria-checked") === "true" };
+  hoPrefsPending++;
+  hoSaveQueue = hoSaveQueue.catch(() => {}).then(async () => {
+    try {
+      await invoke("save_handoff_prefs", prefs);
+      cfg.handoff = { ...(cfg.handoff || {}), ...prefs };
+      if (hoPrefsPending === 1) toast("已保存");
+    } catch (e) { toast(String(e)); }
+    finally { hoPrefsPending--; if (!hoPrefsPending) renderHandoffPrefs(); }
+  });
+  return hoSaveQueue;
+}
+$("hoReScan").onclick = scanHandoffTools;
+$("hoDefCmd").onchange = saveHandoffPrefs;
+$("hoDefHint").onclick = () => {
+  const b = $("hoDefHint"); b.setAttribute("aria-checked", b.getAttribute("aria-checked") !== "true");
+  saveHandoffPrefs();
+};
+
 $("agAdd").addEventListener("click", () => {
   const box = $("agTpl"), on = box.hidden; box.hidden = !on; $("agAdd").setAttribute("aria-expanded", on);
   if (!on) return;

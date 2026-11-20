@@ -273,7 +273,7 @@ async def main():
         check(await pg.locator(".m.user").count() >= 3, "打开历史对话恢复消息")
 
         # 9a 后台任务（B3）：新对话不会停掉正在生成的那个；它在后台写完，任务页点它回到那条对话
-        await pg.click("#newBtn"); await pg.wait_for_timeout(100)
+        await pg.evaluate("__emit('menu', 'new_tmp')"); await pg.wait_for_timeout(800)
         await pg.evaluate("__mock.slow = true; __mock.cancelled = null")
         await pg.fill("#ask", "后台写一首诗"); await pg.press("#ask", "Enter")
         await pg.wait_for_timeout(700)
@@ -291,7 +291,10 @@ async def main():
         await pg.click("#tabTask"); await pg.wait_for_timeout(200)
         await pg.click("#tasks .tk >> nth=1"); await pg.wait_for_timeout(200)
         g = await pg.evaluate("[document.querySelector('#vChat').hidden, [...document.querySelectorAll('.m.user')].map(m => m.textContent), !!document.querySelector('.m.ai .meta:not([hidden])'), document.querySelector('#orb').dataset.done || null, document.querySelector('#title').textContent]")
-        check(not g[0] and g[1] == ["后台写一首诗"] and g[2] and g[3] is None and g[4] == "后台写一首诗", f"任务页点后台那个：回到它的对话，回复已经写好，角标清掉 {g}")
+        check(not g[0] and g[1] == ["后台写一首诗"] and g[2] and g[3] is None and g[4] == "后台写一首诗" and await pg.locator("#tmpBanner").is_visible(), f"任务页点后台那个：回到临时对话，回复完成且横幅仍在 {g}")
+        hist = await pg.evaluate("async () => await __TAURI__.core.invoke('history_list')")
+        stored = await pg.evaluate("__mock.convs.map(c => c.msgs.map(m => m.content).join(' ')).join(' ')")
+        check("后台写一首诗" not in stored and all("后台写一首诗" not in str(c) for c in hist), "后台临时任务完成也不保存历史")
 
         # 9b 定时任务（B5）：任务页「定时任务」一组；新建、下次时间、开关、到点在后台跑、运行记录、删除
         await pg.click("#tabTask"); await pg.wait_for_timeout(200)
@@ -317,12 +320,16 @@ async def main():
         await pg.click("#tasks .tk.rt .x-sw"); await pg.wait_for_timeout(200)
         # 到点：后端发 routine 事件 → 开一个新对话在后台跑，当前对话不动，跑完记一条运行记录
         await pg.click("#tabChat"); await pg.wait_for_timeout(100)
+        await pg.evaluate("__emit('menu', 'new_tmp')"); await pg.wait_for_timeout(800)
         before = await pg.evaluate("[document.querySelector('#title').textContent, document.querySelectorAll('.m').length]")
         await pg.evaluate("__emit('routine', __mock.cfg.routines[0])"); await pg.wait_for_timeout(100)
-        after = await pg.evaluate("[document.querySelector('#title').textContent, document.querySelectorAll('.m').length]")
-        check(after == before, f"到点在后台跑，不打断当前对话 {before} → {after}")
+        after = await pg.evaluate("[document.querySelector('#title').textContent, document.querySelectorAll('.m').length, document.querySelector('#tmpBanner').hidden]")
+        check(after[:2] == before and after[2] is False, f"临时对话前台时定时任务在后台运行，前台保持临时 {before} → {after}")
         await pg.wait_for_function("(__mock.rtDone || []).length", timeout=15000)
         check(await pg.evaluate("__mock.rtDone[0]") == ["rt1", True, "按时运行"], f"跑完记运行记录 {await pg.evaluate('__mock.rtDone')}")
+        await pg.wait_for_function("__mock.convs.some(c => c.msgs.some(m => m.content === '汇总今天的未读邮件'))")
+        routine_hist = await pg.evaluate("__mock.convs.some(c => c.msgs.some(m => m.content === '汇总今天的未读邮件'))")
+        check(routine_hist, "临时对话在前台时，定时任务自己的普通会话仍保存历史")
         await pg.click("#tabTask"); await pg.wait_for_timeout(250)
         names = await pg.evaluate("[...document.querySelectorAll('#tasks .tk:not(.rt) .name')].map(n => n.textContent)")
         check(names[0] == "定时 · 汇总今天的未读邮件", f"任务页列出这次运行，名字带「定时」 {names[:2]}")
@@ -379,6 +386,31 @@ async def main():
         await pg.click("#moreDd [data-cm=ho]"); await pg.wait_for_timeout(300)
         await pg.keyboard.press("Escape"); await pg.wait_for_timeout(100)
         check(await pg.evaluate("[document.querySelector('#vHo').hidden, !document.querySelector('#vChat').hidden]") == [True, True], "Esc 关掉交给终端，回到对话")
+
+        # B8：回复只按对应用户消息提示交给终端；偏好保存不得启动终端
+        old_handoff = await pg.evaluate("__mock.cfg.handoff")
+        handoff_go_before = await pg.evaluate("(__mock.hoGo || []).length")
+        await pg.evaluate("__emit('menu', 'new_chat')")
+        await pg.fill("#ask", "帮我改一下这个脚本的 bug"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("document.querySelector('#stopRow').hidden", timeout=5000)
+        check(await pg.locator(".m.ai:last-of-type .meta .ho-hint").count() == 1, "代码类用户消息的回复末尾有「交给终端」")
+        await shot("09h_reply_handoff")
+        await pg.click(".m.ai:last-of-type .ho-hint")
+        await pg.wait_for_selector("#vHo:not([hidden])")
+        check("脚本的 bug" in await pg.input_value("#hoMd") and await pg.evaluate("(__mock.hoGo || []).length") == handoff_go_before, "回复按钮只打开对应交接预览，不启动终端")
+        await pg.click("#hoCancel")
+        await pg.evaluate("p => __TAURI__.core.invoke('save_handoff_prefs', p)", {"custom": old_handoff.get("custom", ""), "hint": False})
+        await pg.wait_for_function("S.cfg.handoff.hint === false")
+        await pg.fill("#ask", "再帮我写代码"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("document.querySelector('#stopRow').hidden", timeout=5000)
+        check(await pg.locator(".m.ai:last-of-type .ho-hint").count() == 0, "关掉提示后，新的代码类回复不再出现按钮")
+        await pg.evaluate("p => __TAURI__.core.invoke('save_handoff_prefs', p)", {"custom": old_handoff.get("custom", ""), "hint": True})
+        await pg.wait_for_function("S.cfg.handoff.hint === true")
+        await pg.fill("#ask", "请用一句话打个招呼"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("document.querySelector('#stopRow').hidden", timeout=5000)
+        check(await pg.locator(".m.ai:last-of-type .ho-hint").count() == 0, "普通用户消息不会因为回复里有演示代码就误出终端提示")
+        current_handoff = await pg.evaluate("__mock.cfg.handoff")
+        check(all(current_handoff.get(k) == old_handoff.get(k) for k in ["tool", "term", "dirs", "save", "custom"]) and await pg.evaluate("(__mock.hoGo || []).length") == handoff_go_before, "保存提示偏好保留工具、终端、目录等选择，且不运行交接")
 
         # 9b 展开后程序挪窗口触发的 moved 事件，不能改掉收起位置
         await pg.evaluate("__mock.moved.forEach(f=>f())"); await pg.wait_for_timeout(600)
@@ -491,6 +523,8 @@ async def main():
         check(await pg.locator("#setBtn, #closeBtn").count() == 0, "卡片头照原型：设置在右键菜单，收起点小球")
         await pg.click("#moreBtn"); await pg.wait_for_timeout(200)
         check(await pg.evaluate("document.querySelector('#moreDd').classList.contains('on')"), "⋯ 打开下拉")
+        cm = await pg.evaluate("[...document.querySelectorAll('#moreDd [data-cm]')].map(b => [b.dataset.cm, b.getAttribute('role')])")
+        check(cm == [["pin", "menuitemcheckbox"], ["tmp", "menuitemcheckbox"], ["ho", "menuitem"]], f"更多菜单含临时模式开关 {cm}")
         bg = await pg.evaluate("getComputedStyle(document.querySelector('#moreDd')).backgroundImage")
         check("rgba" not in bg and "rgb(" in bg, f"⋯ 下拉用不透明的底，后面的气泡不会透出来 {bg}")
         await shot("12b_more_menu")
@@ -773,16 +807,18 @@ async def main():
         import io
         _w = _I.open(os.path.join(ROOT, "design-reference", "wallpaper.jpg")).convert("RGB"); _k = max(1440 / _w.width, 900 / _w.height)
         _w = _w.resize((round(_w.width * _k), round(_w.height * _k))); _ox, _oy = (_w.width - 1440) // 2, (_w.height - 900) // 2
-        _c = ImageEnhance.Color(_w.crop((_ox + 1180, _oy + 420, _ox + 1396, _oy + 725)).resize((54, 76)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
+        _c = ImageEnhance.Color(_w.crop((_ox + 1180, _oy + 420, _ox + 1396, _oy + 877)).resize((54, 114)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
         _bb = io.BytesIO(); _c.save(_bb, "JPEG", quality=85)
         sbd_url_small = "data:image/jpeg;base64," + base64.b64encode(_bb.getvalue()).decode()
-        ctxm = await b.new_context(viewport={"width": 216, "height": 305}, device_scale_factor=2)
+        ctxm = await b.new_context(viewport={"width": 216, "height": 457}, device_scale_factor=2)
         mp = await ctxm.new_page(); merrs = []
         mp.on("pageerror", lambda e: merrs.append(str(e)))
         await mp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
         await mp.goto("file://" + os.path.join(ROOT, "src", "ctxmenu.html")); await mp.wait_for_timeout(200)
-        items = [{"id": "new_chat", "label": "新对话", "check": None, "sep": False}, {"id": "history", "label": "历史记录", "check": None, "sep": False},
-                 {"id": "capture", "label": "截屏提问", "check": None, "sep": False}, {"id": "settings", "label": "设置", "check": None, "sep": False},
+        items = [{"id": "new_chat", "label": "新对话", "check": None, "sep": False}, {"id": "new_tmp", "label": "新临时对话", "check": None, "sep": False},
+                 {"id": "history", "label": "历史记录", "check": None, "sep": False}, {"id": "capture", "label": "截屏提问", "check": None, "sep": False},
+                 {"id": "handoff", "label": "交给终端", "check": None, "sep": False}, {"id": "routines", "label": "定时任务", "check": None, "sep": False},
+                 {"id": "settings", "label": "设置", "check": None, "sep": False}, {"id": "sleep", "label": "睡眠", "check": None, "sep": False},
                  {"id": "toggle_ball", "label": "隐藏小球", "check": None, "sep": False}, {"id": "autostart", "label": "开机启动", "check": True, "sep": False},
                  {"id": "quit", "label": "退出", "check": None, "sep": True}]
         await mp.evaluate("([it, bd]) => __emit('ctx:show', { items: it, bd })", [items, sbd_url_small])
@@ -791,22 +827,158 @@ async def main():
             return { labels: [...m.querySelectorAll('button')].map(b => b.firstChild.textContent), hr: m.querySelectorAll('hr').length,
                      ck: m.querySelector('[data-id=autostart]').getAttribute('aria-checked'), glassy: m.classList.contains('glassy'),
                      x: r.x, y: r.y, w: r.width, h: Math.round(r.height), bottom: innerHeight - r.bottom, focus: document.activeElement.id }; })()""")
-        check(g["labels"] == ["新对话", "历史记录", "截屏提问", "设置", "隐藏小球", "开机启动", "退出"] and g["hr"] == 1, f"右键菜单：项目照原型顺序（暂只放已有功能）{g['labels']}")
+        check(g["labels"] == ["新对话", "新临时对话", "历史记录", "截屏提问", "交给终端", "定时任务", "设置", "睡眠", "隐藏小球", "开机启动", "退出"] and g["hr"] == 1, f"右键菜单：11 项和一条分隔线照原型顺序 {g['labels']}")
         check(g["ck"] == "true", "开机启动打勾")
         check(g["glassy"] and g["x"] == 8 and g["y"] == 8 and g["w"] == 200 and abs(g["bottom"] - 8) <= 1, f"菜单 200 宽、四周留 8 给阴影、窗口大小正好（和 Rust ctx_size 一致）{g}")
         check(g["focus"] == "menu", "打开后焦点在菜单上，不预先高亮任何一项（同原型）")
         await mp.screenshot(path=f"{OUT}/14_ctx_menu.png", omit_background=True)
-        await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown")
+        await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown")
         check(await mp.evaluate("document.activeElement.dataset.id") == "capture", "方向键在菜单里移动")
         await mp.click("[data-id=settings]"); await mp.wait_for_timeout(100)
         calls = (await mp.evaluate("__mock")).get("ctxActs") or []
         check(calls == ["settings"], f"点一项：关掉菜单并执行 {calls}")
+        for mid in ["new_tmp", "handoff", "routines", "sleep"]:
+            await mp.evaluate("it => __emit('ctx:show', { items: it, bd: null })", items); await mp.wait_for_timeout(150)
+            await mp.click(f"[data-id={mid}]")
+        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "new_tmp", "handoff", "routines", "sleep"], "新增四项点击后传回正确的菜单 id")
         await mp.evaluate("([it, bd]) => __emit('ctx:show', { items: it, bd: null })", [items, None]); await mp.wait_for_timeout(200)
         check(not await mp.evaluate("document.querySelector('#menu').classList.contains('glassy')"), "拿不到底图：用卡片同款不透明底")
         await mp.keyboard.press("Escape"); await mp.wait_for_timeout(100)
-        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", ""], "Esc 关掉菜单，什么也不做")
+        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "new_tmp", "handoff", "routines", "sleep", ""], "Esc 关掉菜单，什么也不做")
         check(not merrs, "菜单窗口无 JS 错误 " + "; ".join(merrs))
         await ctxm.close()
+
+        # 右键菜单分派：展开后再切面板，收起完成后再睡，不能被异步动画覆盖
+        prior_calls = await pg.evaluate("__mock.calls.filter(x => x === 'history_append').length")
+        prior_hist = await pg.evaluate("async () => await __TAURI__.core.invoke('history_list')")
+        await pg.evaluate("__emit('menu', 'new_tmp')"); await pg.wait_for_timeout(800)
+        check(await pg.is_visible("#vChat") and await pg.locator(".m").count() == 0 and await pg.is_visible("#tmpBanner"), "新临时对话入口：展开并显示临时横幅")
+        g = await pg.evaluate("[getComputedStyle(document.querySelector('#card')).outlineStyle, getComputedStyle(document.querySelector('#orb .eye')).backgroundColor, document.querySelector('#ask').placeholder, document.querySelector('#card').offsetWidth, document.querySelector('#card').offsetHeight]")
+        check(g == ["dashed", "rgb(232, 238, 255)", "临时对话…", 340, 260], f"临时虚线框、冷白眼睛与占位在，卡片仍为 340×260 {g}")
+        await pg.click("#moreBtn"); await pg.click("#moreDd [data-cm=tmp]")
+        await pg.wait_for_function("!document.querySelector('#card').classList.contains('tmp')")
+        check(await pg.is_hidden("#tmpQ"), "空对话改回普通不需要确认")
+        await pg.click("#moreBtn"); await pg.click("#moreDd [data-cm=tmp]")
+        await pg.wait_for_selector("#tmpBanner:not([hidden])")
+        await pg.evaluate("__mock.slow = true")
+        await pg.fill("#ask", "临时停止生成"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("document.querySelector('.m.ai .txt').textContent.includes('好的')", timeout=5000)
+        await pg.click("#stopBtn"); await pg.wait_for_function("document.querySelector('#stopRow').hidden")
+        await pg.evaluate("__mock.slow = false")
+        check(await pg.evaluate("__mock.calls.filter(x => x === 'history_append').length") == prior_calls, "临时会话停止部分回复不写历史")
+        voice_users = await pg.locator(".m.user").count()
+        await pg.evaluate("__mock.cfg.voice.after = 'send'; __emit('config'); __emit('voice:key', true)")
+        await pg.wait_for_function("document.body.classList.contains('vc-rec')", timeout=5000)
+        await pg.wait_for_timeout(1200)
+        await pg.evaluate("__emit('voice:key', false)")
+        await pg.wait_for_function("document.querySelectorAll('.m.user').length > " + str(voice_users) + " && document.querySelector('#stopRow').hidden", timeout=10000)
+        check(await pg.evaluate("__mock.calls.filter(x => x === 'history_append').length") == prior_calls and await pg.is_visible("#tmpBanner"), "临时语音确实发送且不写历史")
+        for text in ["临时隐私消息甲", "临时隐私消息乙"]:
+            await pg.fill("#ask", text); await pg.press("#ask", "Enter")
+            await pg.wait_for_function("document.querySelector('#stopRow').hidden", timeout=5000)
+        g = await pg.evaluate("[__mock.calls.filter(x => x === 'history_append').length, __mock.convs.length, [...document.querySelectorAll('.m.user')].map(x => x.textContent)]")
+        check(g[0] == prior_calls and g[1] == len(prior_hist) and all(t in g[2] for t in ["临时隐私消息甲", "临时隐私消息乙"]), f"临时连续两轮有回复且不增加历史 {g}")
+        users = await pg.locator(".m.user").count()
+        await pg.evaluate("__emit('sel:act', {act: 'explain', text: '临时划词保护'})")
+        await pg.wait_for_function("document.querySelectorAll('.m.user').length > " + str(users) + " && document.querySelector('#stopRow').hidden", timeout=5000)
+        check(await pg.evaluate("__mock.calls.filter(x => x === 'history_append').length") == prior_calls, "临时划词解释确实完成且不写历史")
+        await shot("14d_tmp_chat")
+
+        async def open_tmp_confirm():
+            await pg.click("#moreBtn"); await pg.click("#moreDd [data-cm=tmp]")
+            await pg.wait_for_selector("#tmpQ:not([hidden])")
+
+        await open_tmp_confirm()
+        check(await pg.get_attribute("#tmpQ", "role") == "alertdialog", "有消息切换模式先显示确认卡")
+        await shot("14e_tmp_confirm")
+        await pg.click("#tmpNo")
+        check(await pg.is_hidden("#tmpQ") and await pg.is_visible("#tmpBanner"), "取消后仍临时，不改历史")
+        await open_tmp_confirm(); await pg.click("#tmpOk")
+        await pg.wait_for_selector("#tmpQ", state="hidden")
+        g = await pg.evaluate("async () => [await __TAURI__.core.invoke('history_list'), __mock.convs.map(c => c.msgs.map(m => m.content).join(' ')).join(' ')]")
+        check(await pg.is_hidden("#tmpBanner") and len(g[0]) == len(prior_hist) + 1 and all(t in g[1] for t in ["临时隐私消息甲", "临时隐私消息乙"]), "明确确认改回普通后，已有消息保存到同一个历史会话")
+        await open_tmp_confirm(); await pg.click("#tmpOk")
+        await pg.wait_for_selector("#tmpBanner:not([hidden])")
+        check(await pg.evaluate("async () => (await __TAURI__.core.invoke('history_list')).length") == len(prior_hist), "普通会话转临时：删除成功后原记录消失")
+        await pg.click("#newBtn")
+        await pg.fill("#ask", "普通转临时测试"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("document.querySelector('#stopRow').hidden", timeout=5000)
+        await open_tmp_confirm(); await pg.click("#tmpNo")
+        check(await pg.is_hidden("#tmpBanner") and await pg.evaluate("__mock.convs.some(c => c.title === '普通转临时测试')"), "取消普通转临时保留原记录和普通状态")
+        await pg.evaluate("__mock.historyDeleteFail = '删除历史失败（模拟）'")
+        await open_tmp_confirm(); await pg.click("#tmpOk")
+        await pg.wait_for_selector("#tmpQ", state="hidden")
+        check(await pg.is_hidden("#tmpBanner") and "删除历史失败" in await pg.inner_text("#toast") and await pg.evaluate("__mock.convs.some(c => c.title === '普通转临时测试')"), "删除失败明确提示，界面和历史仍为普通")
+        del_before = await pg.evaluate("(__mock.deletedConvs || []).length")
+        await pg.evaluate("delete __mock.historyDeleteFail; __mock.historyDeleteDelay = 500")
+        await open_tmp_confirm(); await pg.click("#tmpOk")
+        check(await pg.is_hidden("#tmpBanner"), "删除未完成时不会假显示临时")
+        await pg.click("#newBtn")
+        await pg.wait_for_function("(__mock.deletedConvs || []).length > " + str(del_before), timeout=5000)
+        check(await pg.is_hidden("#tmpBanner") and await pg.locator(".m").count() == 0 and await pg.evaluate("async () => (await __TAURI__.core.invoke('history_list')).length") == len(prior_hist) and "已切换为临时对话" not in await pg.inner_text("#toast"), "删除中切走：只修改原会话，不误改新会话或误报临时状态")
+        await pg.evaluate("__mock.historyDeleteDelay = 0; __mock.slow = true; __mock.historyAppendDelay = 1200")
+        race_calls = await pg.evaluate("__mock.calls.filter(x => x === 'history_append').length")
+        await pg.fill("#ask", "迟到写历史竞争测试"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("__mock.calls.filter(x => x === 'history_append').length > " + str(race_calls))
+        await open_tmp_confirm(); await pg.click("#tmpOk")
+        check(await pg.is_hidden("#tmpBanner"), "等已发出的历史写入完成后才删记录、切临时")
+        await pg.wait_for_selector("#tmpBanner:not([hidden])", timeout=5000)
+        await pg.evaluate("__mock.slow = false; __mock.historyAppendDelay = 0")
+        await pg.wait_for_function("document.querySelector('#stopRow').hidden", timeout=10000)
+        await pg.wait_for_timeout(100)
+        check(await pg.evaluate("async () => (await __TAURI__.core.invoke('history_list')).length") == len(prior_hist), "迟到写入和随后生成完成都不会重建已删除的历史")
+        g = await pg.evaluate("""async () => {
+            const c = Conv(null); c.tmp = true;
+            c.msgs = [{role: 'user', content: [{type: 'text', text: '两图'}, {type: 'image_url'}, {type: 'image_url'}]}];
+            await setTmp(c, false);
+            const images = __mock.convs.find(x => x.id === c.id).msgs[0].content === historyText('两图', [{kind: 'image'}, {kind: 'image'}]);
+            const d = Conv(null); d.msgs = [{role: 'user', content: '保留消息'}];
+            await saveMsg(d, 'user', '保留消息'); __mock.historyDeleteDelay = 50;
+            const change = setTmp(d, true), late = saveMsg(d, 'assistant', '过期队列不可落库');
+            await change; await setTmp(d, false); await late; await d.history;
+            __mock.historyDeleteDelay = 0;
+            const rows = __mock.convs.find(x => x.id === d.id).msgs;
+            return [images, rows.length === 1 && rows[0].content === '保留消息'];
+        }""")
+        check(g[0], "明确转普通后保留多张图片的数量，不保存图片数据")
+        check(g[1], "连续切换临时和普通也不会重放旧一代的迟到写入")
+        await pg.click("#newBtn")
+        prior_calls = await pg.evaluate("__mock.calls.filter(x => x === 'history_append').length")
+        prior_hist = await pg.evaluate("async () => await __TAURI__.core.invoke('history_list')")
+        await pg.evaluate("__emit('menu', 'new_tmp')"); await pg.wait_for_timeout(300)
+        await pg.fill("#ask", "第二段临时消息"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("document.querySelector('#stopRow').hidden", timeout=5000)
+        g = await pg.evaluate("async () => [__mock.calls.filter(x => x === 'history_append').length, await __TAURI__.core.invoke('history_list')]")
+        check(g[0] == prior_calls and g[1] == prior_hist, "另开临时对话不污染原有普通记录")
+        await pg.click("#newBtn")
+        check(await pg.is_hidden("#tmpBanner") and await pg.locator(".m").count() == 0 and await pg.evaluate("async () => await __TAURI__.core.invoke('history_list')") == prior_hist, "普通新对话恢复，临时消息不在历史里")
+        await pg.evaluate("collapse()"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__emit('menu', 'handoff')"); await pg.wait_for_timeout(1000)
+        check(await pg.is_visible("#vHo") and not await pg.is_visible("#vChat"), "右键「交给终端」：从收起状态展开后显示交接面板")
+        await pg.evaluate("collapse()"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__emit('menu', 'routines')"); await pg.wait_for_timeout(1000)
+        g = await pg.evaluate("(() => { const h = document.querySelector('#routineHead').getBoundingClientRect(), t = document.querySelector('#tasks').getBoundingClientRect(); return [h.top, h.bottom, t.top, t.bottom]; })()")
+        check(await pg.is_visible("#vTask") and await pg.inner_text("#routineHead") == "定时任务" and g[0] >= g[2] - 1 and g[1] <= g[3] + 1, f"右键「定时任务」：任务页展开，组标题在可见区域 {g}")
+        await shot("14b_ctx_routines")
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(1000)
+        check(await pg.evaluate("document.body.classList.contains('collapsed') && document.querySelector('#orb').classList.contains('s-sleep')"), "右键「睡眠」：先收起卡片，收起动画结束后仍是睡眠表情")
+        await shot("14c_ctx_sleep")
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(100)
+        check(await pg.evaluate("document.body.classList.contains('collapsed') && document.querySelector('#orb').classList.contains('s-idle')"), "睡着时再点「睡眠」：唤醒但不展开")
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(100)
+        await pg.click("#orb"); await pg.wait_for_timeout(1000)
+        check(await pg.is_visible("#vChat") and not await pg.evaluate("document.querySelector('#orb').classList.contains('s-sleep')"), "点睡着的悬浮球：醒来并展开对话")
+        await pg.mouse.move(0, 0)  # 光标移出球，避免收起后既有的 hover 唤醒干扰睡眠检查
+        await pg.evaluate("__mock.slow = true; __mock.cancelled = null")
+        await pg.fill("#ask", "睡眠时后台继续工作"); await pg.press("#ask", "Enter"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__emit('menu', 'new_chat')"); await pg.wait_for_timeout(100)
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(1000)
+        check(await pg.evaluate("document.querySelector('#orb').classList.contains('s-sleep') && document.querySelector('#tBadge').textContent === '1' && !__mock.cancelled"), "后台任务在跑时也能睡眠，不会停止任务")
+        await pg.evaluate("__mock.slow = false")
+        await pg.wait_for_function("document.querySelector('#tBadge').hidden", timeout=15000)
+        await pg.wait_for_selector("#peek.on", timeout=3000)  # 完成角标先更新，小泡还要等窗口动画
+        check(await pg.evaluate("document.querySelector('#orb').classList.contains('s-done') && +document.querySelector('#orb').dataset.done > 0 && document.querySelector('#peek').classList.contains('on')"), "后台完成：唤醒表情，完成小泡和角标照常显示")
+        check(not errs, "右键新增入口无 JS 错误 " + "; ".join(errs))
 
         # ───────── 划词工具栏窗口（原型 selBar） ─────────
         ctx3 = await b.new_context(viewport={"width": 420, "height": 200}, device_scale_factor=2)
@@ -1043,6 +1215,47 @@ async def main():
             await sp_shot(f"30_agents_{plat}")
             await sp.select_option("#bTok", "100000"); await sp.wait_for_timeout(150)
             check((await mock())["cfg"]["limits"] == {"tokens": 100000, "steps": 50, "parallel": 3}, P + "改预算就保存")
+            # B8：Agents 底部只读扫描与独立偏好保存
+            await sp.wait_for_function("!document.querySelector('#hoReScan').disabled")
+            check(await vis("#hoSettings") and await sp.get_attribute("#hoDefHint", "aria-checked") == "true" and "未找到" in await txt("#hoScanR"), P + "Agents 底部有扫描块，旧偏好默认开启提示，无工具时有说明")
+            await sp.evaluate("""() => {
+                __mock.hoScan = {tools: [{id:'codex', name:'Codex', bin:'codex', direct:true}, {id:'claude', name:'Claude Code', bin:'claude', direct:false}], terms:[]};
+                __mock.cfg.handoff = {tool:'codex', term:'wt', dirs:['C:/demo'], save:false, custom:'old-agent {file}'};
+                __emit('config');
+            }""")
+            await sp.wait_for_function("document.querySelector('#hoDefCmd').value === 'old-agent {file}'")
+            scans_before = await sp.evaluate("__mock.calls.filter(x => x === 'handoff_scan').length")
+            await sp.click("#hoReScan")
+            await sp.wait_for_function("document.querySelectorAll('#hoTools li').length === 2 && !document.querySelector('#hoReScan').disabled")
+            rows = await sp.locator("#hoTools li").all_inner_texts()
+            check(await sp.evaluate("__mock.calls.filter(x => x === 'handoff_scan').length") == scans_before + 1 and "Codex" in rows[0] and "codex" in rows[0] and "可直接带入说明" in rows[0] and "打开后粘贴说明" in rows[1], P + f"重新扫描显示名字、命令与能否直接带入 {rows}")
+            await sp.locator("#hoSettings").scroll_into_view_if_needed()
+            g = await sp.evaluate("[document.querySelector('#hoCmdN').getBoundingClientRect().top - document.querySelector('#hoDefCmd').getBoundingClientRect().bottom, document.querySelector('#hoTools').scrollWidth <= document.querySelector('#hoTools').clientWidth]")
+            check(g[0] >= 4 and g[1], P + f"命令说明不压住输入框，工具列表不横向溢出 {g}")
+            await sp_shot(f"30b_handoff_{plat}")
+            await sp.fill("#hoDefCmd", "draft-kept")
+            await sp.evaluate("__mock.cfg.handoff.hint = false; __emit('config')")
+            await sp.wait_for_function("document.querySelector('#hoDefHint').getAttribute('aria-checked') === 'false'")
+            check(await sp.input_value("#hoDefCmd") == "draft-kept", P + "后台配置刷新不覆盖正在编辑的自定义命令草稿")
+            await sp.evaluate("__mock.cfg.handoff.hint = true; __emit('config')")
+            await sp.wait_for_function("document.querySelector('#hoDefHint').getAttribute('aria-checked') === 'true'")
+            await sp.fill("#hoDefCmd", "my-agent --prompt {file}")
+            await sp.click("#hoDefHint")  # blur 保存命令与点击开关紧接着发生，最后两个偏好都要保留
+            await sp.wait_for_function("__mock.cfg.handoff.custom === 'my-agent --prompt {file}' && __mock.cfg.handoff.hint === false")
+            h = (await mock())["cfg"]["handoff"]
+            check(h["tool"] == "codex" and h["term"] == "wt" and h["dirs"] == ["C:/demo"] and h["save"] is False and not (await mock()).get("hoGo"), P + "保存自定义命令及提示开关，不覆盖原选择，也不启动终端")
+            await sp.evaluate("__mock.hoPrefsFail = '保存失败（模拟）'")
+            await sp.fill("#hoDefCmd", "should-not-save"); await sp.press("#hoDefCmd", "Tab")
+            await sp.wait_for_function("document.querySelector('#toast').textContent.includes('保存失败')")
+            check((await mock())["cfg"]["handoff"]["custom"] == "my-agent --prompt {file}" and await sp.input_value("#hoDefCmd") == "my-agent --prompt {file}", P + "保存失败有提示，恢复已保存值而不假装成功")
+            await sp.evaluate("delete __mock.hoPrefsFail; __mock.hoScanFail = '路径检查失败（模拟）'")
+            await sp.click("#hoReScan")
+            await sp.wait_for_function("document.querySelector('#hoScanR').textContent.includes('扫描失败') && !document.querySelector('#hoReScan').disabled")
+            check(await sp.locator("#hoTools li").count() == 0, P + "扫描失败显示原因且可重试，不保留过时清单")
+            await sp.evaluate("delete __mock.hoScanFail")
+            await sp.click("#hoReScan")
+            await sp.wait_for_function("document.querySelectorAll('#hoTools li').length === 2")
+            check(not (await mock()).get("hoGo"), P + "重试扫描恢复清单，全程没有启动工具")
             # 编辑主控：改指令、选模型；读文件锁住
             await sp.click("#agList [data-ag=lead]"); await sp.wait_for_timeout(100)
             check(await vis("#paneAgEd") and not await vis("#paneAgents") and await sp.input_value("#aeName") == "主控", P + "打开主控编辑器")

@@ -118,11 +118,13 @@ pub struct Handoff {
     pub save: bool,
     /// 自定义命令，{file} = 交接说明文件
     pub custom: String,
+    /// 对话像在写代码时，提示交给终端
+    pub hint: bool,
 }
 
 impl Default for Handoff {
     fn default() -> Self {
-        Self { tool: String::new(), term: String::new(), dirs: vec![], save: true, custom: String::new() }
+        Self { tool: String::new(), term: String::new(), dirs: vec![], save: true, custom: String::new(), hint: true }
     }
 }
 
@@ -624,6 +626,21 @@ mod tests {
         // 划词默认关（会动剪贴板，由用户自己打开）；新配置也一样
         assert!(!d.on);
         assert!(!Config::default().sel.on);
+    }
+
+    #[test]
+    fn legacy_handoff_without_hint_defaults_on() {
+        let old = r#"{"handoff":{"tool":"codex","term":"powershell","dirs":["C:/work"],"save":false,"custom":"my-agent {file}"}}"#;
+        let c: Config = serde_json::from_str(old).unwrap();
+        assert!(c.handoff.hint);
+        assert_eq!((c.handoff.tool.as_str(), c.handoff.term.as_str(), c.handoff.custom.as_str()), ("codex", "powershell", "my-agent {file}"));
+        assert_eq!(c.handoff.dirs, vec!["C:/work"]);
+        assert!(!c.handoff.save);
+        let mut h = c.handoff;
+        h.hint = false;
+        let roundtrip: Handoff = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
+        assert_eq!(roundtrip, h);
+        assert!(!roundtrip.hint);
     }
 
     #[test]

@@ -353,6 +353,15 @@ fn save_limits(app: AppHandle, state: State<'_, AppState>, limits: config::Limit
     commit(&app, &state, next)
 }
 
+/// 交给终端偏好：只保存设置，不打开终端或运行自定义命令
+#[tauri::command]
+fn save_handoff_prefs(app: AppHandle, state: State<'_, AppState>, custom: String, hint: bool) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.handoff.custom = custom;
+    next.handoff.hint = hint;
+    commit(&app, &state, next)
+}
+
 /// 定时任务：新增或修改（id 为空就是新的），返回 id
 #[tauri::command]
 fn save_routine(app: AppHandle, state: State<'_, AppState>, routine: routine::Routine) -> Result<String, String> {
@@ -1036,9 +1045,13 @@ fn ctx_items<R: Runtime>(app: &AppHandle<R>) -> Vec<CtxItem> {
     let it = |id, label| CtxItem { id, label, check: None, sep: false };
     vec![
         it("new_chat", "新对话"),
+        it("new_tmp", "新临时对话"),
         it("history", "历史记录"),
         it("capture", "截屏提问"),
+        it("handoff", "交给终端"),
+        it("routines", "定时任务"),
         it("settings", "设置"),
+        it("sleep", "睡眠"),
         it("toggle_ball", "隐藏小球"),
         CtxItem { id: "autostart", label: "开机启动", check: Some(auto), sep: false },
         CtxItem { id: "quit", label: "退出", check: None, sep: true },
@@ -1283,7 +1296,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
+            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,
@@ -1346,8 +1359,11 @@ mod ctx_tests {
     #[test]
     fn ctx_menu_size_matches_prototype() {
         let it = |sep| CtxItem { id: "a", label: "a", check: None, sep };
-        // 7 项、1 条分隔线：12 + 38×7 + 11 = 289，加阴影边 16
-        let items: Vec<_> = (0..7).map(|i| it(i == 6)).collect();
-        assert_eq!(ctx_size(&items), (216.0, 305.0));
+        // 高：11 项×38 + 1 条分隔线×11 + 上下 6×2 + 四周 8×2 = 457；宽：200 + 8×2 = 216
+        let items: Vec<_> = (0..11).map(|i| it(i == 10)).collect();
+        let (w, h) = ctx_size(&items);
+        assert_eq!((w, h), (216.0, 457.0));
+        // 1024×768 屏幕右下角：翻到鼠标左上方，整个菜单仍在屏幕内
+        assert_eq!(ctx_rect(1000.0, 740.0, w, h, (0.0, 0.0, 1024.0, 768.0)), (784.0, 283.0));
     }
 }
