@@ -1463,6 +1463,7 @@ async function toggleShare() {
   if (!$("#vShare").hidden) { closeShareView(); return; }
   const request = ++sharePicker;
   await expand("share");
+  await appWin.setFocus();
   const visible = () => sharePicker === request && S.open && conv === S.conv && !$("#vShare").hidden;
   if (!visible()) return;
   shareSettings.hidden = true;

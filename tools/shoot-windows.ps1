@@ -163,11 +163,14 @@ try {
   Shot '07b_右键菜单'
   [System.Windows.Forms.SendKeys]::SendWait('{ESC}'); Start-Sleep -Milliseconds 600
 
-  # Alt+Shift+S 打开悬浮球自己的选择器。第一个来源是整个屏幕。
+  # Alt+Shift+S 打开选择器，用真实鼠标选第一格「整个屏幕」。
   [System.Windows.Forms.SendKeys]::SendWait('%+s')
   Start-Sleep -Seconds 2
   Shot '07c_选择共享来源'
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  $sr = WinRect
+  if (-not $sr -or ($sr.Right - $sr.Left) -lt 300) { throw '共享选择器没有展开' }
+  $scale = ($sr.Right - $sr.Left) / 364.0
+  Click ($sr.Left + [int](102 * $scale)) ($sr.Top + [int](199 * $scale))
   Start-Sleep -Milliseconds 800
   Shot '07d_共享中'
   [System.Windows.Forms.SendKeys]::SendWait('%+s')
