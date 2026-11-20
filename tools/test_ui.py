@@ -801,6 +801,28 @@ async def main():
 
         check(not errs, "页面无 JS 错误 " + "; ".join(errs))
 
+        await pg.evaluate("__mock.cfg.sel.on = false")
+        await pg.keyboard.press("Escape")
+        await pg.wait_for_function("!S.open && document.body.classList.contains('collapsed')")
+        feed_calls = await pg.evaluate("__mock.calls.filter(c => c === 'chat').length")
+        selected = "项目选中文字\n第二行"
+        await pg.evaluate("text => __emit('sel:feed', {Ok: text})", selected)
+        await pg.wait_for_function("document.querySelector('#ask').value.includes('第二行')")
+        check(await pg.input_value("#ask") == selected and await pg.evaluate("S.open && document.activeElement === ask && ask.selectionStart === ask.value.length"), "关闭划词时也能用快捷键展开、放入选中文字，光标在末尾")
+        check(await pg.evaluate("__mock.calls.filter(c => c === 'chat').length") == feed_calls, "喂选中文字不会发送")
+        await shot("15b_feed_selection")
+        await pg.evaluate("__emit('sel:feed', {Ok: '继续选中'})")
+        await pg.wait_for_function("document.querySelector('#ask').value.endsWith('继续选中')")
+        draft = selected + "\n继续选中"
+        check(await pg.input_value("#ask") == draft, "喂选中文字保留已有草稿")
+        await pg.evaluate("__emit('sel:feed', {Err: 'empty'})")
+        await pg.wait_for_function("document.querySelector('#toast').textContent === '没读到选中的文字'")
+        check(await pg.input_value("#ask") == draft, "没读到文字时提示并保留草稿")
+        await pg.evaluate("__emit('sel:feed', {Err: 'permission'})")
+        await pg.click("#feedSettings")
+        check(await pg.evaluate("__mock.privacy === 1 && document.querySelector('#feedPermission').hidden"), "缺少辅助功能权限时可打开系统设置")
+        await pg.fill("#ask", "")
+
         # B6 使用独立对话，测试共享只在明确提问时采集。
         await pg.evaluate("__emit('menu', 'new_chat'); __emit('menu', 'capture_window')")
         await pg.wait_for_selector("#attach img")
@@ -1476,7 +1498,7 @@ async def main():
             rows = await sp.eval_on_selector_all("#keyList li", "x => x.map(l => l.dataset.k + ':' + l.querySelector('b').textContent + ':' + l.querySelector('.x-kc').textContent)")
             check(rows == ["shortcut:唤起/收起:Alt+Space", "new_shortcut:新对话:Alt+N", "capture_shortcut:截屏提问:Alt+S",
                            "win_shortcut:发送当前窗口:Alt+W", "share_shortcut:开始/停止共享:Alt+Shift+S",
-                           "tasks_shortcut:打开任务:Alt+T", "talk_shortcut:按住说话:右 Alt（按住）"], P + f"快捷键含发送窗口和共享{rows}")
+                           "feed_shortcut:喂当前选中的文字:Alt+C", "tasks_shortcut:打开任务:Alt+T", "talk_shortcut:按住说话:右 Alt（按住）"], P + f"快捷键含发送窗口和共享{rows}")
             await sp.click("#keyList [data-k=share_shortcut] .x-sb"); await sp.keyboard.press("Alt+KeyW")
             check("发送当前窗口" in await txt("#keyList [data-k=share_shortcut] .x-kw") and await kc("win_shortcut") == "Alt+W", P + "共享快捷键也检查冲突")
             await sp.keyboard.press("Escape")
@@ -1502,11 +1524,13 @@ async def main():
             check("新对话" in await txt("#keyList [data-k=tasks_shortcut] .x-kw") and (await mock())["cfg"]["tasks_shortcut"] == "Alt+T", P + "和别的快捷键重复：说出是哪个")
             await sp.keyboard.press("Alt+KeyY"); await sp.wait_for_timeout(150)
             check((await mock())["cfg"]["tasks_shortcut"] == "Alt+Y" and await kc("tasks_shortcut") == "Alt+Y", P + "录入「打开任务」")
+            await sp.click("#keyList [data-k=feed_shortcut] .x-sb"); await sp.keyboard.press("Alt+KeyX"); await sp.wait_for_timeout(150)
+            check((await mock())["cfg"]["feed_shortcut"] == "Alt+X", P + "保存喂选中文字的新快捷键")
             await sp.click("#keyList [data-k=talk_shortcut] .x-sb"); await sp.keyboard.press("Alt+KeyV"); await sp.wait_for_timeout(150)
             check((await mock())["cfg"]["talk_shortcut"] == "Alt+V" and await kc("talk_shortcut") == "Alt+V", P + "「按住说话」也能改成组合键")
             await sp.click("#keyReset"); await sp.wait_for_timeout(200)
             c = (await mock())["cfg"]
-            check(c["talk_shortcut"] == "RightAlt", P + "恢复默认：按住说话回到右 Alt")
+            check(c["talk_shortcut"] == "RightAlt" and c["feed_shortcut"] == "Alt+C", P + "恢复默认：按住说话回到右 Alt，划词快捷键回到 Alt+C")
             check([c["shortcut"], c["new_shortcut"], c["capture_shortcut"], c["tasks_shortcut"], c["win_shortcut"], c["share_shortcut"]] == ["Alt+Space", "Alt+N", "Alt+S", "Alt+T", "Alt+W", "Alt+Shift+S"] and "恢复默认" in await txt("#toast"), P + "恢复默认（同原型）")
             await sp.keyboard.press("Escape")
             check((await mock()).get("closed") == 2, P + "Esc 关闭设置窗口")

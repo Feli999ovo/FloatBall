@@ -219,13 +219,13 @@ pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 /// 读选中的文字。和 SnipDo、PopClip、Easydict 的做法一样分两步：
 /// 1. 先问系统的无障碍接口（Windows 的 UI Automation，mac 的辅助功能）：不碰剪贴板，也不管光标是什么形状；
 /// 2. 读不到再模拟复制（Ctrl+C / ⌘C）读剪贴板，再放回去。Windows 上只在 I 形光标下做这一步，免得在按钮、图标上乱复制。
-fn read_selection(own_pid: u64, ibeam: bool) -> Option<(String, String)> {
+fn read_selection(own_pid: u64, ibeam: bool, settings: &crate::config::Sel) -> Option<(String, String)> {
     let w = active_win_pos_rs::get_active_window().ok()?;
     if w.process_id == own_pid {
         return None;
     }
     let exe = w.process_path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-    if cfg!(windows) && never_read(&exe) {
+    if (cfg!(windows) && never_read(&exe)) || settings.excluded(&w.app_name, &exe) {
         return None;
     }
     let who = format!("{}\u{1}{}", w.app_name, exe);
@@ -259,6 +259,20 @@ fn read_selection(own_pid: u64, ibeam: bool) -> Option<(String, String)> {
         log::warn!("模拟复制失败：{e}");
     }
     Some((who, t.ok()?))
+}
+
+pub fn feed(settings: &crate::config::Sel) -> Result<String, &'static str> {
+    if !trusted(false) { return Err("permission"); }
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        let ibeam = plat::pointer().is_some_and(|p| p.ibeam);
+        if let Some((_, text)) = read_selection(std::process::id() as u64, ibeam, settings) {
+            return clip(&text).ok_or("empty");
+        }
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let _ = settings;
+    Err("empty")
 }
 
 /// Windows UI Automation：取有焦点的控件（找不到文字就往上找几层，网页里焦点常在子元素上）的文本选区。
@@ -473,7 +487,8 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
                             return;
                         }
                         log::info!("开始读选中文字");
-                        let got = read_selection(own_pid, ibeam);
+                        let settings = st.cfg.lock().unwrap().sel.clone();
+                        let got = read_selection(own_pid, ibeam, &settings);
                         log::info!("读完：{}", got.as_ref().map(|(_, t)| format!("{} 字", t.chars().count())).unwrap_or_else(|| "没读到".into()));
                         let Some((who, text)) = got else { return };
                         let (name, exe) = who.split_once('\u{1}').unwrap_or((&who, ""));
