@@ -1197,7 +1197,7 @@ function run(currentContent) {
   };
   conv.stop = el._stop; if (here()) S.stopFn = el._stop;
   const messages = currentContent === undefined ? S.msgs : [...S.msgs.slice(0, -1), { role: "user", content: currentContent }];
-  invoke("chat", { id, messages, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
+  invoke("chat", { id, messages, temporary: conv.tmp || conv.tmpChanging, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 // ───────── 多 Agent 计划卡（照搬原型 runTeam 的 .x-plan）：主控每交给一个 Agent 一步，卡里多一行 ─────────
 S.agBusy = {}; // Agent id → 正在做的那一步（任务页 Agents 头像条的状态）
@@ -1252,13 +1252,27 @@ function whyLine(a) {
 }
 // ───────── 任务页顶上的 Agents 头像条 + 弹卡（照搬原型 agRow / pop） ─────────
 let agOpen = null;
+let memoryCounts = {}, memoryRefresh = 0;
+async function loadMemoryCounts() {
+  const request = ++memoryRefresh;
+  try {
+    const counts = await invoke("agent_memory_counts");
+    if (request !== memoryRefresh) return;
+    memoryCounts = counts;
+    agSync();
+  } catch (e) { console.warn("无法读取记忆条数", e); }
+}
+listen("memory:changed", loadMemoryCounts);
 function agRow() {
   const w = document.createElement("div"); w.className = "x-ags";
   w.innerHTML = '<p class="x-hg">Agents</p><div class="x-agl"></div><div class="x-agp" role="status" hidden></div>';
   agList().slice(1).forEach((a) => {
     const b = document.createElement("button"); b.type = "button"; b.className = "x-ag"; b.dataset.ag = a.id;
     b.innerHTML = `<span class="x-avw">${avHTML(a)}<i class="x-agd"></i></span><span></span>`; b.lastChild.textContent = a.name;
-    b.addEventListener("click", (e) => { e.stopPropagation(); agOpen = agOpen === a.id ? null : a.id; agSync(); });
+    b.addEventListener("click", (e) => {
+      e.stopPropagation(); agOpen = agOpen === a.id ? null : a.id; agSync();
+      if (agOpen) loadMemoryCounts();
+    });
     w.children[1].appendChild(b);
   });
   return w;
@@ -1281,6 +1295,10 @@ function agSync() {
   pm.lastChild.setAttribute("aria-label", `更换${a.name}的模型`);
   pm.lastChild.addEventListener("click", () => { agOpen = null; agSync(); invoke("open_settings", { agent: a.id }).catch(toastErr); });
   p3.textContent = S.agBusy[a.id] != null ? `忙碌 · ${S.agBusy[a.id]}` : "空闲";
+  const memory = document.createElement("p");
+  memory.className = "memory-count";
+  memory.textContent = `独立记忆 · ${memoryCounts[a.id] ?? 0} 条`;
+  pop.appendChild(memory);
   // 靠右的 Agent 弹卡往左让，不被卡片右边挤窄
   pop.style.left = Math.max(4, Math.min(b.offsetLeft, pop.parentElement.clientWidth - pop.offsetWidth - 4)) + "px";
 }

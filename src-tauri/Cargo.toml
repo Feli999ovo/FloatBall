@@ -25,6 +25,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 futures-util = "0.3"
 tokio = { version = "1", features = ["time", "sync", "macros", "rt"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 xcap = "0.7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

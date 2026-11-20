@@ -21,6 +21,9 @@ pub struct Msg {
     pub created: i64,
 }
 
+#[derive(Serialize)]
+pub struct Memory { pub id: i64, pub text: String, pub created: i64 }
+
 pub struct Store {
     conn: Connection,
 }
@@ -63,7 +66,13 @@ impl Store {
                role TEXT NOT NULL,
                content TEXT NOT NULL,
                created INTEGER NOT NULL);
-             CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conv_id, id);",
+             CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conv_id, id);
+             CREATE TABLE IF NOT EXISTS agent_memory(
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 agent_id TEXT NOT NULL,
+                 text TEXT NOT NULL,
+                 created INTEGER NOT NULL);
+             CREATE INDEX IF NOT EXISTS agent_memory_latest ON agent_memory(agent_id, id DESC);",
         )?;
         Ok(Store { conn })
     }
@@ -122,6 +131,34 @@ impl Store {
         Ok(())
     }
 
+    pub fn memory(&self, agent_id: &str, limit: u32) -> rusqlite::Result<Vec<Memory>> {
+        let mut stmt = self.conn.prepare("SELECT id, text, created FROM agent_memory WHERE agent_id = ?1 ORDER BY id DESC LIMIT ?2")?;
+        let rows = stmt.query_map(params![agent_id, limit], |r| Ok(Memory { id: r.get(0)?, text: r.get(1)?, created: r.get(2)? }))?;
+        rows.collect()
+    }
+
+    pub fn memory_counts(&self) -> rusqlite::Result<std::collections::HashMap<String, u32>> {
+        let mut stmt = self.conn.prepare("SELECT agent_id, COUNT(*) FROM agent_memory GROUP BY agent_id")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect()
+    }
+
+    pub fn remember(&self, agent_id: &str, text: &str) -> rusqlite::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("INSERT INTO agent_memory(agent_id, text, created) VALUES (?1, ?2, ?3)", params![agent_id, text, now()])?;
+        tx.execute("DELETE FROM agent_memory WHERE agent_id = ?1 AND id <= (SELECT id FROM agent_memory WHERE agent_id = ?1 ORDER BY id DESC LIMIT 1 OFFSET 100)", [agent_id])?;
+        tx.commit()
+    }
+
+    pub fn delete_memory(&self, agent_id: &str, id: Option<i64>) -> rusqlite::Result<()> {
+        if let Some(id) = id {
+            self.conn.execute("DELETE FROM agent_memory WHERE agent_id = ?1 AND id = ?2", params![agent_id, id])?;
+        } else {
+            self.conn.execute("DELETE FROM agent_memory WHERE agent_id = ?1", [agent_id])?;
+        }
+        Ok(())
+    }
+
     pub fn clear(&self) -> rusqlite::Result<()> {
         self.conn.execute("DELETE FROM conversations", [])?;
         Ok(())
@@ -131,6 +168,23 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_memory_limit_and_deletion_are_scoped() {
+        let s = Store::from_conn(Connection::open_in_memory().unwrap()).unwrap();
+        for n in 0..105 { s.remember("lead", &format!("条目 {n}")).unwrap(); }
+        s.remember("ag1", "只属于它").unwrap();
+        assert_eq!(s.memory_counts().unwrap()["lead"], 100);
+        let mem = s.memory("lead", 100).unwrap();
+        assert_eq!(mem.first().unwrap().text, "条目 104");
+        assert_eq!(mem.last().unwrap().text, "条目 5");
+        let other = s.memory("ag1", 100).unwrap();
+        s.delete_memory("lead", Some(other[0].id)).unwrap();
+        assert_eq!(s.memory_counts().unwrap()["ag1"], 1);
+        s.delete_memory("ag1", None).unwrap();
+        assert!(s.memory("ag1", 100).unwrap().is_empty());
+        assert_eq!(s.memory_counts().unwrap()["lead"], 100);
+    }
 
     #[test]
     fn crud() {

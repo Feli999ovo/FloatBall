@@ -211,6 +211,11 @@ textarea.x-in { display: block; height: auto; min-height: 96px; padding: 8px 10p
 .x-mem > span { margin-right: auto; }
 .x-mem .x-sb { min-height: 30px; font: var(--type-caption); }
 .x-mem .x-sb:disabled { opacity: 0.45; cursor: default; transform: none; }
+.x-memlist { padding: 0; margin: 6px 0 0; list-style: none; max-height: 170px; overflow-y: auto; }
+.x-memlist li { display: flex; align-items: start; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.12); font-size: 12px; }
+.x-memlist span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.x-memlist .x-sb { flex: none; }
+.x-memlist[hidden] { display: none; }
 .x-tryr { margin: 8px 0px 0px; padding: 8px 10px; border-radius: 10px; background: rgba(120, 220, 150, 0.12); box-shadow: rgba(120, 220, 150, 0.28) 0px 0px 0px 1px inset; font: var(--type-small); color: rgb(255, 255, 255); }
 .x-tryr.no { background: rgba(255, 255, 255, 0.06); box-shadow: rgba(255, 255, 255, 0.16) 0px 0px 0px 1px inset; }
 .x-tryr[hidden] { display: none; }

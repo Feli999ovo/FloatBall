@@ -54,6 +54,12 @@ pub trait World: Send + Sync {
     fn fetch<'a>(&'a self, url: &'a str) -> futures_util::future::BoxFuture<'a, Result<String, String>>;
     /// 把总是允许存进设置
     fn remember(&self, a: Allow);
+    fn memory_store(&self) -> Option<&dyn MemoryStore>;
+}
+
+pub trait MemoryStore: Send + Sync {
+    fn recent(&self, agent: &str) -> Vec<String>;
+    fn add(&self, agent: &str, text: &str) -> Result<(), String>;
 }
 
 pub struct Task {
@@ -245,6 +251,13 @@ impl Task {
             .filter(|d| a.tools.iter().any(|t| t == d.group))
             .map(|d| json!({"type": "function", "function": {"name": d.name, "description": d.desc, "parameters": (d.params)()}}))
             .collect();
+        if self.world.memory_store().is_some() {
+            v.push(json!({"type":"function","function":{
+                "name":"remember",
+                "description":"记住以后对用户有用的事实或偏好。只存一句话，别存密码、密钥或敏感信息。",
+                "parameters":obj(&[("text", "简短的事实或偏好")])
+            }}));
+        }
         let others: Vec<&Agent> = self.cfg.agents.iter().skip(1).collect();
         if lead && !others.is_empty() {
             let list = others.iter().map(|o| format!("{}（{}）", o.name, if o.role.is_empty() { "没写职责" } else { &o.role })).collect::<Vec<_>>().join("；");
@@ -272,7 +285,15 @@ impl Task {
                 return Err(format!("模型「{}」还没有填 API Key。右键小球 → 设置 → 模型。", if m.name.is_empty() { &m.model } else { &m.name }));
             }
             let mut tools = self.tools_for(agent, &m, lead);
-            msgs = crate::prepare_messages(&self.cfg.agent_prompt(agent), m.vision, msgs);
+            let mut prompt = self.cfg.agent_prompt(agent);
+            if let Some(store) = self.world.memory_store() {
+                let facts = store.recent(&agent.id);
+                if !facts.is_empty() {
+                    prompt.push_str("\n\n独立记忆（用户事实与偏好）：\n");
+                    for fact in facts { prompt.push_str(&format!("- {fact}\n")); }
+                }
+            }
+            msgs = crate::prepare_messages(&prompt, m.vision, msgs);
             loop {
                 self.budget().await?;
                 self.steps.fetch_add(1, Ordering::Relaxed);
@@ -368,6 +389,19 @@ impl Task {
             Ok(v) => v,
             Err(_) => return "参数不是合法的 JSON".into(),
         };
+        if c.name == "remember" {
+            let Some(store) = self.world.memory_store() else { return "当前对话不能写入记忆".into() };
+            if self.model(agent).is_some_and(|m| m.tools == Some(false)) { return "当前模型不能使用工具".into(); }
+            let text = arg(&a, "text").split_whitespace().collect::<Vec<_>>().join(" ");
+            if text.is_empty() || text.chars().count() > 500 { return "请提供 1 至 500 字的简短事实或偏好".into(); }
+            return match store.add(&agent.id, &text) {
+                Ok(()) => {
+                    self.pill(&call, agent, "记住偏好", "", "done", "已保存到独立记忆");
+                    "已记住".into()
+                }
+                Err(e) => format!("未能保存记忆：{e}"),
+            };
+        }
         let Some(def) = DEFS.iter().find(|d| d.name == c.name) else {
             return format!("没有这个工具：{}", c.name);
         };
@@ -498,6 +532,7 @@ fn list_dir(p: &str) -> Result<String, String> {
 
 pub struct RealWorld {
     pub remember: Box<dyn Fn(Allow) + Send + Sync>,
+    pub memory: Option<Box<dyn MemoryStore>>,
 }
 
 /// 网页 → 纯文字：去掉 script/style 和标签，合并空白，最多 8000 字
@@ -608,6 +643,7 @@ impl World for RealWorld {
     fn remember(&self, a: Allow) {
         (self.remember)(a)
     }
+    fn memory_store(&self) -> Option<&dyn MemoryStore> { self.memory.as_deref() }
 }
 
 #[cfg(test)]
@@ -670,6 +706,15 @@ mod tests {
     struct Fake {
         opened: Mutex<Vec<String>>,
         remembered: Mutex<Vec<Allow>>,
+        memory: Option<Mutex<crate::store::Store>>,
+    }
+    impl MemoryStore for Mutex<crate::store::Store> {
+        fn recent(&self, agent: &str) -> Vec<String> {
+            self.lock().unwrap().memory(agent, 20).unwrap().into_iter().map(|m| m.text).collect()
+        }
+        fn add(&self, agent: &str, text: &str) -> Result<(), String> {
+            self.lock().unwrap().remember(agent, text).map_err(|e| e.to_string())
+        }
     }
     impl World for Fake {
         fn open(&self, url: &str) -> Result<(), String> {
@@ -685,6 +730,7 @@ mod tests {
         fn remember(&self, a: Allow) {
             self.remembered.lock().unwrap().push(a)
         }
+        fn memory_store(&self) -> Option<&dyn MemoryStore> { self.memory.as_ref().map(|m| m as &dyn MemoryStore) }
     }
 
     struct Env {
@@ -696,13 +742,17 @@ mod tests {
     }
 
     fn env(replies: Vec<String>, f: impl FnOnce(&mut Config)) -> Env {
+        env_with_memory(replies, f, None)
+    }
+
+    fn env_with_memory(replies: Vec<String>, f: impl FnOnce(&mut Config), memory: Option<crate::store::Store>) -> Env {
         let (base, got) = server(replies);
         let mut cfg = Config::default();
         // 测试从只有主控开始；要子 Agent 的测试自己加
         cfg.agents.truncate(1);
         cfg.upsert(Model { model: "m".into(), base_url: base, no_key: true, tools: Some(true), ..Model::default() }).unwrap();
         f(&mut cfg);
-        let fake = Arc::new(Fake { opened: Mutex::new(vec![]), remembered: Mutex::new(vec![]) });
+        let fake = Arc::new(Fake { opened: Mutex::new(vec![]), remembered: Mutex::new(vec![]), memory: memory.map(Mutex::new) });
         let events = Arc::new(Mutex::new(vec![]));
         let ev = events.clone();
         let dir = tempfile::tempdir().unwrap();
@@ -836,6 +886,31 @@ mod tests {
         assert_eq!(out.unwrap(), "已打开");
         let o = e.fake.opened.lock().unwrap();
         assert_eq!(o[0], "mailto:wang@x.com?subject=%E5%91%A8%E6%8A%A5&body=%E6%94%B9%E8%BF%87%E7%9A%84%E6%AD%A3%E6%96%87");
+    }
+
+    #[test]
+    fn ordinary_agents_can_remember_and_only_receive_the_latest_twenty() {
+        let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
+        for n in 0..21 { store.remember("lead", &format!("fact-{n:02}")).unwrap(); }
+        store.remember("other", "other-agent").unwrap();
+        let e = env_with_memory(vec![tool("remember", json!({"text":"new preference"})), text("ok")], |_| {}, Some(store));
+        let result = rt().block_on(e.task.run(e.task.cfg.lead(), vec![], true));
+        assert_eq!(result.unwrap(), "ok");
+        let got = e.got.lock().unwrap();
+        assert!(got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "remember"));
+        let prompt = got[0]["messages"][0]["content"].as_str().unwrap();
+        assert!(!prompt.contains("fact-00") && !prompt.contains("other-agent"));
+        for n in 1..21 { assert!(prompt.contains(&format!("fact-{n:02}"))); }
+        assert_eq!(e.fake.memory.as_ref().unwrap().lock().unwrap().memory("lead", 1).unwrap()[0].text, "new preference");
+    }
+
+    #[test]
+    fn task_without_memory_rejects_unadvertised_remember() {
+        let e = env(vec![tool("remember", json!({"text":"secret draft"})), text("ok")], |_| {});
+        assert!(rt().block_on(e.task.run(e.task.cfg.lead(), vec![], true)).is_ok());
+        let got = e.got.lock().unwrap();
+        assert!(!got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "remember"));
+        assert_eq!(got[1]["messages"].as_array().unwrap().last().unwrap()["content"], "当前对话不能写入记忆");
     }
 
     #[test]

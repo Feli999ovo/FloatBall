@@ -73,7 +73,11 @@
         if (i >= 0) st.cfg.agents[i] = g; else { let n = 1; while (st.cfg.agents.some((x) => x.id === "ag" + n)) n++; g.id = "ag" + n; st.cfg.agents.push(g); }
         (st.savedAgents ||= []).push(g); changed(); return g.id;
       }
-      case "delete_agent": if (a.id === "lead") throw "主控不能删"; st.cfg.agents = st.cfg.agents.filter((x) => x.id !== a.id); changed(); return null;
+      case "delete_agent":
+        if (a.id === "lead") throw new Error("主控不能删");
+        st.cfg.agents = st.cfg.agents.filter((x) => x.id !== a.id);
+        if (st.memories) delete st.memories[a.id];
+        changed(); return null;
       case "save_limits": st.cfg.limits = { ...a.limits }; changed(); return null;
       // 定时任务（B5）：规则和 Rust 的 save_routine 一样（新建 id = rtN，空指令报错）
       case "save_routine": {
@@ -169,6 +173,13 @@
         if (st.historyDeleteFail) throw st.historyDeleteFail;
         st.convs = st.convs.filter((c) => c.id !== a.convId); (st.deletedConvs ||= []).push(a.convId); return null;
       case "history_clear": st.convs = []; return null;
+      case "agent_memory_counts": return Object.fromEntries(Object.entries(st.memories || {}).map(([id, list]) => [id, list.length]));
+      case "agent_memory_list": return [...(st.memories?.[a.agent] || [])];
+      case "agent_memory_delete":
+        if (st.memoryError) throw new Error(st.memoryError);
+        (st.memories ||= {})[a.agent] = a.id == null ? [] : (st.memories[a.agent] || []).filter((m) => m.id !== a.id);
+        window.__emit("memory:changed", a.agent);
+        return null;
       case "cancel_chat": st.cancelled = a.id; return null;
       case "chat": {
         const last = a.messages[a.messages.length - 1];
@@ -176,6 +187,16 @@
         st.lastMessages = a.messages.slice();
         const ch = a.onEvent;
         if (!view().ready) { setTimeout(() => ch.onmessage({ type: "error", message: "还没有填 API Key。右键小球 → 设置 → 模型。" }), 50); return null; }
+        if (st.rememberNext) {
+          const { agent, text } = st.rememberNext;
+          delete st.rememberNext;
+          st.lastTemporary = a.temporary;
+          if (!a.temporary) {
+            const list = (st.memories ||= {})[agent] ||= [];
+            list.unshift({ id: Date.now(), text, created: Date.now() });
+            window.__emit("memory:changed", agent);
+          }
+        }
         // 用工具、需要确认（删除）：看文件夹 → 等确认 → 删或不删
         if (/删除/.test(q)) {
           const send = (e) => { if (st.cancelled !== a.id) ch.onmessage(e); };

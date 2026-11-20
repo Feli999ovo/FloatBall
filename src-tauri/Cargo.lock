@@ -1466,6 +1466,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "tokio",
+ "uuid",
  "windows 0.61.3",
  "windows-sys 0.59.0",
  "xcap",

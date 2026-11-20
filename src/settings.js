@@ -546,11 +546,7 @@ function agDraw() {
   const sw = ar.lastChild; sw.setAttribute("aria-checked", d.auto);
   sw.addEventListener("click", () => { d.auto = !d.auto; sw.setAttribute("aria-checked", d.auto); });
   p.appendChild(ar);
-  // 记忆：程序里还没有独立记忆，显示原型的空状态
-  const mem = mk("div", "x-mem"), vb = mk("button", "x-sb", "查看"), cb = mk("button", "x-sb", "清空");
-  vb.type = cb.type = "button"; vb.disabled = cb.disabled = true; vb.setAttribute("aria-expanded", "false");
-  mem.append(mk("span", "", "还没有记忆"), vb, cb);
-  p.appendChild(fld("记忆", null, mem));
+  p.appendChild(fld("记忆", null, memoryControls(a?.id)));
   // 试一试
   const ti = mk("input", "x-in"); ti.id = "aeTry"; ti.spellcheck = false; ti.placeholder = "输入一句请求，比如：帮我检查这份报告的错别字"; ti.value = agEd.tryText || "";
   const tr = mk("div", "x-tryr"); tr.id = "aeTryR"; tr.setAttribute("aria-live", "polite"); tr.hidden = true;
@@ -587,6 +583,70 @@ function agDraw() {
   }
   p.appendChild(f);
 }
+let refreshAgentMemory = null;
+function memoryControls(agent) {
+  const wrap = mk("div"), bar = mk("div", "x-mem"), summary = mk("span", "", agent ? "正在读取记忆" : "还没有记忆");
+  const view = mk("button", "x-sb", "查看"), clear = mk("button", "x-sb", "清空");
+  const list = mk("ul", "x-memlist");
+  view.type = clear.type = "button";
+  view.disabled = clear.disabled = true;
+  view.setAttribute("aria-expanded", "false");
+  list.hidden = true;
+  summary.setAttribute("aria-live", "polite");
+  bar.append(summary, view, clear); wrap.append(bar, list);
+  if (!agent) { refreshAgentMemory = null; return wrap; }
+
+  let confirming = false, busy = false, latest = 0;
+  async function refresh() {
+    const req = ++latest;
+    try {
+      const records = await invoke("agent_memory_list", { agent });
+      if (!wrap.isConnected || req !== latest) return;
+      summary.textContent = records.length ? `独立记忆 · ${records.length} 条` : "还没有记忆";
+      view.disabled = clear.disabled = records.length === 0 || busy;
+      if (!records.length) list.hidden = true;
+      view.setAttribute("aria-expanded", String(!list.hidden));
+      view.textContent = list.hidden ? "查看" : "收起";
+      list.replaceChildren();
+      for (const record of records) {
+        const row = mk("li"), text = mk("span", "", record.text), remove = mk("button", "x-sb", "删除");
+        remove.type = "button";
+        remove.setAttribute("aria-label", "删除记忆：" + record.text);
+        remove.onclick = () => erase(record.id);
+        row.append(text, remove); list.append(row);
+      }
+    } catch (err) {
+      if (wrap.isConnected && req === latest) summary.textContent = "无法读取记忆：" + err;
+    }
+  }
+  async function erase(id) {
+    if (busy) return;
+    busy = true; clear.disabled = true;
+    try { await invoke("agent_memory_delete", { agent, id }); }
+    catch (err) { toast(String(err)); }
+    finally {
+      busy = confirming = false;
+      clear.textContent = "清空";
+      await refresh();
+    }
+  }
+  view.onclick = () => {
+    list.hidden = !list.hidden;
+    view.setAttribute("aria-expanded", String(!list.hidden));
+    view.textContent = list.hidden ? "查看" : "收起";
+  };
+  clear.onclick = () => {
+    if (confirming) return erase(null);
+    confirming = true;
+    clear.textContent = "确认清空";
+  };
+  clear.onblur = () => { confirming = false; clear.textContent = "清空"; };
+  refreshAgentMemory = (id) => { if (id === agent && wrap.isConnected) refresh(); };
+  refresh();
+  return wrap;
+}
+T.event.listen("memory:changed", (e) => refreshAgentMemory?.(e.payload));
+
 function agRedraw(sel) {
   const w = $("paneAgEd"), y = w.scrollTop; agDraw(); w.scrollTop = y;
   const el = sel && $("paneAgEd").querySelector(sel); if (el) el.focus({ preventScroll: true });
