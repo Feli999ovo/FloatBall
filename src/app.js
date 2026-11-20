@@ -1034,8 +1034,11 @@ async function send(textArg) {
   run();
 }
 
+const HO_RE = /改代码|写代码|重构|脚本|bug|报错/i;
 function run() {
   const id = "c" + Date.now(), conv = S.conv;
+  const prompt = S.msgs[S.msgs.length - 1].content;
+  const codeTask = HO_RE.test(typeof prompt === "string" ? prompt : prompt[0].text);
   const here = () => conv === S.conv; // 这个对话是不是正显示在卡片里
   conv.busy = S.busy = id; convs.add(conv);
   $("#stopRow").hidden = false;
@@ -1087,6 +1090,11 @@ function run() {
       conv.msgs.push({ role: "assistant", content: out });
       saveMsg(conv, "assistant", out).catch(() => {});
       setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
+      if (codeTask && (S.cfg.handoff || {}).hint !== false) {
+        const b = document.createElement("button"); b.type = "button"; b.className = "ho-hint"; b.textContent = "交给终端";
+        b.onclick = () => { goConv(conv); hoOpen(); };
+        const meta = el.querySelector(".meta"); meta.classList.add("with-ho"); meta.appendChild(b);
+      }
       mood("done", 1500);
       if (here()) vcSpeak(el, out);
       // 在后台做完的：球角上记一个数，点开回到那条对话（照原型：完成时小球开心 + 角标）

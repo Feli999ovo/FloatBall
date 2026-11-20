@@ -60,7 +60,13 @@
       }
       case "delete_routine": st.cfg.routines = (st.cfg.routines || []).filter((r) => r.id !== a.id); changed(); return null;
       // 交给终端（B4）：扫描结果由测试放在 st.hoScan；go 记下参数，和 Rust 一样记住这次的选择
-      case "handoff_scan": return st.hoScan || { tools: [], terms: [{ id: "wt", name: "Windows Terminal" }, { id: "powershell", name: "Windows PowerShell" }] };
+      case "handoff_scan":
+        if (st.hoScanFail) throw st.hoScanFail;
+        return st.hoScan || { tools: [], terms: [{ id: "wt", name: "Windows Terminal" }, { id: "powershell", name: "Windows PowerShell" }] };
+      case "save_handoff_prefs":
+        if (st.hoPrefsFail) throw st.hoPrefsFail;
+        Object.assign((st.cfg.handoff ||= { dirs: [] }), { custom: a.custom, hint: a.hint });
+        changed(); return null;
       case "handoff_pick": return st.hoPick === undefined ? null : st.hoPick;
       case "handoff_go": {
         if (!a.dir) throw "项目文件夹不存在";

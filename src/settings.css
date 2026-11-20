@@ -481,3 +481,14 @@ body.win .x-win.x-setw{border-radius:0;box-shadow:inset 0 0 0 1px rgba(255,255,2
 
 /* 语音：识别方式选「系统自带」时收起服务商那两栏 */
 .x-vcsvc[hidden], #vcSvcNote[hidden] { display: none; }
+
+/* Agents 页底部：沿用预算卡和表单，不改变设置窗口大小。 */
+.x-hoset { margin-top: 12px; }
+.x-hoset .x-field { display: block; }
+.x-hoset .x-lh { gap: 8px; flex-wrap: wrap; }
+.x-hoset .x-lh p { margin-right: auto; }
+#hoScanR { font: var(--type-caption); color: rgba(255,255,255,.6); }
+#hoTools { margin: 0 0 12px; padding: 0; list-style: none; }
+.x-hotool { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 8px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.12); font: var(--type-small); }
+.x-hotool small { font: var(--type-caption); color: rgba(255,255,255,.6); }
+.x-hotool code { grid-column: 1 / -1; overflow-wrap: anywhere; font: var(--type-caption); color: rgba(255,255,255,.72); }

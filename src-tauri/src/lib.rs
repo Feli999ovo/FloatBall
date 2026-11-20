@@ -353,6 +353,15 @@ fn save_limits(app: AppHandle, state: State<'_, AppState>, limits: config::Limit
     commit(&app, &state, next)
 }
 
+/// 交给终端偏好：只保存设置，不打开终端或运行自定义命令
+#[tauri::command]
+fn save_handoff_prefs(app: AppHandle, state: State<'_, AppState>, custom: String, hint: bool) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.handoff.custom = custom;
+    next.handoff.hint = hint;
+    commit(&app, &state, next)
+}
+
 /// 定时任务：新增或修改（id 为空就是新的），返回 id
 #[tauri::command]
 fn save_routine(app: AppHandle, state: State<'_, AppState>, routine: routine::Routine) -> Result<String, String> {
@@ -1287,7 +1296,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
+            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_limits, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,

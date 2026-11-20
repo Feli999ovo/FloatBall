@@ -66,6 +66,14 @@
           <label class="x-field"><span>最多同时子 Agent</span><select class="x-in" id="bPar"><option>1</option><option>3</option><option>5</option></select></label>
         </div>
       </div>
+      <section class="x-bud x-hoset" id="hoSettings" aria-labelledby="hoSettingsT">
+        <div class="x-lh"><p id="hoSettingsT">交给终端</p><small id="hoScanR" aria-live="polite"></small><button type="button" class="x-sb" id="hoReScan">重新扫描</button></div>
+        <ul id="hoTools" aria-label="本机编程工具"></ul>
+        <label class="x-field"><span>自定义命令</span><input class="x-in" id="hoDefCmd" placeholder="例如 my-agent --prompt {file}" spellcheck="false" autocomplete="off" aria-describedby="hoCmdN" /></label>
+        <p class="x-note" id="hoCmdN">{file} 会换成交接说明文件的路径。这里只保存，不会打开终端。</p>
+        <div class="x-ar"><span id="hoDefHintL">对话像在写代码时，提示交给终端</span><button type="button" class="x-sw" id="hoDefHint" role="switch" aria-checked="true" aria-labelledby="hoDefHintL"></button></div>
+        <p class="x-note">只读取本机程序和 PATH，不修改环境变量，也不会替你安装工具或批准命令。</p>
+      </section>
     </div>
     <div class="x-pane x-ae" id="paneAgEd" hidden></div>
     <!-- 权限（原型的 panePerm）：三档说明、已总是允许（可撤销）、离开电脑时暂停敏感操作 -->
