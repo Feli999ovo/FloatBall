@@ -272,7 +272,7 @@ impl Task {
                 return Err(format!("模型「{}」还没有填 API Key。右键小球 → 设置 → 模型。", if m.name.is_empty() { &m.model } else { &m.name }));
             }
             let mut tools = self.tools_for(agent, &m, lead);
-            msgs = crate::prepare_messages(&agent.prompt, m.vision, msgs);
+            msgs = crate::prepare_messages(&self.cfg.agent_prompt(agent), m.vision, msgs);
             loop {
                 self.budget().await?;
                 self.steps.fetch_add(1, Ordering::Relaxed);
@@ -843,7 +843,8 @@ mod tests {
         let e = env(
             vec![tool("delegate", json!({"agent":"审查员","task":"检查错别字"})), text("没有错别字"), text("审查员说没有错别字")],
             |c| {
-                c.upsert_agent(Agent { name: "审查员".into(), role: "检查错别字".into(), prompt: "你是审查员".into(), ..Agent::default() }).unwrap();
+                c.save_skill(crate::config::Skill { id: String::new(), name: "核对出处".into(), when: "查资料时".into(), steps: "先找原文".into() }).unwrap();
+                c.upsert_agent(Agent { name: "审查员".into(), role: "检查错别字".into(), prompt: "你是审查员".into(), skills: vec![c.skills[0].id.clone()], ..Agent::default() }).unwrap();
             },
         );
         let out = rt().block_on(e.task.run(&e.task.cfg.lead().clone(), vec![json!({"role":"user","content":"检查一下"})], true));
@@ -851,7 +852,8 @@ mod tests {
         let got = e.got.lock().unwrap();
         assert!(got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "delegate"));
         // 子 Agent 用自己的指令，不能再往下交
-        assert_eq!(got[1]["messages"][0], json!({"role":"system","content":"你是审查员"}));
+        assert_eq!(got[1]["messages"][0], json!({"role":"system","content":"你是审查员\n\n技能：核对出处\n什么时候用：查资料时\n步骤：\n先找原文"}));
+        assert!(!got[0]["messages"][0]["content"].as_str().unwrap().contains("核对出处"));
         assert!(!got[1]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "delegate"));
         // 交给子 Agent 不再是工具药丸，而是计划卡的一行：开始 → 完成（带这一步用掉的 token）
         assert!(pills(&e).is_empty());

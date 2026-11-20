@@ -101,6 +101,15 @@
     <div class="view" id="vTask" role="tabpanel" aria-labelledby="tabTask" hidden><div id="tasks"></div></div>
 
     <!-- 交给终端（B4，照原型 #ho）：交给哪个工具、哪个终端、项目文件夹、交接说明 -->
+    <form class="view skill-draft" id="vSkill" aria-labelledby="skillTitle" hidden>
+      <div class="vh"><b id="skillTitle">存为技能</b></div>
+      <div class="skill-fields">
+        <label>名字<input class="x-in" id="skillName" maxlength="60" required /></label>
+        <label>什么时候用<input class="x-in" id="skillWhen" maxlength="500" /></label>
+        <label>步骤<textarea class="x-in" id="skillSteps" rows="5" maxlength="6000" required></textarea></label>
+      </div>
+      <div class="skill-actions"><button type="button" class="x-sb" id="skillCancel">取消</button><button type="submit" class="x-sb" id="skillSave">保存技能</button></div>
+    </form>
     <div class="view" id="vHo" role="dialog" aria-label="交给终端" hidden>
       <div class="vh"><b>交给终端</b><span class="grow"></span><button type="button" class="txt" id="hoReScan">重新扫描</button></div>
       <div class="ho">

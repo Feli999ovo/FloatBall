@@ -328,6 +328,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.open) {
     if (!$("#feedPermission").hidden) closeFeedPermission();
     else if (!$("#vShare").hidden) closeShareView();
+    else if (!$("#vSkill").hidden) closeSkillDraft();
     else if (S.busy) stop();
     else if (!$("#vChat").hidden) collapse();
     else showView("chat");
@@ -345,7 +346,8 @@ function showView(v) {
   $("#vHist").hidden = v !== "hist";
   $("#vHo").hidden = v !== "ho";
   $("#vShare").hidden = v !== "share";
-  $("#card").classList.toggle("ho", v === "ho"); // 交给终端打开时把「对话 | 任务」和标题栏让给面板：卡片只有 260 高
+  $("#vSkill").hidden = v !== "skill";
+  $("#card").classList.toggle("ho", v === "ho" || v === "skill"); // 交给终端打开时把「对话 | 任务」和标题栏让给面板：卡片只有 260 高
   $("#histBtn").setAttribute("aria-pressed", v === "hist");
   if (v === "hist") loadHistory();
   if (v === "task") { renderTasks(); rtRefresh().then(renderTasks); }
@@ -770,6 +772,39 @@ $("#hoSave").onclick = () => { const b = $("#hoSave"); b.setAttribute("aria-chec
 $("#hoPick").onclick = async () => {
   try { const d = await invoke("handoff_pick", { start: $("#hoDir").value || "" }); if (d) { hoDirs(d); hoReady(); } } catch (e) { toastErr(e); }
 };
+let skillButton = null;
+function draftSkill(conv, button, question, answer) {
+  goConv(conv);
+  skillButton = button;
+  const request = (typeof question === "string" ? question : question.find((x) => x.type === "text")?.text || "").trim();
+  const title = request.replace(/\s+/g, " ").slice(0, 40);
+  $("#skillName").value = title || "未命名技能";
+  $("#skillWhen").value = title ? "用户提出「" + title + "」这类请求时" : "";
+  // 沿用这条回复中的步骤与 Markdown，让用户保存前修改。
+  $("#skillSteps").value = answer.trim().slice(0, 6000);
+  showView("skill");
+  $("#skillName").focus();
+}
+function closeSkillDraft() {
+  showView("chat");
+  skillButton?.focus({ preventScroll: true });
+  skillButton = null;
+}
+$("#skillCancel").onclick = closeSkillDraft;
+$("#vSkill").onsubmit = async (e) => {
+  e.preventDefault();
+  const save = $("#skillSave"), button = skillButton;
+  if (save.disabled) return;
+  save.disabled = true;
+  try {
+    const skill = { name: $("#skillName").value, when: $("#skillWhen").value, steps: $("#skillSteps").value };
+    await invoke("save_skill", { skill });
+    if (skillButton === button && !$("#vSkill").hidden) closeSkillDraft();
+    toast("已存为技能");
+  } catch (err) { toastErr(err); }
+  finally { save.disabled = false; }
+};
+
 const hoClose = () => { showView("chat"); focusAsk(); };
 $("#hoCancel").onclick = hoClose;
 $("#vHo").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); hoClose(); } });
@@ -1117,11 +1152,15 @@ function run(currentContent) {
       conv.msgs.push({ role: "assistant", content: out });
       saveMsg(conv, "assistant", out).catch(() => {});
       setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
+      const meta = el.querySelector(".meta");
       if (codeTask && (S.cfg.handoff || {}).hint !== false) {
         const b = document.createElement("button"); b.type = "button"; b.className = "ho-hint"; b.textContent = "交给终端";
         b.onclick = () => { goConv(conv); hoOpen(); };
-        const meta = el.querySelector(".meta"); meta.classList.add("with-ho"); meta.appendChild(b);
+        meta.appendChild(b);
       }
+      const skill = document.createElement("button"); skill.type = "button"; skill.className = "skill-add"; skill.textContent = "存为技能";
+      skill.onclick = () => draftSkill(conv, skill, prompt, out);
+      meta.appendChild(skill);
       mood("done", 1500);
       if (here()) vcSpeak(el, out);
       // 在后台做完的：球角上记一个数，点开回到那条对话（照原型：完成时小球开心 + 角标）

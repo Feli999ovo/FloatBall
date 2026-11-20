@@ -62,6 +62,16 @@ impl Model {
 /// 工具（Agent 能用哪些）。名字就是界面上显示的字。
 pub const TOOLS: [&str; 6] = ["搜索网页", "读文件", "写文件", "删除", "发邮件", "浏览器"];
 pub const MAX_AGENTS: usize = 16;
+const MAX_SKILLS: usize = 50;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Skill {
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    pub when: String,
+    pub steps: String,
+}
 pub const LEAD: &str = "lead";
 
 /// 一个 Agent：主控（id = lead，不能删）或用户建的小伙伴
@@ -79,6 +89,7 @@ pub struct Agent {
     pub emoji: String,
     /// 能用的工具，取自 TOOLS
     pub tools: Vec<String>,
+    pub skills: Vec<String>,
     /// 用哪个模型（模型编号），0 = 跟随默认
     pub model: u32,
     /// 备用模型：主模型出错时换它，0 = 无
@@ -89,7 +100,7 @@ pub struct Agent {
 
 impl Default for Agent {
     fn default() -> Self {
-        Self { id: String::new(), name: String::new(), role: String::new(), prompt: String::new(), tint: "#E6D49A".into(), emoji: String::new(), tools: vec!["读文件".into()], model: 0, fallback: 0, auto: false }
+        Self { id: String::new(), name: String::new(), role: String::new(), prompt: String::new(), tint: "#E6D49A".into(), emoji: String::new(), tools: vec!["读文件".into()], skills: vec![], model: 0, fallback: 0, auto: false }
     }
 }
 
@@ -155,6 +166,7 @@ pub struct Config {
     pub system_prompt: String,
     /// Agents，第一个永远是主控
     pub agents: Vec<Agent>,
+    pub skills: Vec<Skill>,
     /// 预算
     pub limits: Limits,
     /// 定时任务（B5）
@@ -353,6 +365,7 @@ impl Default for Config {
             default_model: 0,
             system_prompt: String::new(),
             agents: default_agents(),
+            skills: vec![],
             limits: Limits::default(),
             routines: vec![],
             handoff: Handoff::default(),
@@ -479,6 +492,38 @@ impl Config {
         &self.agents[0]
     }
 
+    pub fn save_skill(&mut self, mut skill: Skill) -> Result<(), String> {
+        skill.name = skill.name.trim().to_string();
+        skill.when = skill.when.trim().to_string();
+        skill.steps = skill.steps.trim().to_string();
+        if skill.name.is_empty() || skill.steps.is_empty() { return Err("请填写技能名字和步骤".into()); }
+        if skill.name.chars().count() > 60 || skill.when.chars().count() > 500 || skill.steps.chars().count() > 6000 {
+            return Err("技能内容超过长度限制".into());
+        }
+        if skill.id.is_empty() {
+            if self.skills.len() >= MAX_SKILLS { return Err("技能库最多保存 50 个技能".into()); }
+            skill.id = (1..).map(|n| format!("sk{n}")).find(|id| !self.skills.iter().any(|s| &s.id == id)).unwrap();
+            self.skills.push(skill);
+        } else {
+            let saved = self.skills.iter_mut().find(|s| s.id == skill.id).ok_or("这个技能已被删除")?;
+            *saved = skill;
+        }
+        Ok(())
+    }
+
+    pub fn remove_skill(&mut self, id: &str) {
+        self.skills.retain(|s| s.id != id);
+        for agent in &mut self.agents { agent.skills.retain(|s| s != id); }
+    }
+
+    pub fn agent_prompt(&self, agent: &Agent) -> String {
+        let mut prompt = agent.prompt.clone();
+        for skill in self.skills.iter().filter(|s| agent.skills.contains(&s.id)) {
+            prompt.push_str(&format!("\n\n技能：{}\n什么时候用：{}\n步骤：\n{}", skill.name, skill.when, skill.steps));
+        }
+        prompt
+    }
+
     /// 新增（id 为空或不存在）或修改一个 Agent，返回它的 id
     pub fn upsert_agent(&mut self, mut a: Agent) -> Result<String, String> {
         a.name = a.name.trim().chars().take(12).collect();
@@ -488,6 +533,8 @@ impl Config {
         a.emoji = a.emoji.trim().chars().last().map(String::from).unwrap_or_default();
         let mut seen = vec![];
         a.tools.retain(|t| TOOLS.contains(&t.as_str()) && !seen.contains(t) && { seen.push(t.clone()); true });
+        let mut assigned = std::collections::HashSet::new();
+        a.skills.retain(|id| self.skills.iter().any(|s| &s.id == id) && assigned.insert(id.clone()));
         if !self.models.iter().any(|m| m.id == a.model) { a.model = 0; }
         if !self.models.iter().any(|m| m.id == a.fallback) || a.fallback == a.model && a.model != 0 { a.fallback = 0; }
         if let Some(old) = self.agents.iter_mut().find(|x| !a.id.is_empty() && x.id == a.id) {
@@ -678,6 +725,31 @@ mod tests {
         let roundtrip: Handoff = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
         assert_eq!(roundtrip, h);
         assert!(!roundtrip.hint);
+    }
+
+    #[test]
+    fn old_config_without_skills_loads_empty_lists() {
+        let c: Config = serde_json::from_str(r#"{"agents":[{"id":"lead","name":"主控"},{"id":"research","name":"研究员"}]}"#).unwrap();
+        assert!(c.skills.is_empty());
+        assert!(c.agents.iter().all(|a| a.skills.is_empty()));
+    }
+
+    #[test]
+    fn skill_limit_assignment_and_deletion() {
+        let mut c = Config::default();
+        let skill = Skill { id: String::new(), name: "核对出处".into(), when: "查资料时".into(), steps: "先找原文".into() };
+        for _ in 0..MAX_SKILLS { c.save_skill(skill.clone()).unwrap(); }
+        assert!(c.save_skill(skill).is_err());
+        let id = c.skills[0].id.clone();
+        let mut researcher = c.agents[1].clone();
+        researcher.skills = vec![id.clone(), id.clone(), "missing".into()];
+        c.upsert_agent(researcher).unwrap();
+        assert_eq!(c.agents[1].skills, [id.clone()]);
+        assert!(c.agent_prompt(&c.agents[1]).ends_with("技能：核对出处\n什么时候用：查资料时\n步骤：\n先找原文"));
+        assert_eq!(c.agent_prompt(c.lead()), c.lead().prompt);
+        c.remove_skill(&id);
+        assert!(c.agents[1].skills.is_empty());
+        assert_eq!(c.agent_prompt(&c.agents[1]), c.agents[1].prompt);
     }
 
     #[test]

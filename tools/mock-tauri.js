@@ -43,6 +43,27 @@
       }
       case "delete_model": st.cfg.agents.forEach((g) => { if (g.model === a.id) g.model = 0; if (g.fallback === a.id) g.fallback = 0; }); st.cfg.models = st.cfg.models.filter((x) => x.id !== a.id); if (st.cfg.default_model === a.id) st.cfg.default_model = st.cfg.models.length ? st.cfg.models[0].id : 0; changed(); return null;
       case "set_default_model": st.cfg.default_model = a.id; changed(); return null;
+      case "save_skill": {
+        const list = st.cfg.skills ||= [];
+        if (st.skillError) throw new Error(st.skillError);
+        const skill = { ...a.skill };
+        if (skill.id) {
+          const at = list.findIndex((s) => s.id === skill.id);
+          if (at < 0) throw new Error("这个技能已被删除");
+          list[at] = skill;
+        } else {
+          let n = 1;
+          while (list.some((s) => s.id === "sk" + n)) n++;
+          list.push({ ...skill, id: "sk" + n });
+        }
+        setTimeout(() => window.__emit("skills:changed"), 0);
+        return null;
+      }
+      case "delete_skill":
+        st.cfg.skills = (st.cfg.skills || []).filter((s) => s.id !== a.id);
+        st.cfg.agents.forEach((g) => { g.skills = (g.skills || []).filter((id) => id !== a.id); });
+        setTimeout(() => window.__emit("skills:changed"), 0);
+        return null;
       case "save_agent": {
         const g = { ...a.agent, tools: [...new Set(a.agent.tools)] };
         if (!st.cfg.models.some((m) => m.id === g.model)) g.model = 0;

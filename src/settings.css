@@ -319,6 +319,12 @@ button.x-lbtl[aria-pressed="true"] { background: rgb(58, 53, 112); box-shadow: r
 .x-keys .x-sb { min-height: 32px; }
 .x-kw { grid-column: 1 / -1; margin: 0px; font: var(--type-caption); color: rgb(255, 138, 138); }
 .x-kw:empty { display: none; }
+#skillEntries details { border-top: 1px solid rgba(255, 255, 255, 0.13); padding: 8px 0; overflow-wrap: anywhere; }
+#skillEntries summary { cursor: pointer; }
+#skillEntries .skill-steps { white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+#skillEntries .x-sb { margin-right: 6px; }
+#libSkillSteps { height: auto; min-height: 90px; padding: 8px 10px; resize: vertical; }
+#skillEditor[hidden], #skillEntries[hidden] { display: none; }
 @keyframes x-undoglow { 
   0%, 25% { background: rgba(255, 196, 120, 0.28); box-shadow: rgba(255, 196, 120, 0.22) 0px 0px 0px 3px, rgba(255, 180, 90, 0.45) 0px 0px 18px; }
   100% { background: transparent; box-shadow: transparent 0px 0px 0px 3px, transparent 0px 0px 18px; }
