@@ -773,16 +773,18 @@ async def main():
         import io
         _w = _I.open(os.path.join(ROOT, "design-reference", "wallpaper.jpg")).convert("RGB"); _k = max(1440 / _w.width, 900 / _w.height)
         _w = _w.resize((round(_w.width * _k), round(_w.height * _k))); _ox, _oy = (_w.width - 1440) // 2, (_w.height - 900) // 2
-        _c = ImageEnhance.Color(_w.crop((_ox + 1180, _oy + 420, _ox + 1396, _oy + 725)).resize((54, 76)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
+        _c = ImageEnhance.Color(_w.crop((_ox + 1180, _oy + 420, _ox + 1396, _oy + 877)).resize((54, 114)).filter(ImageFilter.GaussianBlur(2.5))).enhance(1.65)
         _bb = io.BytesIO(); _c.save(_bb, "JPEG", quality=85)
         sbd_url_small = "data:image/jpeg;base64," + base64.b64encode(_bb.getvalue()).decode()
-        ctxm = await b.new_context(viewport={"width": 216, "height": 305}, device_scale_factor=2)
+        ctxm = await b.new_context(viewport={"width": 216, "height": 457}, device_scale_factor=2)
         mp = await ctxm.new_page(); merrs = []
         mp.on("pageerror", lambda e: merrs.append(str(e)))
         await mp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
         await mp.goto("file://" + os.path.join(ROOT, "src", "ctxmenu.html")); await mp.wait_for_timeout(200)
-        items = [{"id": "new_chat", "label": "新对话", "check": None, "sep": False}, {"id": "history", "label": "历史记录", "check": None, "sep": False},
-                 {"id": "capture", "label": "截屏提问", "check": None, "sep": False}, {"id": "settings", "label": "设置", "check": None, "sep": False},
+        items = [{"id": "new_chat", "label": "新对话", "check": None, "sep": False}, {"id": "new_tmp", "label": "新临时对话", "check": None, "sep": False},
+                 {"id": "history", "label": "历史记录", "check": None, "sep": False}, {"id": "capture", "label": "截屏提问", "check": None, "sep": False},
+                 {"id": "handoff", "label": "交给终端", "check": None, "sep": False}, {"id": "routines", "label": "定时任务", "check": None, "sep": False},
+                 {"id": "settings", "label": "设置", "check": None, "sep": False}, {"id": "sleep", "label": "睡眠", "check": None, "sep": False},
                  {"id": "toggle_ball", "label": "隐藏小球", "check": None, "sep": False}, {"id": "autostart", "label": "开机启动", "check": True, "sep": False},
                  {"id": "quit", "label": "退出", "check": None, "sep": True}]
         await mp.evaluate("([it, bd]) => __emit('ctx:show', { items: it, bd })", [items, sbd_url_small])
@@ -791,22 +793,57 @@ async def main():
             return { labels: [...m.querySelectorAll('button')].map(b => b.firstChild.textContent), hr: m.querySelectorAll('hr').length,
                      ck: m.querySelector('[data-id=autostart]').getAttribute('aria-checked'), glassy: m.classList.contains('glassy'),
                      x: r.x, y: r.y, w: r.width, h: Math.round(r.height), bottom: innerHeight - r.bottom, focus: document.activeElement.id }; })()""")
-        check(g["labels"] == ["新对话", "历史记录", "截屏提问", "设置", "隐藏小球", "开机启动", "退出"] and g["hr"] == 1, f"右键菜单：项目照原型顺序（暂只放已有功能）{g['labels']}")
+        check(g["labels"] == ["新对话", "新临时对话", "历史记录", "截屏提问", "交给终端", "定时任务", "设置", "睡眠", "隐藏小球", "开机启动", "退出"] and g["hr"] == 1, f"右键菜单：11 项和一条分隔线照原型顺序 {g['labels']}")
         check(g["ck"] == "true", "开机启动打勾")
         check(g["glassy"] and g["x"] == 8 and g["y"] == 8 and g["w"] == 200 and abs(g["bottom"] - 8) <= 1, f"菜单 200 宽、四周留 8 给阴影、窗口大小正好（和 Rust ctx_size 一致）{g}")
         check(g["focus"] == "menu", "打开后焦点在菜单上，不预先高亮任何一项（同原型）")
         await mp.screenshot(path=f"{OUT}/14_ctx_menu.png", omit_background=True)
-        await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown")
+        await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown"); await mp.keyboard.press("ArrowDown")
         check(await mp.evaluate("document.activeElement.dataset.id") == "capture", "方向键在菜单里移动")
         await mp.click("[data-id=settings]"); await mp.wait_for_timeout(100)
         calls = (await mp.evaluate("__mock")).get("ctxActs") or []
         check(calls == ["settings"], f"点一项：关掉菜单并执行 {calls}")
+        for mid in ["new_tmp", "handoff", "routines", "sleep"]:
+            await mp.evaluate("it => __emit('ctx:show', { items: it, bd: null })", items); await mp.wait_for_timeout(150)
+            await mp.click(f"[data-id={mid}]")
+        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "new_tmp", "handoff", "routines", "sleep"], "新增四项点击后传回正确的菜单 id")
         await mp.evaluate("([it, bd]) => __emit('ctx:show', { items: it, bd: null })", [items, None]); await mp.wait_for_timeout(200)
         check(not await mp.evaluate("document.querySelector('#menu').classList.contains('glassy')"), "拿不到底图：用卡片同款不透明底")
         await mp.keyboard.press("Escape"); await mp.wait_for_timeout(100)
-        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", ""], "Esc 关掉菜单，什么也不做")
+        check((await mp.evaluate("__mock")).get("ctxActs") == ["settings", "new_tmp", "handoff", "routines", "sleep", ""], "Esc 关掉菜单，什么也不做")
         check(not merrs, "菜单窗口无 JS 错误 " + "; ".join(merrs))
         await ctxm.close()
+
+        # 右键菜单分派：展开后再切面板，收起完成后再睡，不能被异步动画覆盖
+        await pg.evaluate("__emit('menu', 'new_tmp')"); await pg.wait_for_timeout(800)
+        check(await pg.is_visible("#vChat") and await pg.locator(".m").count() == 0, "新临时对话入口：先开新对话并展开（阶段 2 接不存历史）")
+        await pg.evaluate("collapse()"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__emit('menu', 'handoff')"); await pg.wait_for_timeout(1000)
+        check(await pg.is_visible("#vHo") and not await pg.is_visible("#vChat"), "右键「交给终端」：从收起状态展开后显示交接面板")
+        await pg.evaluate("collapse()"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__emit('menu', 'routines')"); await pg.wait_for_timeout(1000)
+        g = await pg.evaluate("(() => { const h = document.querySelector('#routineHead').getBoundingClientRect(), t = document.querySelector('#tasks').getBoundingClientRect(); return [h.top, h.bottom, t.top, t.bottom]; })()")
+        check(await pg.is_visible("#vTask") and await pg.inner_text("#routineHead") == "定时任务" and g[0] >= g[2] - 1 and g[1] <= g[3] + 1, f"右键「定时任务」：任务页展开，组标题在可见区域 {g}")
+        await shot("14b_ctx_routines")
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(1000)
+        check(await pg.evaluate("document.body.classList.contains('collapsed') && document.querySelector('#orb').classList.contains('s-sleep')"), "右键「睡眠」：先收起卡片，收起动画结束后仍是睡眠表情")
+        await shot("14c_ctx_sleep")
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(100)
+        check(await pg.evaluate("document.body.classList.contains('collapsed') && document.querySelector('#orb').classList.contains('s-idle')"), "睡着时再点「睡眠」：唤醒但不展开")
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(100)
+        await pg.click("#orb"); await pg.wait_for_timeout(1000)
+        check(await pg.is_visible("#vChat") and not await pg.evaluate("document.querySelector('#orb').classList.contains('s-sleep')"), "点睡着的悬浮球：醒来并展开对话")
+        await pg.mouse.move(0, 0)  # 光标移出球，避免收起后既有的 hover 唤醒干扰睡眠检查
+        await pg.evaluate("__mock.slow = true; __mock.cancelled = null")
+        await pg.fill("#ask", "睡眠时后台继续工作"); await pg.press("#ask", "Enter"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__emit('menu', 'new_chat')"); await pg.wait_for_timeout(100)
+        await pg.evaluate("__emit('menu', 'sleep')"); await pg.wait_for_timeout(1000)
+        check(await pg.evaluate("document.querySelector('#orb').classList.contains('s-sleep') && document.querySelector('#tBadge').textContent === '1' && !__mock.cancelled"), "后台任务在跑时也能睡眠，不会停止任务")
+        await pg.evaluate("__mock.slow = false")
+        await pg.wait_for_function("document.querySelector('#tBadge').hidden", timeout=15000)
+        await pg.wait_for_selector("#peek.on", timeout=3000)  # 完成角标先更新，小泡还要等窗口动画
+        check(await pg.evaluate("document.querySelector('#orb').classList.contains('s-done') && +document.querySelector('#orb').dataset.done > 0 && document.querySelector('#peek').classList.contains('on')"), "后台完成：唤醒表情，完成小泡和角标照常显示")
+        check(not errs, "右键新增入口无 JS 错误 " + "; ".join(errs))
 
         # ───────── 划词工具栏窗口（原型 selBar） ─────────
         ctx3 = await b.new_context(viewport={"width": 420, "height": 200}, device_scale_factor=2)

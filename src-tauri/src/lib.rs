@@ -1036,9 +1036,13 @@ fn ctx_items<R: Runtime>(app: &AppHandle<R>) -> Vec<CtxItem> {
     let it = |id, label| CtxItem { id, label, check: None, sep: false };
     vec![
         it("new_chat", "新对话"),
+        it("new_tmp", "新临时对话"),
         it("history", "历史记录"),
         it("capture", "截屏提问"),
+        it("handoff", "交给终端"),
+        it("routines", "定时任务"),
         it("settings", "设置"),
+        it("sleep", "睡眠"),
         it("toggle_ball", "隐藏小球"),
         CtxItem { id: "autostart", label: "开机启动", check: Some(auto), sep: false },
         CtxItem { id: "quit", label: "退出", check: None, sep: true },
@@ -1346,8 +1350,11 @@ mod ctx_tests {
     #[test]
     fn ctx_menu_size_matches_prototype() {
         let it = |sep| CtxItem { id: "a", label: "a", check: None, sep };
-        // 7 项、1 条分隔线：12 + 38×7 + 11 = 289，加阴影边 16
-        let items: Vec<_> = (0..7).map(|i| it(i == 6)).collect();
-        assert_eq!(ctx_size(&items), (216.0, 305.0));
+        // 高：11 项×38 + 1 条分隔线×11 + 上下 6×2 + 四周 8×2 = 457；宽：200 + 8×2 = 216
+        let items: Vec<_> = (0..11).map(|i| it(i == 10)).collect();
+        let (w, h) = ctx_size(&items);
+        assert_eq!((w, h), (216.0, 457.0));
+        // 1024×768 屏幕右下角：翻到鼠标左上方，整个菜单仍在屏幕内
+        assert_eq!(ctx_rect(1000.0, 740.0, w, h, (0.0, 0.0, 1024.0, 768.0)), (784.0, 283.0));
     }
 }

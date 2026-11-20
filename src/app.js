@@ -363,11 +363,11 @@ function renderTasks() {
   box.textContent = "";
   if (agList().length > 1) { box.appendChild(agRow()); agSync(); }
   // 照原型分组：进行中、定时任务、已完成
-  const head = (t) => { const h = document.createElement("p"); h.className = "hg"; h.textContent = t; box.appendChild(h); };
+  const head = (t) => { const h = document.createElement("p"); h.className = "hg"; h.textContent = t; box.appendChild(h); return h; };
   const rts = (S.cfg && S.cfg.routines) || [];
   const act = S.tasks.filter((t) => t.st === "run"), fin = S.tasks.filter((t) => t.st !== "run");
   if (act.length) { head("进行中"); act.forEach((t) => box.appendChild(taskRow(t))); }
-  head("定时任务");
+  head("定时任务").id = "routineHead";
   rts.forEach((r) => box.appendChild(rtRow(r)));
   if (rtNew) box.appendChild(rtForm(rtNew));
   box.appendChild(rtAddBtn());
@@ -1433,9 +1433,19 @@ listen("menu", async ({ payload }) => {
     case "toggle": toggle(); break;
     case "open": expand(); break;
     case "new_chat": newChat(); expand("chat"); break;
+    case "new_tmp": newChat(); expand("chat"); break; // shortcut: 暂用普通新对话，阶段 2 接入不存历史的临时对话
     case "capture": captureAsk(); break;
     case "history": expand("hist"); break;
     case "tasks": expand("task"); break;
+    case "handoff": await expand("chat"); hoOpen(); break;
+    case "routines": await expand("task"); $("#routineHead").scrollIntoView({ block: "start" }); break;
+    case "sleep": {
+      const wake = orb.classList.contains("s-sleep");
+      await collapse();
+      S.lastActive = Date.now();
+      mood(wake ? "idle" : "sleep");
+      break;
+    }
   }
 });
 
