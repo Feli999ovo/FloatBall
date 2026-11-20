@@ -661,3 +661,31 @@ body:not(.collapsed) #vcBub, body:not(.collapsed) #vcRip { display: none; }
 #tasks .rtadd { align-self: flex-start; margin: 4px 8px 0; padding: 4px 10px; border: 1px dashed rgba(255, 255, 255, 0.28); border-radius: 8px; background: none; color: rgba(255, 241, 220, 0.85); font: var(--type-caption); cursor: pointer; }
 #tasks .rtadd:hover, #tasks .rtadd:focus-visible { background: rgba(255, 255, 255, 0.06); outline: none; border-color: rgba(255, 241, 220, 0.6); }
 #tasks .rnote { margin: 6px 8px 0; font: var(--type-caption); color: rgba(255, 255, 255, 0.45); }
+
+/* 交给终端（B4，照原型 #ho / .x-ar）：卡片只有 260 高，每项一行、标签在左；说明收成一句摘要，按钮固定在底下 */
+#card.ho .ctab, #card.ho > header { display: none; }
+#vHo .vh { padding: 10px 16px 4px; }
+#vHo .ho { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 16px 6px; display: flex; flex-direction: column; gap: 6px; }
+#vHo .hof { display: flex; align-items: center; gap: 8px; min-width: 0; font: var(--type-caption); color: rgba(255, 255, 255, 0.6); }
+#vHo .hof > span:first-child { flex: none; width: 2.6em; }
+#vHo .hof .x-in { flex: 1; min-width: 0; }
+#vHo .x-in { height: 30px; padding: 0 8px; font: var(--type-caption); color: #FFF1DC; }
+#vHo select.x-in { padding-right: 4px; }
+#vHo .x-sb { flex: none; min-height: 30px; padding: 0 10px; font: var(--type-caption); }
+#vHo [hidden] { display: none; }
+#vHo .homd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #FFF1DC; }
+#vHo .hof .txt { flex: none; }
+#vHo textarea.x-in { flex: none; height: 120px; padding: 6px 8px; resize: vertical; font: 11.5px/1.5 "Geist Mono", ui-monospace, monospace; }
+#vHo > .ho > .x-in { flex: none; }
+#vHo .hosw { justify-content: space-between; color: #FFF1DC; }
+#vHo .hosw > span:first-child { width: auto; flex: 1; min-width: 0; }
+#vHo .hosw small { display: block; color: rgba(255, 255, 255, 0.45); }
+#vHo .hon { margin: 0 0 0 calc(2.6em + 8px); font: var(--type-caption); color: rgba(255, 255, 255, 0.5); }
+#vHo .ho > .hon:last-child { margin-left: 0; }
+#vHo .hob { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 6px 16px 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+#vHo .x-sw { position: relative; flex: 0 0 auto; width: 44px; height: 26px; padding: 0; border: 0; background: none; cursor: pointer; }
+#vHo .x-sw::before { content: ""; position: absolute; left: 5px; top: calc(50% - 10px); width: 34px; height: 20px; border-radius: 99px; background: rgba(255, 255, 255, 0.18); transition: background 0.2s; }
+#vHo .x-sw::after { content: ""; position: absolute; left: 7px; top: calc(50% - 8px); width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+#vHo .x-sw[aria-checked="true"]::before { background: rgba(120, 220, 150, 0.5); }
+#vHo .x-sw[aria-checked="true"]::after { transform: translateX(14px); }
+#vHo .x-sw:focus-visible { outline: 2px solid rgba(255, 241, 220, 0.7); border-radius: 99px; }
