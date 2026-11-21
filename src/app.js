@@ -915,19 +915,25 @@ function scrollEnd() { msgsEl.scrollTop = msgsEl.scrollHeight; }
 /* 后台任务（B3）：每个对话一份气泡 + 消息 + 正在跑的请求。新对话、打开历史只是换一个显示，
    原来那个对话的请求在后台接着跑，回复写进它自己的气泡（收在 conv.dom 里，不在屏幕上）。 */
 const convs = new Set(); // 有请求在跑的对话（跑完就删掉）
+const liveById = new Map();
 function Conv(id, title) { return { id, title: title || "新对话", msgs: [], dom: document.createDocumentFragment(), busy: null, stop: null, task: null, tmp: false, tmpChanging: false, history: Promise.resolve(), historyEpoch: 0 }; }
 S.conv = Conv(null);
 const ASK_PH = "有什么可以帮你？", TMP_PH = "临时对话…";
 const tmpQ = $("#tmpQ"), tmpOk = $("#tmpOk"), tmpNo = $("#tmpNo");
 let tmpTarget = null;
+function setConvId(c, id) {
+  if (c.id != null) liveById.delete(c.id);
+  c.id = id;
+  if (id != null) liveById.set(id, c);
+  if (c === S.conv) S.convId = id;
+}
 // 每个对话串行写入；转临时成功后，旧队列即使迟到也不能重新创建历史。
 function saveMsg(c, role, content) {
   if (c.tmp) return Promise.resolve();
   const epoch = c.historyEpoch;
   c.history = c.history.catch(() => {}).then(async () => {
     if (c.tmp || epoch !== c.historyEpoch) return;
-    c.id = await invoke("history_append", { convId: c.id, role, content });
-    if (c === S.conv) S.convId = c.id;
+    setConvId(c, await invoke("history_append", { convId: c.id, role, content }));
   });
   return c.history;
 }
@@ -937,7 +943,7 @@ function syncTmp() {
   orb.classList.toggle("tmp", c.tmp);
   $("#tmpBanner").hidden = !c.tmp || $("#vChat").hidden;
   const b = moreDd.querySelector("[data-cm=tmp]");
-  b.setAttribute("aria-checked", c.tmp); b.disabled = c.tmpChanging;
+  b.setAttribute("aria-checked", c.tmp); b.disabled = c.tmpChanging || (c.busy && !c.tmp);
   const ph = c.tmp ? TMP_PH : ASK_PH;
   if ((ask.placeholder === ASK_PH || ask.placeholder === TMP_PH) && ask.placeholder !== ph) ask.placeholder = ph;
 }
@@ -947,6 +953,7 @@ function closeTmp() { tmpQ.hidden = true; tmpTarget = null; tmpOk.disabled = tmp
 function askTmp(on) {
   const c = S.conv;
   if (c.tmpChanging || c.tmp === on) return;
+  if (on && c.busy) { toast("正在回答，等回答完再转为临时对话"); return; }
   if (!c.msgs.length) { setTmp(c, on); return; }
   tmpTarget = { conv: c, on };
   $("#tmpQT").textContent = on ? "转为临时对话？之前的消息会从历史里删掉。" : "改回普通对话？这段对话会存进历史记录。";
@@ -955,14 +962,14 @@ function askTmp(on) {
 }
 async function setTmp(c, on) {
   if (c.tmpChanging || c.tmp === on) return;
+  if (on && c.busy) { toast("正在回答，等回答完再转为临时对话"); return; }
   c.tmpChanging = true;
   if (c === S.conv) syncTmp();
   try {
     if (on) {
       const change = c.history.catch(() => {}).then(async () => {
         if (c.id != null) await invoke("history_delete", { convId: c.id });
-        c.id = null; c.tmp = true; c.historyEpoch++;
-        if (c === S.conv) S.convId = null;
+        setConvId(c, null); c.tmp = true; c.historyEpoch++;
       });
       c.history = change;
       await change;
@@ -990,7 +997,7 @@ function showConv(c) {
   const o = S.conv;
   if (o === c) return;
   closeTmp();
-  if (o) { o.id = S.convId; o.msgs = S.msgs; o.title = $("#title").textContent; o.dom.append(...msgsEl.childNodes); }
+  if (o) { o.msgs = S.msgs; o.title = $("#title").textContent; o.dom.append(...msgsEl.childNodes); }
   S.conv = c; S.convId = c.id; S.msgs = c.msgs; S.busy = c.busy; S.stopFn = c.stop;
   msgsEl.innerHTML = ""; msgsEl.append(...c.dom.childNodes);
   $("#title").textContent = c.title;
@@ -1103,6 +1110,7 @@ function run(currentContent) {
   const codeTask = HO_RE.test(typeof prompt === "string" ? prompt : prompt[0].text);
   const here = () => conv === S.conv; // 这个对话是不是正显示在卡片里
   conv.busy = S.busy = id; convs.add(conv);
+  syncTmp();
   $("#stopRow").hidden = false;
   mood("think");
   const task = { title: (S.msgs[S.msgs.length - 1] && historyText(lastText(), [])) || "提问", st: "run", t0: Date.now(), conv };
@@ -1185,7 +1193,7 @@ function run(currentContent) {
   };
   function finish(st = "done") {
     if (conv.busy === id) { conv.busy = conv.stop = null; conv.need = false; convs.delete(conv); }
-    if (here()) { S.busy = S.stopFn = null; $("#stopRow").hidden = true; }
+    if (here()) { S.busy = S.stopFn = null; $("#stopRow").hidden = true; syncTmp(); }
     if (Object.keys(S.agBusy).length && !convs.size) { S.agBusy = {}; agSync(); }
     needOn([...convs].some((x) => x.need));
     if (task.st === "run") {
@@ -1222,17 +1230,18 @@ function fmtCny(n) {
   return "¥" + (v < 0.01 ? v.toFixed(4) : v.toFixed(2));
 }
 function handoffRow(el, ev) {
-  const c = el.querySelector(".x-plan");
-  if (!c) return;
-  const ol = c.children[1];
-  const key = `${ev.from_call || ev.from}-${ev.to_call || ev.to}`;
+  const ol = el.querySelector(".x-plan ol");
+  const target = ol?.querySelector(`.x-ps[data-call="${CSS.escape(ev.to_call)}"]`);
+  if (!target) {
+    (el._pendingHandoffs ||= []).push(ev);
+    return;
+  }
+  const key = `${ev.from_call}-${ev.to_call}`;
   if (ol.querySelector(`[data-handoff="${CSS.escape(key)}"]`)) return;
   const row = document.createElement("li");
   row.className = "x-ph"; row.dataset.handoff = key;
   row.textContent = `${ev.from} → ${ev.to}：已交接 ${ev.count || 0} ${ev.unit || "段结果"}${ev.cost != null ? ` · ${fmtCny(ev.cost)}` : ""}`;
-  const target = [...ol.querySelectorAll(".x-ps")].find((item) => item.dataset.agent === ev.to || item.querySelector("b")?.textContent === ev.to);
-  if (target) ol.insertBefore(row, target);
-  else ol.appendChild(row);
+  ol.insertBefore(row, target);
 }
 function teamRow(el, ev) {
   let c = el.querySelector(".x-plan");
@@ -1255,6 +1264,11 @@ function teamRow(el, ev) {
     r.addEventListener("click", tog);
     r.addEventListener("keydown", (e) => { if (e.target === r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); tog(); } });
     ol.append(r, wy);
+    if (el._pendingHandoffs) {
+      const pending = el._pendingHandoffs;
+      el._pendingHandoffs = [];
+      for (const handoff of pending) handoffRow(el, handoff);
+    }
   }
   // 用户在预算卡上点了「停止」：这一步之后报的错就是这个，仍显示「已停止」
   const userStop = ev.status === "err" && r.dataset.st === "stop";
@@ -1631,17 +1645,26 @@ async function loadHistory() {
     li.querySelector(".x").onclick = async (e) => {
       e.stopPropagation();
       await invoke("history_delete", { convId: c.id });
-      if (S.convId === c.id && !S.busy) newChat();
+      const live = liveById.get(c.id);
+      if (live) {
+        setConvId(live, null);
+        if (live === S.conv && !S.busy) newChat();
+      }
       loadHistory();
     };
     ul.appendChild(li);
   }
 }
 async function openConv(c) {
-  const live = [...convs, ...sharingConvs.keys()].find((x) => x.id === c.id);
+  let live = liveById.get(c.id);
   if (live) { showConv(live); showView("chat"); return; }
   const rows = await invoke("history_load", { convId: c.id });
-  showConv(Conv(c.id, c.title));
+  live = liveById.get(c.id);
+  if (live) { showConv(live); showView("chat"); return; }
+  if (!rows.length) return;
+  const conv = Conv(null, c.title);
+  setConvId(conv, c.id);
+  showConv(conv);
   for (const r of rows) {
     if (r.role === "user") { addUserBubble(r.content); S.msgs.push({ role: "user", content: r.content }); }
     else {
@@ -1658,7 +1681,9 @@ $("#clearHist").onclick = async () => {
   const b = $("#clearHist");
   if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "再点一次确认删除"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "全部删除"; }, 3000); return; }
   b.dataset.sure = ""; b.textContent = "全部删除";
-  await invoke("history_clear"); newChat(); loadHistory();
+  await invoke("history_clear");
+  for (const c of liveById.values()) setConvId(c, null);
+  newChat(); loadHistory();
 };
 
 /* ───────── 菜单、快捷键 ───────── */

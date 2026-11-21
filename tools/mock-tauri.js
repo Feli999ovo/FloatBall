@@ -225,12 +225,14 @@
         if (/调研/.test(q)) {
           const send = (e) => { if (st.cancelled !== a.id) ch.onmessage(e); };
           const steps = [["t0", "research", "研究员", "搜集 3 款耳机评测", 6100], ["t1", "organize", "整理员", "做参数对比表", 3800], ["t2", "writer", "写手", "写对比报告", 8500]];
+          const repeat = st.repeatTeamAgent;
+          if (repeat) steps[2].splice(1, 2, "research", "研究员");
           const rate = Number(st.cfg.usd_cny || 7.2) / 7.2;
           const costs = [0.05, 0.04, 0.08].map((cost) => cost * rate);
           const gap = st.slow ? 900 : 60;
           setTimeout(() => {
             send({ type: "delta", text: "我把它拆成 3 步，分给小伙伴们：" });
-            steps.forEach(([call, id, name, task], i) => send({ type: "team", call, agent_id: id, agent: name, task, model: st.teamLocal ? "Ollama · llama3" : "gpt-4o-mini", status: i ? "wait" : "run", tokens: 0, cost: null }));
+            steps.slice(0, repeat ? 2 : steps.length).forEach(([call, id, name, task], i) => send({ type: "team", call, agent_id: id, agent: name, task, model: st.teamLocal ? "Ollama · llama3" : "gpt-4o-mini", status: i ? "wait" : "run", tokens: 0, cost: null }));
             let i = 0;
             (function next() {
               if (i >= steps.length) { send({ type: "delta", text: "报告写好了：通勤选索尼，强降噪选 Bose。" }); send({ type: "usage", prompt: 100, completion: 50 }); send({ type: "cost", amount: st.teamUnknown || st.teamLocal ? null : 0.19 * rate }); send({ type: "done" }); return; }
