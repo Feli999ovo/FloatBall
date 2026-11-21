@@ -385,35 +385,24 @@ impl Task {
                     "tool_calls": t.calls.iter().map(|c| json!({"id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.args}})).collect::<Vec<_>>()
                 }));
                 // 交给别的 Agent 的几步同时做（受「最多同时子 Agent」限制）；其余工具按顺序做
-                let delegate_calls: Vec<_> = t.calls.iter().filter(|c| c.name == "delegate").collect();
-                if !delegate_calls.is_empty() {
-                    let c = delegate_calls[0];
-                    let args: Value = serde_json::from_str(&c.args).unwrap_or_default();
-                    let who = arg(&args, "agent");
-                    if let Some(to) = self.cfg.agents.iter().skip(1).find(|a| a.id == who || a.name == who) {
-                        if let Some(from) = self.last_delegate.lock().unwrap().clone().filter(|from| from.agent_id != to.id) {
-                            (self.emit)(ChatEvent::Handoff { from_call: from.call, to_call: c.id.clone(), from: from.agent, to: to.name.clone(), count: from.count, unit: from.unit, cost: from.cost });
-                        }
-                    }
-                }
+                let previous = self.last_delegate.lock().unwrap().clone();
+                let jobs = t.calls.iter().enumerate().filter(|(_, c)| c.name == "delegate").enumerate().map(|(step, (i, c))| {
+                    let from = if step == 0 { previous.as_ref() } else { None };
+                    async move { (i, self.delegate(c, from).await) }
+                });
                 let mut results: Vec<Option<String>> = vec![None; t.calls.len()];
-                let mut delegated: Vec<Option<DelegateSummary>> = vec![None; t.calls.len()];
-                let jobs = t.calls.iter().enumerate().filter(|(_, c)| c.name == "delegate").map(|(i, c)| async move { (i, self.delegate(agent, c).await) });
+                let mut delegated = Vec::new();
                 for (i, (result, summary)) in futures_util::future::join_all(jobs).await {
                     results[i] = Some(result);
-                    delegated[i] = summary;
+                    delegated.push(summary);
                 }
-                if delegate_calls.len() > 1 {
-                    let mut previous: Option<&DelegateSummary> = None;
-                    for current in delegated.iter().flatten() {
-                        if let Some(from) = previous.filter(|from| from.agent_id != current.agent_id) {
-                            (self.emit)(ChatEvent::Handoff { from_call: from.call.clone(), to_call: current.call.clone(), from: from.agent.clone(), to: current.agent.clone(), count: from.count, unit: from.unit.clone(), cost: from.cost });
-                        }
-                        previous = Some(current);
+                for pair in delegated.windows(2) {
+                    if let [Some(from), Some(to)] = pair {
+                        self.emit_handoff(from, &to.agent_id, &to.agent, &to.call);
                     }
                 }
-                if !delegate_calls.is_empty() {
-                    *self.last_delegate.lock().unwrap() = delegated.iter().flatten().last().cloned();
+                if let Some(last) = delegated.pop() {
+                    *self.last_delegate.lock().unwrap() = last;
                 }
                 for (i, c) in t.calls.iter().enumerate() {
                     if results[i].is_none() {
@@ -431,7 +420,13 @@ impl Task {
         (self.emit)(ChatEvent::Tool { call: call.into(), agent: agent.name.clone(), name: name.into(), arg: arg.into(), status: status.into(), result: short(result, 600) });
     }
 
-    async fn delegate(self: &Arc<Self>, from: &Agent, c: &llm::Call) -> (String, Option<DelegateSummary>) {
+    fn emit_handoff(&self, from: &DelegateSummary, to_id: &str, to_name: &str, to_call: &str) {
+        if from.agent_id != to_id {
+            (self.emit)(ChatEvent::Handoff { from_call: from.call.clone(), to_call: to_call.into(), from: from.agent.clone(), to: to_name.into(), count: from.count, unit: from.unit.clone(), cost: from.cost });
+        }
+    }
+
+    async fn delegate(self: &Arc<Self>, c: &llm::Call, previous: Option<&DelegateSummary>) -> (String, Option<DelegateSummary>) {
         let a: Value = serde_json::from_str(&c.args).unwrap_or_default();
         let who = arg(&a, "agent");
         let task = arg(&a, "task");
@@ -444,10 +439,12 @@ impl Task {
         let team = |status: &str, tokens: u64, prompt: u64, completion: u64, cost: Option<f64>| {
             (self.emit)(ChatEvent::Team { call: call.clone(), agent_id: to.id.clone(), agent: to.name.clone(), task: short(&task, 80), model: model.clone(), model_id, status: status.into(), tokens, prompt, completion, cost })
         };
-        let _ = from;
         // 先排队（受「最多同时子 Agent」限制），轮到了才算进行中
         team("wait", 0, 0, 0, None);
         let _permit = self.par.acquire().await;
+        if let Some(from) = previous {
+            self.emit_handoff(from, &to.id, &to.name, &call);
+        }
         team("run", 0, 0, 0, None);
         let stats = Arc::new(DelegateStats { cost: Mutex::new(Some(0.0)), has_usage: Default::default(), ..DelegateStats::default() });
         let r = self.run_acc(&to, vec![json!({"role": "user", "content": task})], false, Some(stats.clone())).await;
@@ -1021,11 +1018,41 @@ mod tests {
         });
         let out = rt().block_on(e.task.run(&e.task.cfg.lead().clone(), vec![], true));
         assert_eq!(out.unwrap(), "汇总");
-        let handoffs: Vec<_> = e.events.lock().unwrap().iter().filter_map(|event| match event {
-            ChatEvent::Handoff { from, to, count, unit, .. } => Some((from.clone(), to.clone(), *count, unit.clone())),
+        let events = e.events.lock().unwrap();
+        let handoffs: Vec<_> = events.iter().filter_map(|event| match event {
+            ChatEvent::Handoff { from, to, count, unit, to_call, .. } => Some((from.as_str(), to.as_str(), *count, unit.as_str(), to_call.as_str())),
             _ => None,
         }).collect();
-        assert_eq!(handoffs, vec![("研究员".into(), "整理员".into(), 2, "段结果".into())]);
+        let target = events.iter().find_map(|event| match event {
+            ChatEvent::Team { agent, call, status, .. } if agent == "整理员" && status == "run" => Some(call.as_str()),
+            _ => None,
+        }).unwrap();
+        assert_eq!(handoffs, vec![("研究员", "整理员", 2, "段结果", target)]);
+    }
+
+    #[test]
+    fn delegate_handoff_does_not_skip_failed_calls() {
+        let batch = |agents: &[&str]| {
+            let calls: Vec<_> = agents.iter().enumerate().map(|(index, agent)| json!({
+                "index": index, "id": format!("call{index}"), "type": "function",
+                "function": {"name": "delegate", "arguments": json!({"agent":agent,"task":"test"}).to_string()}
+            })).collect();
+            format!("data: {}\n\ndata: [DONE]\n\n", json!({"choices":[{"delta":{"tool_calls":calls}}]}))
+        };
+        let e = env(vec![
+            batch(&["A", "missing", "C"]), text("result"), text("result"),
+            batch(&["C", "missing"]), text("result"),
+            batch(&["A"]), text("result"), text("summary"),
+        ], |c| {
+            for name in ["A", "C"] {
+                c.upsert_agent(Agent { name: name.into(), ..Agent::default() }).unwrap();
+            }
+        });
+        let out = rt().block_on(e.task.run(e.task.cfg.lead(), vec![], true));
+        assert_eq!(out.unwrap(), "summary");
+        let events = e.events.lock().unwrap();
+        assert_eq!(events.iter().filter(|event| matches!(event, ChatEvent::Team { status, .. } if status == "done")).count(), 4);
+        assert!(!events.iter().any(|event| matches!(event, ChatEvent::Handoff { .. })));
     }
 
     #[test]
