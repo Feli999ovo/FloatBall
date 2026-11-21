@@ -221,7 +221,7 @@ async def main():
         check("约 ¥0.19（默认汇率）" in await pg.inner_text(".m.ai:last-of-type .meta"), "最后回复显示整次多 Agent 请求的人民币估算")
         await pg.evaluate("__mock.teamUnknown = true; __mock.holdTeam = true")
         await pg.fill("#ask", "请再调研一次耳机"); await pg.press("#ask", "Enter")
-        await pg.wait_for_function("__mock.lastMessages?.at(-1)?.content === '请再调研一次耳机'")
+        await pg.wait_for_function("__mock.lastMessages?.at(-1)?.content === '请再调研一次耳机' && typeof __mock.teamNext === 'function'")
         await pg.evaluate("__mock.teamNext()")
         await pg.wait_for_function("!S.busy && document.querySelector('.m.ai:last-of-type .meta') && !document.querySelector('.m.ai:last-of-type .meta').hidden")
         check("约 ¥" not in await pg.inner_text(".m.ai:last-of-type .x-plan .x-plf") and "约 ¥" not in await pg.inner_text(".m.ai:last-of-type .meta"), "未知单价时不显示估算花费")

@@ -106,7 +106,7 @@ pub struct Task {
     budget_ask: tokio::sync::Mutex<()>,
     /// 用户在预算卡上选了「停止」：之后谁再撞上预算都直接停，不再问
     budget_stop: std::sync::atomic::AtomicBool,
-    catalog: Mutex<Option<crate::catalog::Catalog>>,
+    pub(crate) catalog: Mutex<Option<crate::catalog::Catalog>>,
     last_delegate: Mutex<Option<DelegateSummary>>,
 }
 
