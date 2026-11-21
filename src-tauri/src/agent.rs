@@ -814,7 +814,7 @@ mod tests {
     /// 工具调用分两段到达（名字和参数拆开），模拟真实的流
     fn tool(name: &str, args: Value) -> String {
         let a = args.to_string();
-        let (a1, a2) = a.split_at(a.len() / 2);
+        let (a1, a2) = a.split_at(a.floor_char_boundary(a.len() / 2));
         format!(
             "data: {}\n\ndata: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
             json!({"choices":[{"delta":{"content":"","tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":name,"arguments":a1}}]}}]}),
