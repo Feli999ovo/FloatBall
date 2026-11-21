@@ -219,6 +219,7 @@ async def main():
         fin = await pg.evaluate("(() => { const c = document.querySelector('.m.ai:last-of-type .x-plan'); return [[...c.querySelectorAll('.x-ps')].map(r => r.dataset.st), c.querySelector('.x-plf').textContent, c.nextElementSibling.textContent]; })()")
         check(fin[0] == ["done", "done", "done"] and "共 18.4K tokens · 约 ¥0.17（默认汇率）" == fin[1] and fin[2] == "报告写好了：通勤选索尼，强降噪选 Bose。" and ags == ["idle", "idle", "idle"], f"做完：三步打勾、汇总人民币花费和结论 {fin} {ags}")
         check("约 ¥0.19（默认汇率）" in await pg.inner_text(".m.ai:last-of-type .meta"), "最后回复显示整次多 Agent 请求的人民币估算")
+        await shot("06f_team_done")
         await pg.evaluate("__mock.teamUnknown = true; __mock.holdTeam = true")
         await pg.fill("#ask", "请再调研一次耳机"); await pg.press("#ask", "Enter")
         await pg.wait_for_function("__mock.lastMessages?.at(-1)?.content === '请再调研一次耳机' && typeof __mock.teamNext === 'function'")
@@ -232,7 +233,6 @@ async def main():
         await pg.wait_for_function("!S.busy && document.querySelector('.m.ai:last-of-type .meta') && !document.querySelector('.m.ai:last-of-type .meta').hidden")
         check("Ollama · llama3" in await pg.inner_text(".m.ai:last-of-type .x-plan") and "约 ¥" not in await pg.inner_text(".m.ai:last-of-type .x-plan .x-plf"), "本地模型按零花费处理，不显示单价估算")
         await pg.evaluate("__mock.teamLocal = false")
-        await shot("06f_team_done")
 
         await pg.click("#tabTask")
         await pg.click("#tasks .x-ag[data-ag=research]")
