@@ -303,6 +303,13 @@ impl Task {
                 "parameters":obj(&[("text", "简短的事实或偏好")])
             }}));
         }
+        if self.cfg.assigned_skills(a).next().is_some() {
+            v.push(json!({"type":"function","function":{
+                "name":"read_skill",
+                "description":"读取一个你会的技能的完整步骤",
+                "parameters":obj(&[("name", "技能名字")])
+            }}));
+        }
         let others: Vec<&Agent> = self.cfg.agents.iter().skip(1).collect();
         if lead && !others.is_empty() {
             let list = others.iter().map(|o| format!("{}（{}）", o.name, if o.role.is_empty() { "没写职责" } else { &o.role })).collect::<Vec<_>>().join("；");
@@ -518,6 +525,24 @@ impl Task {
                 }
                 Err(e) => format!("未能保存记忆：{e}"),
             };
+        }
+        if c.name == "read_skill" {
+            if self.model(agent).is_some_and(|m| m.tools == Some(false)) {
+                return "当前模型不能使用工具".into();
+            }
+            let name = a.get("name").and_then(Value::as_str).unwrap_or_default();
+            let skills = self.cfg.assigned_skills(agent).collect::<Vec<_>>();
+            let skill = skills.iter().find(|skill| skill.name == name).or_else(|| {
+                let name = name.trim().to_lowercase();
+                skills.iter().find(|skill| skill.name.trim().to_lowercase() == name)
+            });
+            if let Some(skill) = skill {
+                self.pill(&call, agent, "读技能", &skill.name, "done", "已读取完整步骤");
+                return format!("技能：{}\n步骤：\n{}", skill.name, skill.steps);
+            }
+            let names = skills.iter().map(|skill| skill.name.as_str()).collect::<Vec<_>>().join("、");
+            let names = if names.is_empty() { "（无）" } else { &names };
+            return format!("没有这个技能。你会的技能：{names}");
         }
         let Some(def) = DEFS.iter().find(|d| d.name == c.name) else {
             return format!("没有这个工具：{}", c.name);
@@ -1183,8 +1208,9 @@ mod tests {
         let got = e.got.lock().unwrap();
         assert!(got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "delegate"));
         // 子 Agent 用自己的指令，不能再往下交
-        assert_eq!(got[1]["messages"][0], json!({"role":"system","content":"你是审查员\n\n技能：核对出处\n什么时候用：查资料时\n步骤：\n先找原文"}));
-        assert!(!got[0]["messages"][0]["content"].as_str().unwrap().contains("核对出处"));
+        assert_eq!(got[1]["messages"][0], json!({"role":"system","content":"你是审查员\n\n你会的技能（需要时调用 read_skill 读完整步骤）：\n- 核对出处：查资料时"}));
+        assert!(!got[0]["messages"][0]["content"].as_str().unwrap().contains("read_skill"));
+        assert!(!got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "read_skill"));
         assert!(!got[1]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "delegate"));
         // 交给子 Agent 不再是工具药丸，而是计划卡的一行：开始 → 完成（带这一步用掉的 token）
         assert!(pills(&e).is_empty());
@@ -1193,6 +1219,33 @@ mod tests {
         // 子 Agent 的正文不流到主控的气泡里
         let deltas: String = e.events.lock().unwrap().iter().filter_map(|x| match x { ChatEvent::Delta { text } => Some(text.clone()), _ => None }).collect();
         assert_eq!(deltas, "审查员说没有错别字");
+    }
+
+    #[test]
+    fn read_skill_returns_steps_only_for_assigned_skills() {
+        let e = env(vec![
+            tool("read_skill", json!({"name":"核对出处"})),
+            tool("read_skill", json!({"name":"  rEvIeW  "})),
+            tool("read_skill", json!({"name":"审稿"})),
+            text("完成"),
+        ], |c| {
+            for (name, when, steps) in [("核对出处", "查资料时", "先找原文"), ("Review", "", "逐项复核"), ("审稿", "发布前", "看审稿标准")] {
+                c.save_skill(crate::config::Skill { id: String::new(), name: name.into(), when: when.into(), steps: steps.into() }).unwrap();
+            }
+            c.agents[0].skills = c.skills[..2].iter().map(|s| s.id.clone()).collect();
+            c.upsert_agent(Agent { name: "审查员".into(), skills: vec![c.skills[2].id.clone()], ..Agent::default() }).unwrap();
+        });
+        let lead = e.task.cfg.lead();
+        assert_eq!(rt().block_on(e.task.run(lead, vec![], true)).unwrap(), "完成");
+        let got = e.got.lock().unwrap();
+        let prompt = got[0]["messages"][0]["content"].as_str().unwrap();
+        assert_eq!(prompt, format!("{}\n\n你会的技能（需要时调用 read_skill 读完整步骤）：\n- 核对出处：查资料时\n- Review：（没写什么时候用）", lead.prompt));
+        assert!(got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "read_skill"));
+        let results: Vec<&str> = got.iter().skip(1).map(|request| {
+            request["messages"].as_array().unwrap().last().unwrap()["content"].as_str().unwrap()
+        }).collect();
+        assert_eq!(results, ["技能：核对出处\n步骤：\n先找原文", "技能：Review\n步骤：\n逐项复核", "没有这个技能。你会的技能：核对出处、Review"]);
+        assert_eq!(pills(&e), vec![("读技能".into(), "核对出处".into(), "done".into()), ("读技能".into(), "Review".into(), "done".into())]);
     }
 
     async fn answer_budget(e: &Env, allow: bool) -> (String, u64, u64, u64) {
