@@ -181,6 +181,9 @@ pub struct Config {
     pub always_allow: Vec<Allow>,
     /// 离开电脑时暂停敏感操作：确认卡片一直等；关掉则 5 分钟没确认就跳过
     pub pause_away: bool,
+    /// 记住偏好前询问用户；默认关闭，保持现有自动记忆行为
+    #[serde(default)]
+    pub memory_ask: bool,
     /// 呼出 / 收起悬浮球
     pub shortcut: String,
     /// 截屏提问
@@ -376,6 +379,7 @@ impl Default for Config {
             handoff: Handoff::default(),
             always_allow: vec![],
             pause_away: true,
+            memory_ask: false,
             shortcut: "Alt+Space".into(),
             capture_shortcut: "Alt+S".into(),
             win_shortcut: "Alt+W".into(),
@@ -730,6 +734,13 @@ mod tests {
         let roundtrip: Handoff = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
         assert_eq!(roundtrip, h);
         assert!(!roundtrip.hint);
+    }
+
+    #[test]
+    fn old_config_without_memory_ask_defaults_off() {
+        let old = r#"{"agents":[{"id":"lead","name":"主控"}],"pause_away":true}"#;
+        let c: Config = serde_json::from_str(old).unwrap();
+        assert!(!c.memory_ask);
     }
 
     #[test]

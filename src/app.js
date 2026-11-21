@@ -1396,6 +1396,38 @@ function toolPill(el, ev) {
   if (ev.status === "err") w.querySelector(".x-tc").textContent = "✕";
   w.lastChild.querySelector("span").textContent = ev.result || "";
   w.lastChild.querySelector("b").textContent = ev.status === "err" ? "出错" : "结果";
+  if (w.memoryUndo || (ev.status === "done" && ev.memory_id != null && ev.agent_id)) memoryUndo(w, ev);
+}
+// showConv 会连同药丸 DOM 一起保留此状态；切换会话、后续工具更新都不会重新启用已撤销的按钮。
+function memoryUndo(w, ev) {
+  w.classList.add("memory");
+  if (w.memoryUndo) { w.memoryUndo.render(); return; }
+  const b = document.createElement("button"), note = document.createElement("p");
+  b.type = "button"; b.className = "x-sb x-memundo";
+  note.className = "x-apn x-memnote"; note.hidden = true; note.setAttribute("role", "status");
+  w.insertBefore(b, w.lastChild); w.insertBefore(note, w.lastChild);
+  const state = w.memoryUndo = { pending: false, done: false, failed: false, render: () => {
+    b.disabled = state.pending || state.done;
+    b.hidden = state.done;
+    b.setAttribute("aria-busy", state.pending);
+    b.textContent = state.pending ? "正在撤销…" : state.failed ? "重试撤销" : "撤销";
+    if (state.done) {
+      w.querySelector(".x-tl").textContent = "已撤销";
+      w.querySelector(".x-tres span").textContent = "已撤销";
+    }
+  } };
+  w.querySelector(".x-tl").setAttribute("aria-live", "polite");
+  b.onclick = async () => {
+    if (state.pending || state.done) return;
+    state.pending = true; note.hidden = true; state.render();
+    try {
+      await invoke("forget_memory", { agent: ev.agent_id, id: ev.memory_id });
+      state.done = true;
+    } catch (e) {
+      state.failed = true; note.textContent = "撤销失败：" + e; note.hidden = false;
+    } finally { state.pending = false; state.render(); }
+  };
+  state.render();
 }
 // 预算用满（照原型 capCard / capGo）：正在做的步骤停住，对话里一张小卡「再给 2万 / 停止」
 const wan = (n) => Math.round(n / 1000) / 10 + "万";
@@ -1456,8 +1488,9 @@ function askCard(el, ev) {
     ask.focus({ preventScroll: true });
   };
   const [bOnce, bAlways, bNo, bMore] = row0.querySelectorAll("button");
+  bAlways.hidden = bAlways.disabled = ev.no_always === true;
   bOnce.addEventListener("click", () => fin(bOnce, { allow: true }));
-  bAlways.addEventListener("click", () => fin(bAlways, { allow: true, always: true }));
+  bAlways.addEventListener("click", () => { if (!ev.no_always) fin(bAlways, { allow: true, always: true }); });
   bNo.addEventListener("click", () => fin(bNo, { allow: false }));
   bMore.addEventListener("click", () => { more.hidden = !more.hidden; bMore.setAttribute("aria-expanded", !more.hidden); if (!more.hidden) more.querySelector("button").focus({ preventScroll: true }); scrollEnd(); });
   const [bEdit, bWhy] = more.querySelectorAll("button");

@@ -252,6 +252,28 @@ async def main():
         check(await pg.inner_text(".x-agp .memory-count") == "独立记忆 · 1 条", "记住偏好后，Agent 弹卡条数增加")
         await shot("06e2_agent_memory")
         await pg.click("#tabChat")
+        # A：自动记住的药丸可撤销；开启确认后没有「总是允许」，拒绝不写入。
+        await pg.evaluate("__mock.rememberNext = {agent:'research', text:'用户喜欢先看结论再看细节'}")
+        await pg.fill("#ask", "请记住我喜欢先看结论再看细节"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("__mock.memories.research.length === 2 && !S.busy")
+        last = pg.locator(".m.ai").last
+        check("已记住：用户喜欢先看结论再看细节" in await last.locator(".x-tl").inner_text(), "自动记住后，回复药丸显示记了什么")
+        await last.get_by_role("button", name="撤销", exact=True).click()
+        await pg.wait_for_function("__mock.memories.research.length === 1 && document.querySelector('.m.ai:last-of-type .x-tl').textContent === '已撤销'")
+        check(await last.locator(".x-tl").inner_text() == "已撤销", "撤销后删掉这条记忆，药丸变「已撤销」")
+        await pg.click("#tabTask"); await pg.click("#tasks .x-ag[data-ag=research]")
+        await pg.wait_for_function("document.querySelector('.x-agp .memory-count')?.textContent.includes('1 条')")
+        check(await pg.inner_text(".x-agp .memory-count") == "独立记忆 · 1 条", "撤销后 Agent 弹卡的条数减 1")
+        await pg.click("#tabChat")
+        await pg.evaluate("async () => { await __TAURI__.core.invoke('save_memory_prefs', {memoryAsk:true}); __mock.rememberNext = {agent:'research', text:'用户喜欢简短回复'}; }")
+        await pg.fill("#ask", "请记住我喜欢简短回复"); await pg.press("#ask", "Enter")
+        await pg.wait_for_selector(".m.ai:last-of-type .x-ap")
+        last = pg.locator(".m.ai").last
+        check("记住：用户喜欢简短回复" in await last.locator(".x-ap").inner_text() and await last.get_by_role("button", name="总是允许", exact=True).count() == 0, "开启记忆确认后使用现有确认卡，卡上没有「总是允许」")
+        await last.get_by_role("button", name="拒绝", exact=True).click()
+        await pg.wait_for_function("!S.busy")
+        check(await pg.evaluate("__mock.memories.research.length") == 1, "拒绝记住后条数不变")
+        await pg.evaluate("__TAURI__.core.invoke('save_memory_prefs', {memoryAsk:false})")
 
         # 6d 预算用满（B2，照原型 capCard / capGo）：暂停，对话里「再给 2万 / 停止」，任务页显示「已暂停 · 预算」
         async def budget_run():
@@ -1375,6 +1397,13 @@ async def main():
             await sp.click(".x-tabs button:has-text('Agents')"); await sp.wait_for_timeout(100)
             cards = await sp.eval_on_selector_all("#agList .x-agc", "x => x.map(e => e.textContent)")
             check(len(cards) == 1 and "主控" in cards[0] and "拆解与分派" in cards[0] and "（默认）" in cards[0] and "工具 2" in cards[0], P + f"Agents 列表有主控 {cards}")
+            check(await sp.get_attribute("#memoryAsk", "aria-checked") == "false" and "关着时 Agent 会自动记，回复里能看到记了什么，随时可以撤销" in await txt("#memoryAskN"), P + "Agents 记忆块有「记住前先问我」开关，默认关且说明自动记忆可撤销")
+            await sp.click("#memoryAsk")
+            await sp.wait_for_function("__mock.cfg.memory_ask === true && !document.querySelector('#memoryAsk').disabled")
+            check(await sp.get_attribute("#memoryAsk", "aria-checked") == "true" and "save_memory_prefs" in (await mock())["calls"], P + "记忆确认开关通过独立命令保存为开启")
+            await sp.click("#memoryAsk")
+            await sp.wait_for_function("__mock.cfg.memory_ask === false && !document.querySelector('#memoryAsk').disabled")
+            check(await sp.get_attribute("#memoryAsk", "aria-checked") == "false", P + "可关闭记忆确认，恢复自动记住")
             check(await sp.input_value("#bTok") == "50000" and await sp.input_value("#bStep") == "50" and await sp.input_value("#bPar") == "3", P + "预算显示当前值")
             check(await sp.input_value("#usdCny") == "7.2", P + "默认汇率为 7.2")
             await sp.fill("#usdCny", "8")

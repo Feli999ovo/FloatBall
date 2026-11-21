@@ -371,6 +371,7 @@ function renderAgentSkills(group, draft) {
 }
 
 function renderAgents() {
+  renderMemoryPrefs();
   renderHandoffPrefs();
   renderSkillLibrary();
   $("paneAgEd").hidden = true; $("paneAgents").hidden = false;
@@ -395,6 +396,25 @@ function renderAgents() {
     } catch (e) { toast(String(e)); }
   });
 });
+// 全部 Agent 共用的记忆确认偏好，放在 Agents 列表旁的「记忆」块。
+let memoryPrefsPending = false;
+function renderMemoryPrefs() {
+  const b = $("memoryAsk");
+  if (!memoryPrefsPending) b.setAttribute("aria-checked", cfg.memory_ask === true);
+  b.disabled = memoryPrefsPending;
+}
+$("memoryAsk").onclick = async () => {
+  if (!cfg || memoryPrefsPending) return;
+  const b = $("memoryAsk"), memoryAsk = b.getAttribute("aria-checked") !== "true";
+  memoryPrefsPending = true;
+  b.setAttribute("aria-checked", memoryAsk); b.disabled = true;
+  try {
+    await invoke("save_memory_prefs", { memoryAsk });
+    cfg.memory_ask = memoryAsk;
+    toast("已保存");
+  } catch (e) { toast(String(e)); }
+  finally { memoryPrefsPending = false; renderMemoryPrefs(); }
+};
 // 交给终端：扫描只读；编辑偏好走专门的保存命令，不复用 handoff_go。
 let hoScanned = false, hoPrefsPending = 0, hoSaveQueue = Promise.resolve();
 function renderHandoffPrefs() {

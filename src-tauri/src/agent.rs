@@ -59,7 +59,7 @@ pub trait World: Send + Sync {
 
 pub trait MemoryStore: Send + Sync {
     fn recent(&self, agent: &str) -> Vec<String>;
-    fn add(&self, agent: &str, text: &str) -> Result<(), String>;
+    fn add(&self, agent: &str, text: &str) -> Result<i64, String>;
 }
 
 #[derive(Default)]
@@ -417,7 +417,19 @@ impl Task {
     }
 
     fn pill(&self, call: &str, agent: &Agent, name: &str, arg: &str, status: &str, result: &str) {
-        (self.emit)(ChatEvent::Tool { call: call.into(), agent: agent.name.clone(), name: name.into(), arg: arg.into(), status: status.into(), result: short(result, 600) });
+        (self.emit)(ChatEvent::Tool {
+            call: call.into(), agent: agent.name.clone(), name: name.into(), arg: arg.into(),
+            status: status.into(), result: short(result, 600), memory_id: None, agent_id: None,
+        });
+    }
+
+    fn memory_pill(&self, call: &str, agent: &Agent, text: &str, status: &str, result: &str, undo_id: Option<i64>) {
+        let name = format!("已记住：{}", text.chars().take(30).collect::<String>());
+        (self.emit)(ChatEvent::Tool {
+            call: call.into(), agent: agent.name.clone(), name, arg: String::new(),
+            status: status.into(), result: short(result, 600),
+            memory_id: undo_id, agent_id: undo_id.map(|_| agent.id.clone()),
+        });
     }
 
     fn emit_handoff(&self, from: &DelegateSummary, to_id: &str, to_name: &str, to_call: &str) {
@@ -476,9 +488,32 @@ impl Task {
             if self.model(agent).is_some_and(|m| m.tools == Some(false)) { return "当前模型不能使用工具".into(); }
             let text = arg(&a, "text").split_whitespace().collect::<Vec<_>>().join(" ");
             if text.is_empty() || text.chars().count() > 500 { return "请提供 1 至 500 字的简短事实或偏好".into(); }
+            let text = if self.cfg.memory_ask {
+                let ans = self.ask(&call, "记住", &format!("记住：{text}"), &agent.name, false, true).await;
+                if !ans.allow {
+                    let why = if ans.reason.is_empty() {
+                        "用户拒绝记住这条".to_string()
+                    } else {
+                        format!("用户拒绝记住这条，原因：{}", ans.reason)
+                    };
+                    self.pill(&call, agent, "记住偏好", "", "no", &why);
+                    return why;
+                }
+                if !ans.edit.trim().is_empty() {
+                    ans.edit.split_whitespace().collect::<Vec<_>>().join(" ")
+                } else {
+                    text
+                }
+            } else {
+                text
+            };
+            if text.is_empty() || text.chars().count() > 500 {
+                return "请提供 1 至 500 字的简短事实或偏好".into();
+            }
             return match store.add(&agent.id, &text) {
-                Ok(()) => {
-                    self.pill(&call, agent, "记住偏好", "", "done", "已保存到独立记忆");
+                Ok(id) => {
+                    let undo_id = (!self.cfg.memory_ask).then_some(id);
+                    self.memory_pill(&call, agent, &text, "done", "已保存到独立记忆", undo_id);
                     "已记住".into()
                 }
                 Err(e) => format!("未能保存记忆：{e}"),
@@ -500,7 +535,7 @@ impl Task {
             let once = rk == 1 && self.allowed.lock().unwrap().contains(&key);
             if !always && !once {
                 self.pill(&call, agent, &name, &shown, "wait", "");
-                let ans = self.ask(&call, &kind, &desc, &scope, rk == 2).await;
+                let ans = self.ask(&call, &kind, &desc, &scope, rk == 2, false).await;
                 if !ans.allow {
                     let why = if ans.reason.is_empty() { "用户拒绝了这个操作".to_string() } else { format!("用户拒绝了这个操作，原因：{}", ans.reason) };
                     self.pill(&call, agent, &name, &shown, "no", &why);
@@ -528,11 +563,11 @@ impl Task {
         r.unwrap_or_else(|e| format!("出错了：{e}"))
     }
 
-    async fn ask(&self, call: &str, kind: &str, desc: &str, scope: &str, hi: bool) -> Answer {
+    async fn ask(&self, call: &str, kind: &str, desc: &str, scope: &str, hi: bool, no_always: bool) -> Answer {
         let id = self.asks.next.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         self.asks.wait.lock().unwrap().insert(id, tx);
-        (self.emit)(ChatEvent::Ask { ask: id, call: call.into(), kind: kind.into(), desc: desc.into(), scope: scope.into(), hi });
+        (self.emit)(ChatEvent::Ask { ask: id, call: call.into(), kind: kind.into(), desc: desc.into(), scope: scope.into(), hi, no_always });
         // 「离开电脑时暂停敏感操作」开着：一直等到回来确认；关着：5 分钟没确认就跳过
         let r = if self.cfg.pause_away {
             rx.await.ok()
@@ -797,7 +832,7 @@ mod tests {
         fn recent(&self, agent: &str) -> Vec<String> {
             self.lock().unwrap().memory(agent, 20).unwrap().into_iter().map(|m| m.text).collect()
         }
-        fn add(&self, agent: &str, text: &str) -> Result<(), String> {
+        fn add(&self, agent: &str, text: &str) -> Result<i64, String> {
             self.lock().unwrap().remember(agent, text).map_err(|e| e.to_string())
         }
     }
@@ -876,6 +911,8 @@ mod tests {
         let out = rt().block_on(e.task.run(&lead, vec![json!({"role":"user","content":"总结报告"})], true)).unwrap();
         assert_eq!(out, "营收涨了 18%");
         assert_eq!(pills(&e), vec![("读取文件".into(), "报告.txt".into(), "run".into()), ("读取文件".into(), "报告.txt".into(), "done".into())]);
+        let regular_tool = serde_json::to_value(e.events.lock().unwrap().iter().find(|event| matches!(event, ChatEvent::Tool { .. })).unwrap()).unwrap();
+        assert!(regular_tool.get("memory_id").is_none() && regular_tool.get("agent_id").is_none());
         let got = e.got.lock().unwrap();
         // 第一次带上主控默认能用的工具（读文件、写文件）；搜索网页要用户自己勾，删除 / 发邮件 / 浏览器也不带
         let names: Vec<&str> = got[0]["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap()).collect();
@@ -906,6 +943,8 @@ mod tests {
         assert_eq!(ans, (format!("写入文件 {}", f.to_string_lossy()), "out".into(), false));
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "# 周报");
         assert_eq!(*e.fake.remembered.lock().unwrap(), vec![Allow { kind: "写入".into(), scope: "out".into() }]);
+        let ask = serde_json::to_value(e.events.lock().unwrap().iter().find(|event| matches!(event, ChatEvent::Ask { .. })).unwrap()).unwrap();
+        assert!(ask.get("no_always").is_none());
         let st: Vec<String> = pills(&e).into_iter().map(|p| p.2).collect();
         assert_eq!(st, vec!["wait", "run", "done"]);
     }
@@ -987,6 +1026,66 @@ mod tests {
         assert!(!prompt.contains("fact-00") && !prompt.contains("other-agent"));
         for n in 1..21 { assert!(prompt.contains(&format!("fact-{n:02}"))); }
         assert_eq!(e.fake.memory.as_ref().unwrap().lock().unwrap().memory("lead", 1).unwrap()[0].text, "new preference");
+    }
+
+    #[test]
+    fn automatic_memory_event_carries_the_inserted_scoped_row_id() {
+        let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
+        let e = env_with_memory(vec![tool("remember", json!({"text":"用户喜欢短答案"})), text("已记下")], |_| {}, Some(store));
+        let out = rt().block_on(e.task.run(e.task.cfg.lead(), vec![], true));
+        assert_eq!(out.unwrap(), "已记下");
+        let rows = e.fake.memory.as_ref().unwrap().lock().unwrap().memory("lead", 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "用户喜欢短答案");
+        let event = e.events.lock().unwrap().iter().find_map(|event| match event {
+            ChatEvent::Tool { memory_id, agent_id, name, arg, status, .. } => Some((*memory_id, agent_id.clone(), name.clone(), arg.clone(), status.clone())),
+            _ => None,
+        }).unwrap();
+        assert_eq!((event.0, event.1.as_deref(), event.2.as_str(), event.3.as_str(), event.4.as_str()), (Some(rows[0].id), Some("lead"), "已记住：用户喜欢短答案", "", "done"));
+        let serialized = serde_json::to_value(e.events.lock().unwrap().iter().find(|ev| matches!(ev, ChatEvent::Tool { .. })).unwrap()).unwrap();
+        assert_eq!(serialized["memory_id"], rows[0].id);
+        assert_eq!(serialized["agent_id"], "lead");
+        assert!(serialized.get("memoryId").is_none());
+    }
+
+    #[test]
+    fn memory_ask_refusal_does_not_write_and_disallows_always() {
+        let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
+        let e = env_with_memory(vec![tool("remember", json!({"text":"用户喜欢短答案"})), text("明白")], |c| c.memory_ask = true, Some(store));
+        let r = rt();
+        let (out, result) = r.block_on(async {
+            let t = e.task.clone();
+            let h = tokio::spawn(async move { t.run(&t.cfg.lead().clone(), vec![], true).await });
+            let (desc, _, _) = answer(&e, Answer { reason: "这条不准确".into(), ..Answer::default() }).await;
+            (h.await.unwrap(), desc)
+        });
+        assert_eq!(out.unwrap(), "明白");
+        assert_eq!(result, "记住：用户喜欢短答案");
+        assert!(e.fake.memory.as_ref().unwrap().lock().unwrap().memory("lead", 10).unwrap().is_empty());
+        let events = e.events.lock().unwrap();
+        assert!(events.iter().any(|event| matches!(event, ChatEvent::Ask { no_always: true, .. })));
+        let ask = events.iter().find(|event| matches!(event, ChatEvent::Ask { .. })).unwrap();
+        assert_eq!(serde_json::to_value(ask).unwrap()["no_always"], true);
+        assert_eq!(e.got.lock().unwrap()[1]["messages"].as_array().unwrap().last().unwrap()["content"], "用户拒绝记住这条，原因：这条不准确");
+    }
+
+    #[test]
+    fn memory_ask_writes_the_edited_text_without_undo_ids() {
+        let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
+        let e = env_with_memory(vec![tool("remember", json!({"text":"原始偏好"})), text("好的")], |c| c.memory_ask = true, Some(store));
+        let r = rt();
+        let out = r.block_on(async {
+            let t = e.task.clone();
+            let h = tokio::spawn(async move { t.run(&t.cfg.lead().clone(), vec![], true).await });
+            let (desc, _, _) = answer(&e, Answer { allow: true, edit: "修改后的偏好".into(), ..Answer::default() }).await;
+            assert_eq!(desc, "记住：原始偏好");
+            h.await.unwrap()
+        });
+        assert_eq!(out.unwrap(), "好的");
+        let rows = e.fake.memory.as_ref().unwrap().lock().unwrap().memory("lead", 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "修改后的偏好");
+        assert!(e.events.lock().unwrap().iter().any(|event| matches!(event, ChatEvent::Tool { name, memory_id: None, agent_id: None, .. } if name == "已记住：修改后的偏好")));
     }
 
     #[test]
