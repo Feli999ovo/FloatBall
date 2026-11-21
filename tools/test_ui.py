@@ -3,6 +3,7 @@
 import sys, os, json, asyncio, base64
 from PIL import Image
 from playwright.async_api import async_playwright
+from trim_models_dev import trim
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/tmp/fbui"
@@ -15,6 +16,14 @@ def check(cond, msg):
     if not cond: fails.append(msg)
 
 async def main():
+    api = {"alpha": {"name": "Alpha", "api": "https://same.example/v1", "models": {
+        "priced": {"tool_call": True, "modalities": {"input": ["text"], "output": ["text"]}, "cost": {"input": 1.25, "output": 3.5}},
+        "zero": {"tool_call": True, "modalities": {"input": ["text"], "output": ["text"]}, "cost": {"input": 0, "output": 0}},
+        "missing": {"tool_call": True, "modalities": {"input": ["text"], "output": ["text"]}},
+        "invalid": {"tool_call": True, "modalities": {"input": ["text"], "output": ["text"]}, "cost": {"input": True, "output": 1}},
+    }}}
+    trimmed = trim(api, {}, "2026-11-21")
+    check(trimmed["providers"]["alpha"]["c"] == {"priced": [1.25, 3.5], "zero": [0, 0]}, "模型资料按服务商保存准确单价，保留零价并跳过缺失或无效价格")
     async with async_playwright() as p:
         b = await p.chromium.launch(args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required"])
         ctx = await b.new_context(viewport={"width": 96, "height": 96}, device_scale_factor=2)
@@ -184,7 +193,9 @@ async def main():
                      pm: c.querySelector('.x-pm').textContent, av: getComputedStyle(c.querySelector('.x-av')).getPropertyValue('--t').trim(),
                      before: c.previousElementSibling && c.previousElementSibling.textContent }; })()""")
         check(plan["h"] == "主控 · 3 步计划 · 点一步看为什么交给它", f"计划卡标题同原型 {plan['h']}")
-        check(plan["rows"] == [["研究员", "搜集 3 款耳机评测", "done", "✓", "6.1K"], ["整理员", "做参数对比表", "run", "进行中", ""], ["写手", "写对比报告", "wait", "等待", ""]], f"每步：谁、做什么、状态、用掉的 token {plan['rows']}")
+        check(plan["rows"] == [["研究员", "搜集 3 款耳机评测", "done", "✓", "6.1K · ¥0.05"], ["整理员", "做参数对比表", "run", "进行中", ""], ["写手", "写对比报告", "wait", "等待", ""]], f"每步：谁、做什么、状态、用量和花费 {plan['rows']}")
+        handoffs = await pg.locator(".x-ph").count()
+        check(handoffs == 1 and "研究员 → 整理员：已交接 1 段结果" in await pg.locator(".x-ph").inner_text(), "步骤交给下一位 Agent 前显示交接行并传递结果数量")
         check(plan["f"] == "共 6.1K tokens" and plan["pm"] == "gpt-4o-mini" and plan["av"] == "#A9BEDB", f"底部合计、模型标签、头像颜色 {plan}")
         check("拆成 3 步" in (plan["before"] or ""), "主控的话在计划卡前面")
         await pg.click(".m.ai:last-of-type .x-ps[data-call=t0]"); await pg.wait_for_timeout(150)
@@ -206,7 +217,21 @@ async def main():
         ags = await pg.evaluate("[...document.querySelectorAll('#tasks .x-ags .x-ag')].map(b => b.dataset.st)")
         await pg.click("#tabChat"); await pg.wait_for_timeout(200)
         fin = await pg.evaluate("(() => { const c = document.querySelector('.m.ai:last-of-type .x-plan'); return [[...c.querySelectorAll('.x-ps')].map(r => r.dataset.st), c.querySelector('.x-plf').textContent, c.nextElementSibling.textContent]; })()")
-        check(fin[0] == ["done", "done", "done"] and fin[1] == "共 18.4K tokens" and "通勤选索尼" in fin[2] and ags == ["idle", "idle", "idle"], f"做完：三步打勾、合计、结论在卡片后面、Agents 都空闲 {fin} {ags}")
+        check(fin[0] == ["done", "done", "done"] and "共 18.4K tokens · 约 ¥0.17（默认汇率）" == fin[1] and fin[2] == "报告写好了：通勤选索尼，强降噪选 Bose。" and ags == ["idle", "idle", "idle"], f"做完：三步打勾、汇总人民币花费和结论 {fin} {ags}")
+        check("约 ¥0.19（默认汇率）" in await pg.inner_text(".m.ai:last-of-type .meta"), "最后回复显示整次多 Agent 请求的人民币估算")
+        await pg.evaluate("__mock.teamUnknown = true; __mock.holdTeam = true")
+        await pg.fill("#ask", "请再调研一次耳机"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("__mock.lastMessages?.at(-1)?.content === '请再调研一次耳机'")
+        await pg.evaluate("__mock.teamNext()")
+        await pg.wait_for_function("!S.busy && document.querySelector('.m.ai:last-of-type .meta') && !document.querySelector('.m.ai:last-of-type .meta').hidden")
+        check("约 ¥" not in await pg.inner_text(".m.ai:last-of-type .x-plan .x-plf") and "约 ¥" not in await pg.inner_text(".m.ai:last-of-type .meta"), "未知单价时不显示估算花费")
+        await pg.evaluate("__mock.teamUnknown = false; __mock.teamLocal = true; __mock.holdTeam = true")
+        await pg.fill("#ask", "再用本地模型调研一次"); await pg.press("#ask", "Enter")
+        await pg.wait_for_function("typeof __mock.teamNext === 'function'")
+        await pg.evaluate("__mock.teamNext()")
+        await pg.wait_for_function("!S.busy && document.querySelector('.m.ai:last-of-type .meta') && !document.querySelector('.m.ai:last-of-type .meta').hidden")
+        check("Ollama · llama3" in await pg.inner_text(".m.ai:last-of-type .x-plan") and "约 ¥" not in await pg.inner_text(".m.ai:last-of-type .x-plan .x-plf"), "本地模型按零花费处理，不显示单价估算")
+        await pg.evaluate("__mock.teamLocal = false")
         await shot("06f_team_done")
 
         await pg.click("#tabTask")
@@ -1330,6 +1355,15 @@ async def main():
             cards = await sp.eval_on_selector_all("#agList .x-agc", "x => x.map(e => e.textContent)")
             check(len(cards) == 1 and "主控" in cards[0] and "拆解与分派" in cards[0] and "（默认）" in cards[0] and "工具 2" in cards[0], P + f"Agents 列表有主控 {cards}")
             check(await sp.input_value("#bTok") == "50000" and await sp.input_value("#bStep") == "50" and await sp.input_value("#bPar") == "3", P + "预算显示当前值")
+            check(await sp.input_value("#usdCny") == "7.2", P + "默认汇率为 7.2")
+            await sp.fill("#usdCny", "8")
+            await sp.locator("#usdCny").dispatch_event("change")
+            await sp.wait_for_function("__mock.cfg.usd_cny === 8")
+            check((await mock())["cfg"]["usd_cny"] == 8, P + "可修改默认汇率")
+            await sp.fill("#usdCny", "7.2")
+            await sp.locator("#usdCny").dispatch_event("change")
+            await sp.wait_for_function("__mock.cfg.usd_cny === 7.2")
+            check((await mock())["cfg"]["usd_cny"] == 7.2, P + "可恢复默认汇率")
             await sp_shot(f"30_agents_{plat}")
             await sp.select_option("#bTok", "100000"); await sp.wait_for_timeout(150)
             check((await mock())["cfg"]["limits"] == {"tokens": 100000, "steps": 50, "parallel": 3}, P + "改预算就保存")

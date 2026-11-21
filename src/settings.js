@@ -694,11 +694,14 @@ function prefs() {
     hover: { on: sw("hvOn"), delay: +(on("hvSpd") || 350), order: hvOrder },
     ...(selCfg ? { sel: selCfg } : {}),
     ...(vcCfg ? { voice: vcCfg } : {}),
+    usd_cny: Number($("usdCny").value),
     screen: on("mdsWhere") || "mouse", screen_slide: sw("mdsSlide"),
     catalog_auto: sw("libAuto"),
   };
 }
 async function savePrefs() {
+  const rate = Number($("usdCny").value);
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 1000) { toast("汇率需大于 0 且不超过 1000"); return false; }
   try {
     const busy = await invoke("save_prefs", { prefs: prefs() });
     await reload();
@@ -984,9 +987,12 @@ $("vcStt").addEventListener("change", (e) => { const v = e.target.value.trim(); 
 $("vcStt").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
 $("vcTts").addEventListener("click", () => { vcCfg.tts = !sw("vcTts"); $("vcTts").setAttribute("aria-checked", vcCfg.tts); savePrefs(); });
 
+$("usdCny").addEventListener("change", savePrefs);
+
 /* ───────── 读配置 ───────── */
 async function reload() {
   cfg = await invoke("get_config");
+  $("usdCny").value = String(cfg.usd_cny || 7.2);
   ["bTok", "bStep", "bPar"].forEach((id, i) => { $(id).value = String(cfg.limits[["tokens", "steps", "parallel"][i]]); });
   KEY_DEF.forEach(([k]) => (keyVal[k] = cfg[k] || "")); if (!keyRec) renderKeys();
   radio("lkSize", cfg.orb_size); radio("lkEye", cfg.eye); $("lkGlass").value = cfg.glass; showGlass();
