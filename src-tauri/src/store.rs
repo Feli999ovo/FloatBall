@@ -143,11 +143,13 @@ impl Store {
         rows.collect()
     }
 
-    pub fn remember(&self, agent_id: &str, text: &str) -> rusqlite::Result<()> {
+    pub fn remember(&self, agent_id: &str, text: &str) -> rusqlite::Result<i64> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("INSERT INTO agent_memory(agent_id, text, created) VALUES (?1, ?2, ?3)", params![agent_id, text, now()])?;
+        let id = tx.last_insert_rowid();
         tx.execute("DELETE FROM agent_memory WHERE agent_id = ?1 AND id <= (SELECT id FROM agent_memory WHERE agent_id = ?1 ORDER BY id DESC LIMIT 1 OFFSET 100)", [agent_id])?;
-        tx.commit()
+        tx.commit()?;
+        Ok(id)
     }
 
     pub fn delete_memory(&self, agent_id: &str, id: Option<i64>) -> rusqlite::Result<()> {
@@ -184,6 +186,20 @@ mod tests {
         s.delete_memory("ag1", None).unwrap();
         assert!(s.memory("ag1", 100).unwrap().is_empty());
         assert_eq!(s.memory_counts().unwrap()["lead"], 100);
+    }
+
+    #[test]
+    fn deleted_memory_ids_are_not_reused_for_undo() {
+        let s = Store::from_conn(Connection::open_in_memory().unwrap()).unwrap();
+        let first = s.remember("lead", "first").unwrap();
+        s.delete_memory("lead", Some(first)).unwrap();
+        let second = s.remember("lead", "second").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(s.memory("lead", 10).unwrap()[0].id, second);
+        // Id deletion is scoped to its owning agent.
+        s.remember("other", "other-agent row").unwrap();
+        s.delete_memory("lead", Some(second)).unwrap();
+        assert_eq!(s.memory("other", 10).unwrap()[0].text, "other-agent row");
     }
 
     #[test]

@@ -458,6 +458,12 @@ body.collapsed #toast { display: none; }
 .x-tres{margin:0 0 0 12px;padding-left:10px;border-left:1px solid rgba(255,255,255,.2);font:var(--type-caption);font-family:"Geist Mono",ui-monospace,monospace;
   color:rgba(255,255,255,.62);white-space:pre-line}
 .x-tres b{display:block;font-weight:var(--weight-medium);color:rgba(255,255,255,.8)}
+/* 记忆药丸的撤销是独立按钮，不嵌进可展开结果的按钮里。 */
+.x-tw.memory{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}
+.x-tw.memory > .x-tres,.x-tw.memory > .x-memnote{grid-column:1/-1}
+.x-tw .x-memundo{min-height:30px;padding:0 10px;font:var(--type-caption)}
+.x-tw .x-memundo:disabled{opacity:.5;cursor:default;transform:none}
+.x-tw .x-memnote{margin:0!important;color:#ffb4ad;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:reduce){.x-tool::after,.x-td i{animation:none}}
 /* 审批：药丸暂停「⏸ 等你确认」/「✕ 已拒绝」，下方一张小玻璃确认卡 */
 .x-tp{display:none;color:#FFE2B8}

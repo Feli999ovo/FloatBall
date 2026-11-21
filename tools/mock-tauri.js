@@ -1,7 +1,7 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["读文件", "写文件"], model: 0, fallback: 0, auto: false }], usd_cny: 7.2, limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+S", win_shortcut: "Alt+W", share_shortcut: "Alt+Shift+S", feed_shortcut: "Alt+C", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", talk_shortcut: "RightAlt", voice: { lang: "auto", after: "send", tts: false, model: 0, stt: "whisper-1", engine: "system" }, position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, catalog_auto: false, sel: { on: false, mode: "instant", tr: "auto", apps: ["1Password", "KeePass", "Bitwarden"], order: ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"].map((id, i) => ({ id, show: i < 6 })) }, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
+    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["读文件", "写文件"], model: 0, fallback: 0, auto: false }], usd_cny: 7.2, limits: { tokens: 50000, steps: 50, parallel: 3 }, memory_ask: false, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+S", win_shortcut: "Alt+W", share_shortcut: "Alt+Shift+S", feed_shortcut: "Alt+C", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", talk_shortcut: "RightAlt", voice: { lang: "auto", after: "send", tts: false, model: 0, stt: "whisper-1", engine: "system" }, position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, catalog_auto: false, sel: { on: false, mode: "instant", tr: "auto", apps: ["1Password", "KeePass", "Bitwarden"], order: ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"].map((id, i) => ({ id, show: i < 6 })) }, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
@@ -94,6 +94,13 @@
       case "handoff_scan":
         if (st.hoScanFail) throw st.hoScanFail;
         return st.hoScan || { tools: [], terms: [{ id: "wt", name: "Windows Terminal" }, { id: "powershell", name: "Windows PowerShell" }] };
+      case "save_memory_prefs":
+        if (typeof a.memoryAsk !== "boolean") throw new Error("缺少 memoryAsk 开关值");
+        if (st.memoryPrefsFail) throw st.memoryPrefsFail;
+        st.cfg.memory_ask = a.memoryAsk;
+        // 原生保存只给小球窗口发 config。设置页通过本次命令的结果更新开关。
+        if (!location.pathname.endsWith("/settings.html")) changed();
+        return null;
       case "save_handoff_prefs":
         if (st.hoPrefsFail) throw st.hoPrefsFail;
         Object.assign((st.cfg.handoff ||= { dirs: [] }), { custom: a.custom, hint: a.hint });
@@ -175,6 +182,12 @@
       case "history_clear": st.convs = []; return null;
       case "agent_memory_counts": return Object.fromEntries(Object.entries(st.memories || {}).map(([id, list]) => [id, list.length]));
       case "agent_memory_list": return [...(st.memories?.[a.agent] || [])];
+      case "forget_memory":
+        if (typeof a.agent !== "string" || !Number.isInteger(a.id)) throw new Error("缺少记忆所属 Agent 或 id");
+        if (st.memoryError) throw new Error(st.memoryError);
+        (st.memories ||= {})[a.agent] = (st.memories[a.agent] || []).filter((m) => m.id !== a.id);
+        window.__emit("memory:changed", a.agent);
+        return null;
       case "agent_memory_delete":
         if (st.memoryError) throw new Error(st.memoryError);
         (st.memories ||= {})[a.agent] = a.id == null ? [] : (st.memories[a.agent] || []).filter((m) => m.id !== a.id);
@@ -192,9 +205,34 @@
           delete st.rememberNext;
           st.lastTemporary = a.temporary;
           if (!a.temporary) {
-            const list = (st.memories ||= {})[agent] ||= [];
-            list.unshift({ id: Date.now(), text, created: Date.now() });
-            window.__emit("memory:changed", agent);
+            const call = "remember-" + a.id, who = st.cfg.agents.find((g) => g.id === agent)?.name || agent;
+            const send = (e) => { if (st.cancelled !== a.id) ch.onmessage(e); };
+            const pill = (name, status, result, extra = {}) => send({ type: "tool", call, agent: who, name, arg: "", status, result, ...extra });
+            const finish = (message) => { send({ type: "delta", text: message }); send({ type: "done" }); };
+            const save = (value, automatic) => {
+              const saved = value.trim(), chars = Array.from(saved);
+              if (!chars.length || chars.length > 500) {
+                pill("记住偏好", "err", "记忆要写 1–500 字"); finish("没有保存这条记忆。"); return;
+              }
+              const id = st.nextMemoryId = Math.max(Date.now(), (st.nextMemoryId || 0) + 1);
+              ((st.memories ||= {})[agent] ||= []).unshift({ id, text: saved, created: Date.now() });
+              window.__emit("memory:changed", agent);
+              pill(automatic ? "已记住：" + chars.slice(0, 30).join("") : "记住偏好", "done", "已保存到独立记忆", automatic ? { memory_id: id, agent_id: agent } : {});
+              finish("记住了。");
+            };
+            setTimeout(() => {
+              if (!st.cfg.memory_ask) { save(text, true); return; }
+              pill("记住偏好", "wait", "");
+              st.onAnswer = (ans) => {
+                if (ans.allow) save(ans.edit || text, false);
+                else {
+                  pill("记住偏好", "no", "用户拒绝记住这条" + (ans.reason ? "，原因：" + ans.reason : ""));
+                  finish("好的，没有记住这条。");
+                }
+              };
+              send({ type: "ask", ask: 17, call, kind: "记住", desc: "记住：" + text, scope: who, hi: false, no_always: true });
+            }, 50);
+            return null;
           }
         }
         // 用工具、需要确认（删除）：看文件夹 → 等确认 → 删或不删

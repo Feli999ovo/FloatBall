@@ -411,6 +411,14 @@ fn save_limits(app: AppHandle, state: State<'_, AppState>, limits: config::Limit
     commit(&app, &state, next)
 }
 
+/// 记忆偏好：只保存是否在记住前询问
+#[tauri::command]
+fn save_memory_prefs(app: AppHandle, state: State<'_, AppState>, memory_ask: bool) -> Result<(), String> {
+    let mut next = state.cfg.lock().unwrap().clone();
+    next.memory_ask = memory_ask;
+    commit(&app, &state, next)
+}
+
 /// 交给终端偏好：只保存设置，不打开终端或运行自定义命令
 #[tauri::command]
 fn save_handoff_prefs(app: AppHandle, state: State<'_, AppState>, custom: String, hint: bool) -> Result<(), String> {
@@ -978,14 +986,14 @@ impl agent::MemoryStore for AppMemory {
             .unwrap_or_default().into_iter().map(|m| m.text).collect()
     }
 
-    fn add(&self, agent: &str, text: &str) -> Result<(), String> {
+    fn add(&self, agent: &str, text: &str) -> Result<i64, String> {
         let state = self.0.state::<AppState>();
         let cfg = state.cfg.lock().unwrap();
         if !cfg.agents.iter().any(|a| a.id == agent) { return Err("这个 Agent 已被删除".into()); }
-        with_store(&state, |s| s.remember(agent, text))?;
+        let id = with_store(&state, |s| s.remember(agent, text))?;
         drop(cfg);
         let _ = self.0.emit("memory:changed", agent.to_owned());
-        Ok(())
+        Ok(id)
     }
 }
 
@@ -1002,6 +1010,14 @@ fn agent_memory_list(state: State<'_, AppState>, agent: String) -> Result<Vec<st
 #[tauri::command]
 fn agent_memory_delete(app: AppHandle, state: State<'_, AppState>, agent: String, id: Option<i64>) -> Result<(), String> {
     with_store(&state, |s| s.delete_memory(&agent, id))?;
+    let _ = app.emit("memory:changed", agent);
+    Ok(())
+}
+
+/// 撤销对话里的自动记忆，只删除指定 Agent 下这一条
+#[tauri::command]
+fn forget_memory(app: AppHandle, state: State<'_, AppState>, agent: String, id: i64) -> Result<(), String> {
+    with_store(&state, |s| s.delete_memory(&agent, Some(id)))?;
     let _ = app.emit("memory:changed", agent);
     Ok(())
 }
@@ -1477,7 +1493,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_skill, delete_skill, save_limits, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
+            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_skill, delete_skill, save_limits, save_memory_prefs, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,
@@ -1494,7 +1510,7 @@ pub fn run() {
             history_load,
             history_delete,
             history_clear,
-            agent_memory_counts, agent_memory_list, agent_memory_delete,
+            agent_memory_counts, agent_memory_list, agent_memory_delete, forget_memory,
             capture_screen, capture_window, share_sources, capture_shared, open_screen_privacy,
             backdrop,
             read_text_file,
