@@ -525,10 +525,19 @@ impl Config {
         for agent in &mut self.agents { agent.skills.retain(|s| s != id); }
     }
 
+    pub(crate) fn assigned_skills<'a>(&'a self, agent: &'a Agent) -> impl Iterator<Item = &'a Skill> {
+        self.skills.iter().filter(move |skill| agent.skills.contains(&skill.id))
+    }
+
     pub fn agent_prompt(&self, agent: &Agent) -> String {
         let mut prompt = agent.prompt.clone();
-        for skill in self.skills.iter().filter(|s| agent.skills.contains(&s.id)) {
-            prompt.push_str(&format!("\n\n技能：{}\n什么时候用：{}\n步骤：\n{}", skill.name, skill.when, skill.steps));
+        let mut skills = self.assigned_skills(agent).peekable();
+        if skills.peek().is_some() {
+            prompt.push_str("\n\n你会的技能（需要时调用 read_skill 读完整步骤）：");
+            for skill in skills {
+                let when = if skill.when.trim().is_empty() { "（没写什么时候用）" } else { &skill.when };
+                prompt.push_str(&format!("\n- {}：{when}", skill.name));
+            }
         }
         prompt
     }
@@ -769,7 +778,9 @@ mod tests {
         researcher.skills = vec![id.clone(), id.clone(), "missing".into()];
         c.upsert_agent(researcher).unwrap();
         assert_eq!(c.agents[1].skills, [id.clone()]);
-        assert!(c.agent_prompt(&c.agents[1]).ends_with("技能：核对出处\n什么时候用：查资料时\n步骤：\n先找原文"));
+        let prompt = c.agent_prompt(&c.agents[1]);
+        assert!(prompt.ends_with("你会的技能（需要时调用 read_skill 读完整步骤）：\n- 核对出处：查资料时"));
+        assert!(!prompt.contains("先找原文"));
         assert_eq!(c.agent_prompt(c.lead()), c.lead().prompt);
         c.remove_skill(&id);
         assert!(c.agents[1].skills.is_empty());
