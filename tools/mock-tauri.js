@@ -98,7 +98,9 @@
         if (typeof a.memoryAsk !== "boolean") throw new Error("缺少 memoryAsk 开关值");
         if (st.memoryPrefsFail) throw st.memoryPrefsFail;
         st.cfg.memory_ask = a.memoryAsk;
-        changed(); return null;
+        // 原生保存只给小球窗口发 config。设置页通过本次命令的结果更新开关。
+        if (!location.pathname.endsWith("/settings.html")) changed();
+        return null;
       case "save_handoff_prefs":
         if (st.hoPrefsFail) throw st.hoPrefsFail;
         Object.assign((st.cfg.handoff ||= { dirs: [] }), { custom: a.custom, hint: a.hint });
