@@ -21,6 +21,8 @@ pub struct Provider {
     pub n: String,
     pub h: String,
     pub m: BTreeMap<String, Row>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub c: BTreeMap<String, (f64, f64)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,15 +93,17 @@ impl Catalog {
                     .and_then(host_of)
                     .unwrap_or_else(|| known_host(pid).to_string());
                 let mut m = BTreeMap::new();
+                let mut c = BTreeMap::new();
                 if let Some(ms) = p.get("models").and_then(|x| x.as_object()) {
                     for (mid, mv) in ms {
                         if let Some(r) = row(mv) {
                             m.insert(mid.clone(), r);
+                            if let Some(price) = price_row(mv) { c.insert(mid.clone(), price); }
                         }
                     }
                 }
                 let n = p.get("name").and_then(|x| x.as_str()).unwrap_or(pid).to_string();
-                providers.insert(pid.clone(), Provider { n, h: host, m });
+                providers.insert(pid.clone(), Provider { n, h: host, m, c });
             }
         }
         let mut lab = BTreeMap::new();
@@ -215,6 +219,31 @@ impl Catalog {
         caps
     }
 
+    /// 价格只用该服务商的准确模型数据，其他服务商的同名模型可能有不同价格。
+    pub fn price(&self, base: &str, model: &str, label: &str) -> Option<(f64, f64)> {
+        let host = host_of(base)?;
+        if is_local_host(&host) { return None; }
+        let name = model.trim().to_lowercase();
+        if let Some(pid) = label_pid(label) {
+            let provider = self.providers.get(pid)?;
+            if provider.h != host || !provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name)) { return None; }
+            return provider.c.get(&name).copied().or_else(|| provider.c.iter().find(|(k, _)| k.to_lowercase() == name).map(|(_, cost)| *cost))
+                .filter(|(input, output)| input.is_finite() && output.is_finite() && *input >= 0.0 && *output >= 0.0);
+        }
+        let by_label = self.providers.iter().find(|(pid, provider)|
+            (provider.n.eq_ignore_ascii_case(label) || pid.eq_ignore_ascii_case(label))
+                && provider.h == host && provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name))
+        ).map(|(pid, _)| pid.clone());
+        let pid = by_label.or_else(|| {
+            let mut matches = self.providers.iter().filter(|(_, provider)| provider.h == host && provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name))).map(|(pid, _)| pid.clone());
+            let only = matches.next()?;
+            matches.next().is_none().then_some(only)
+        })?;
+        let provider = self.providers.get(&pid)?;
+        provider.c.get(&name).copied().or_else(|| provider.c.iter().find(|(k, _)| k.to_lowercase() == name).map(|(_, cost)| *cost))
+            .filter(|(input, output)| input.is_finite() && output.is_finite() && *input >= 0.0 && *output >= 0.0)
+    }
+
     /// 按接口地址认服务商；同一个地址有几家时，选列表里有这个模型的那家
     fn pid_by_host(&self, host: &str, ml: &str) -> Option<String> {
         if host.is_empty() {
@@ -264,6 +293,20 @@ fn known_host(pid: &str) -> &'static str {
         "groq" => "api.groq.com",
         _ => "",
     }
+}
+
+pub fn estimate_cny(price: Option<(f64, f64)>, prompt: u64, completion: u64, usd_cny: f64) -> Option<f64> {
+    let (input, output) = price?;
+    if !usd_cny.is_finite() || usd_cny <= 0.0 || !input.is_finite() || !output.is_finite() || input < 0.0 || output < 0.0 { return None; }
+    let total = (prompt as f64 * input + completion as f64 * output) / 1_000_000.0 * usd_cny;
+    total.is_finite().then_some(total)
+}
+
+fn price_row(m: &Value) -> Option<(f64, f64)> {
+    let cost = m.get("cost")?;
+    let input = cost.get("input")?.as_f64()?;
+    let output = cost.get("output")?.as_f64()?;
+    (input >= 0.0 && output >= 0.0).then_some((input, output))
 }
 
 fn row(m: &Value) -> Option<Row> {
@@ -345,10 +388,41 @@ mod tests {
     }
 
     #[test]
+    fn estimates_cny_from_both_token_types_without_a_network_rate() {
+        assert!((estimate_cny(Some((0.15, 0.6)), 1_000, 1_000, 7.2).unwrap() - 0.0054).abs() < 1e-12);
+        assert_eq!(estimate_cny(Some((0.0, 0.0)), 100_000, 100_000, 7.2), Some(0.0));
+        assert_eq!(estimate_cny(None, 1, 1, 7.2), None);
+        assert_eq!(estimate_cny(Some((0.1, 0.2)), 1, 1, f64::INFINITY), None);
+    }
+
+    #[test]
+    fn price_is_per_provider_and_old_cache_still_loads() {
+        let raw = r#"{"v":1,"fetched":"2026-11-14","providers":{"openai":{"n":"OpenAI","h":"api.openai.com","m":{"gpt-4o":[true,true,false,128000,"GPT-4o"]}}},"labs":{}}"#;
+        let old: Catalog = serde_json::from_str(raw).unwrap();
+        assert!(old.providers["openai"].c.is_empty());
+        assert!(old.price("https://api.openai.com/v1", "gpt-4o", "").is_none());
+        let raw = serde_json::json!({"openai":{"models":{"gpt-4o":{"cost":{"input":2.5,"output":10}},"no-price":{"cost":{"input":1}},"free":{"cost":{"input":0,"output":0}}}}});
+        let c = Catalog::trim(&raw, &Value::Null, "2026-11-21");
+        assert_eq!(c.price("https://api.openai.com/v1", "GPT-4o", ""), Some((2.5, 10.0)));
+        assert_eq!(c.price("https://api.openai.com/v1", "free", ""), Some((0.0, 0.0)));
+        assert_eq!(c.price("http://localhost:11434/v1", "gpt-4o", "OpenAI"), None);
+        assert_eq!(c.price("https://api.openai.com/v1", "no-price", ""), None);
+        assert_eq!(c.price("https://unknown.example/v1", "gpt-4o", ""), None);
+        let raw = serde_json::json!({
+            "alpha": {"name":"Alpha", "api":"https://same.example/v1", "models":{"shared":{"cost":{"input":1,"output":2}}}},
+            "beta": {"name":"Beta", "api":"https://same.example/v1", "models":{"shared":{"cost":{"input":8,"output":9}}}}
+        });
+        let c = Catalog::trim(&raw, &Value::Null, "2026-11-21");
+        assert_eq!(c.price("https://same.example/v1", "shared", "Alpha"), Some((1.0, 2.0)));
+        assert_eq!(c.price("https://same.example/v1", "shared", ""), None);
+    }
+
+    #[test]
     fn bundled_loads() {
         let c = cat();
         assert!(c.providers.len() > 100 && c.labs.len() > 300);
         assert!(c.providers["openai"].h == "api.openai.com");
+        assert_eq!(c.price("https://api.openai.com/v1", "gpt-4o-mini", "OpenAI"), Some((0.15, 0.6)));
     }
 
     #[test]

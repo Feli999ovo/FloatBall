@@ -63,6 +63,8 @@ impl Model {
 pub const TOOLS: [&str; 6] = ["搜索网页", "读文件", "写文件", "删除", "发邮件", "浏览器"];
 pub const MAX_AGENTS: usize = 16;
 const MAX_SKILLS: usize = 50;
+pub const DEFAULT_USD_CNY: f64 = 7.2;
+fn default_usd_cny() -> f64 { DEFAULT_USD_CNY }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Skill {
@@ -167,6 +169,8 @@ pub struct Config {
     /// Agents，第一个永远是主控
     pub agents: Vec<Agent>,
     pub skills: Vec<Skill>,
+    #[serde(default = "default_usd_cny")]
+    pub usd_cny: f64,
     /// 预算
     pub limits: Limits,
     /// 定时任务（B5）
@@ -366,6 +370,7 @@ impl Default for Config {
             system_prompt: String::new(),
             agents: default_agents(),
             skills: vec![],
+            usd_cny: DEFAULT_USD_CNY,
             limits: Limits::default(),
             routines: vec![],
             handoff: Handoff::default(),
@@ -725,6 +730,14 @@ mod tests {
         let roundtrip: Handoff = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
         assert_eq!(roundtrip, h);
         assert!(!roundtrip.hint);
+    }
+
+    #[test]
+    fn old_config_uses_default_exchange_rate() {
+        let c: Config = serde_json::from_str(r#"{"capture_shortcut":"Alt+S"}"#).unwrap();
+        assert_eq!(c.usd_cny, 7.2);
+        let c: Config = serde_json::from_str(r#"{"usd_cny":8.4}"#).unwrap();
+        assert_eq!(c.usd_cny, 8.4);
     }
 
     #[test]

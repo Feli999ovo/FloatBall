@@ -1,7 +1,7 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
 (() => {
   const st = { pos: { x: 1300, y: 380 }, size: { w: 96, h: 96 }, mon: { w: 1440, h: 900 },
-    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["读文件", "写文件"], model: 0, fallback: 0, auto: false }], limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+S", win_shortcut: "Alt+W", share_shortcut: "Alt+Shift+S", feed_shortcut: "Alt+C", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", talk_shortcut: "RightAlt", voice: { lang: "auto", after: "send", tts: false, model: 0, stt: "whisper-1", engine: "system" }, position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, catalog_auto: false, sel: { on: false, mode: "instant", tr: "auto", apps: ["1Password", "KeePass", "Bitwarden"], order: ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"].map((id, i) => ({ id, show: i < 6 })) }, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
+    cfg: { models: [], default_model: 0, agents: [{ id: "lead", name: "主控", role: "拆解与分派", prompt: "你是住在用户桌面上的悬浮球助手。", tint: "#C9B8F2", emoji: "", tools: ["读文件", "写文件"], model: 0, fallback: 0, auto: false }], usd_cny: 7.2, limits: { tokens: 50000, steps: 50, parallel: 3 }, always_allow: [], pause_away: true, shortcut: "Alt+Space", capture_shortcut: "Alt+S", win_shortcut: "Alt+W", share_shortcut: "Alt+Shift+S", feed_shortcut: "Alt+C", new_shortcut: "Alt+N", tasks_shortcut: "Alt+T", talk_shortcut: "RightAlt", voice: { lang: "auto", after: "send", tts: false, model: 0, stt: "whisper-1", engine: "system" }, position: null, orb_size: 72, glass: 25, eye: "#FFF1DC", idle_ms: 600000, follow_system: false, auto_dock: true, calm: false, screen: "mouse", screen_slide: true, catalog_auto: false, sel: { on: false, mode: "instant", tr: "auto", apps: ["1Password", "KeePass", "Bitwarden"], order: ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"].map((id, i) => ({ id, show: i < 6 })) }, hover: { on: true, delay: 350, order: [{ id: "shot", show: true }, { id: "new", show: true }, { id: "hist", show: true }, { id: "tasks", show: true }] }, autostart: false, platform: "windows", catalog_date: "2026-11-14" },
     convs: [], nextId: 1, listeners: {}, moved: [], focus: [], calls: [] };
   window.__mock = st;
   class Channel { constructor() { this.onmessage = () => {}; } }
@@ -225,16 +225,18 @@
         if (/调研/.test(q)) {
           const send = (e) => { if (st.cancelled !== a.id) ch.onmessage(e); };
           const steps = [["t0", "research", "研究员", "搜集 3 款耳机评测", 6100], ["t1", "organize", "整理员", "做参数对比表", 3800], ["t2", "writer", "写手", "写对比报告", 8500]];
+          const rate = Number(st.cfg.usd_cny || 7.2) / 7.2;
+          const costs = [0.05, 0.04, 0.08].map((cost) => cost * rate);
           const gap = st.slow ? 900 : 60;
           setTimeout(() => {
             send({ type: "delta", text: "我把它拆成 3 步，分给小伙伴们：" });
-            steps.forEach(([call, id, name, task], i) => send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: i ? "wait" : "run", tokens: 0 }));
+            steps.forEach(([call, id, name, task], i) => send({ type: "team", call, agent_id: id, agent: name, task, model: st.teamLocal ? "Ollama · llama3" : "gpt-4o-mini", status: i ? "wait" : "run", tokens: 0, cost: null }));
             let i = 0;
             (function next() {
-              if (i >= steps.length) { send({ type: "delta", text: "报告写好了：通勤选索尼，强降噪选 Bose。" }); send({ type: "usage", prompt: 18400, completion: 0 }); send({ type: "done" }); return; }
+              if (i >= steps.length) { send({ type: "delta", text: "报告写好了：通勤选索尼，强降噪选 Bose。" }); send({ type: "usage", prompt: 100, completion: 50 }); send({ type: "cost", amount: st.teamUnknown || st.teamLocal ? null : 0.19 * rate }); send({ type: "done" }); return; }
               const [call, id, name, task, tok] = steps[i];
-              send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: "run", tokens: 0 });
-              if (st.holdTeam && i === 1) { st.teamNext = () => { st.holdTeam = false; next2(); }; return; }
+              send({ type: "team", call, agent_id: id, agent: name, task, model: st.teamLocal ? "Ollama · llama3" : "gpt-4o-mini", status: "run", tokens: 0, cost: null });
+              if (st.holdTeam && i === 1) { st.teamNext = () => { st.holdTeam = false; st.teamNext = null; next2(); }; return; }
               // 预算用满（B2）：第 2 步做到一半暂停，等「再给 2万 / 停止」
               if (st.budgetTeam && i === 1) {
                 st.budgetTeam = false;
@@ -245,7 +247,14 @@
                 return;
               }
               next2();
-              function next2() { setTimeout(() => { send({ type: "team", call, agent_id: id, agent: name, task, model: "gpt-4o-mini", status: "done", tokens: tok }); i++; next(); }, gap); }
+              function next2() { setTimeout(() => {
+                send({ type: "team", call, agent_id: id, agent: name, task, model: st.teamLocal ? "Ollama · llama3" : "gpt-4o-mini", status: "done", tokens: tok, cost: st.teamUnknown || st.teamLocal ? null : costs[i] });
+                if (i + 1 < steps.length) {
+                  const nextName = steps[i + 1][2];
+                  send({ type: "handoff", from_call: call, to_call: steps[i + 1][0], from: name, to: nextName, count: 1, unit: "段结果", cost: st.teamUnknown || st.teamLocal ? null : costs[i] });
+                }
+                i++; next();
+              }, gap); }
             })();
           }, 50);
           return null;

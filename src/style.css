@@ -643,6 +643,8 @@ body:not(.collapsed) #vcBub, body:not(.collapsed) #vcRip { display: none; }
 .x-ag:hover,.x-ag[aria-expanded=true]{background:rgba(255,255,255,.14)}
 .x-agm{display:flex;align-items:center;gap:6px}.x-agp .x-agm .x-agx{flex:none;white-space:nowrap}
 .x-agp .x-agx{margin-left:auto;min-height:24px;padding:0 2px;border:0;background:none;cursor:pointer;color:#fff;font:var(--type-caption);text-decoration:underline;text-underline-offset:2px}
+.x-ph { margin: 2px 0 2px 30px; padding: 3px 7px; border-left: 1px solid rgba(255, 241, 220, 0.32); font: var(--type-caption); color: rgba(255, 241, 220, 0.68); overflow-wrap: anywhere; }
+
 /* 预算用满暂停（原型 .x-tst.x-bud 的琥珀色） */
 .tk .when .bud { color: #FFD38A; }
 .tk[data-st="pause"] .bar i { animation-play-state: paused; }

@@ -23,7 +23,9 @@ pub enum ChatEvent {
     /// Agent 用了一个工具：界面上显示成一行「工具药丸」。status：run / done / no（被拒绝）/ err
     Tool { call: String, agent: String, name: String, arg: String, status: String, result: String },
     /// 主控把一步交给别的 Agent：界面上是「多 Agent 计划卡」的一行。status：wait（排队）/ run / done / err；tokens 是这一步（子 Agent）用掉的
-    Team { call: String, agent_id: String, agent: String, task: String, model: String, status: String, tokens: u64 },
+    Team { call: String, agent_id: String, agent: String, task: String, model: String, model_id: u32, status: String, tokens: u64, prompt: u64, completion: u64, cost: Option<f64> },
+    Handoff { from_call: String, to_call: String, from: String, to: String, count: u64, unit: String, cost: Option<f64> },
+    Cost { amount: Option<f64> },
     /// 预算用满（kind：tokens / steps），任务暂停，等用户选「再给一些」或「停止」，答案也走 answer_ask（allow = 再给）
     Budget { ask: u64, kind: String, used: u64, limit: u64, more: u64 },
     /// 需要用户确认（发送、删除、写文件等）。界面显示确认卡片，用户的选择通过 answer_ask 传回
@@ -332,6 +334,8 @@ pub struct Turn {
     pub content: String,
     pub calls: Vec<Call>,
     pub tokens: u64,
+    pub prompt: u64,
+    pub completion: u64,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -339,6 +343,12 @@ pub struct Call {
     pub id: String,
     pub name: String,
     pub args: String,
+}
+
+fn record_usage(turn: &mut Turn, prompt: u64, completion: u64) {
+    turn.prompt = prompt;
+    turn.completion = completion;
+    turn.tokens = prompt.saturating_add(completion);
 }
 
 /// 请求一轮（可带工具）。正文和思考过程照常通过 emit 流给界面；工具调用拼好后放在返回值里
@@ -351,7 +361,7 @@ pub async fn turn(endpoint: &str, api_key: Option<&str>, model: &str, messages: 
             emit(ev);
         }
         ChatEvent::Reasoning { .. } => emit(ev),
-        ChatEvent::Usage { prompt, completion } => t.tokens = prompt + completion,
+        ChatEvent::Usage { prompt, completion } => record_usage(&mut t, prompt, completion),
         ChatEvent::ToolCall { index, id, name, args } => {
             while t.calls.len() <= index {
                 t.calls.push(Call::default());
@@ -458,6 +468,13 @@ mod tests {
             ]
         );
         assert!(p.finished);
+    }
+
+    #[test]
+    fn usage_tracks_prompt_and_completion_separately() {
+        let mut turn = Turn::default();
+        record_usage(&mut turn, 125, 37);
+        assert_eq!((turn.prompt, turn.completion, turn.tokens), (125, 37, 162));
     }
 
     #[test]

@@ -65,6 +65,8 @@
           <label class="x-field"><span>最多步数</span><select class="x-in" id="bStep"><option>20</option><option>50</option><option>100</option></select></label>
           <label class="x-field"><span>最多同时子 Agent</span><select class="x-in" id="bPar"><option>1</option><option>3</option><option>5</option></select></label>
         </div>
+        <label class="x-field"><span>默认汇率（人民币 / 美元）</span><input class="x-in" id="usdCny" type="number" min="0.01" max="1000" step="0.01" /></label>
+        <p class="x-hint">默认汇率为 7.2，只用于估算，不联网查询；模型单价未知时不显示花费。</p>
       </div>
       <section class="x-bud" id="skillLibrary" aria-labelledby="skillLibTitle">
         <p class="x-bh" id="skillLibTitle">技能库</p>

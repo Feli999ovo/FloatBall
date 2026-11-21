@@ -105,11 +105,20 @@ fn show_ball<R: Runtime>(app: &AppHandle<R>) {
 fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
     let cfg = state.cfg.lock().unwrap().clone();
     let has_key = |id: u32| config::get_api_key(id).is_some();
+    let catalog = state.catalog.lock().unwrap();
     let mut v = serde_json::to_value(&cfg).unwrap_or_default();
     for m in v["models"].as_array_mut().into_iter().flatten() {
         let id = m["id"].as_u64().unwrap_or(0) as u32;
         m["has_key"] = json!(has_key(id));
+        let base = m["base_url"].as_str().unwrap_or("");
+        let model = m["model"].as_str().unwrap_or("");
+        let provider = m["provider"].as_str().unwrap_or("");
+        if let Some((input, output)) = catalog.price(base, model, provider) {
+            m["input_cost"] = json!(input);
+            m["output_cost"] = json!(output);
+        }
     }
+    drop(catalog);
     v["ready"] = json!(cfg.current().is_some_and(|m| m.no_key || has_key(m.id)));
     v["lead_vision"] = json!(cfg.effective_model_for(cfg.lead()).map(|m| m.vision));
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
@@ -258,6 +267,7 @@ struct Prefs {
     win_shortcut: Option<String>,
     share_shortcut: Option<String>,
     feed_shortcut: Option<String>,
+    usd_cny: Option<f64>,
     #[serde(default)]
     new_shortcut: Option<String>,
     #[serde(default)]
@@ -313,6 +323,7 @@ fn save_prefs(app: AppHandle, state: State<'_, AppState>, prefs: Prefs) -> Resul
     if let Some(v) = prefs.win_shortcut { next.win_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.share_shortcut { next.share_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.feed_shortcut { next.feed_shortcut = v.trim().to_string(); }
+    if let Some(v) = prefs.usd_cny.filter(|v| v.is_finite() && *v > 0.0 && *v <= 1000.0) { next.usd_cny = v; }
     if let Some(v) = prefs.new_shortcut { next.new_shortcut = v.trim().to_string(); }
     if let Some(v) = prefs.tasks_shortcut { next.tasks_shortcut = v.trim().to_string(); }
     next.orb_size = prefs.orb_size.clamp(56, 88);
@@ -863,6 +874,7 @@ pub(crate) fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<
 fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, temporary: Option<bool>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
     let lead = cfg.lead().clone();
+    let catalog = state.catalog.lock().unwrap().clone();
     let got = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (g2, ch) = (got.clone(), on_event.clone());
     // 每轮的 Done / Usage 不转给界面，整个任务结束时发一次
@@ -893,8 +905,11 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
     let asks = state.asks.clone();
     let task = tauri::async_runtime::spawn(async move {
         let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone());
+        *t.catalog.lock().unwrap() = Some(catalog.clone());
         let mut r = t.run(&lead, messages.clone(), true).await;
-        let mut used = t.tokens();
+        let mut prompt = t.prompt.load(std::sync::atomic::Ordering::Relaxed);
+        let mut completion = t.completion.load(std::sync::atomic::Ordering::Relaxed);
+        let mut estimate = t.estimate();
         let backup = cfg.models.iter().any(|m| m.id == lead.fallback && Some(m.id) != cfg.model_for(&lead).map(|x| x.id));
         if let (Err(e), true, false) = (&r, backup, got.load(std::sync::atomic::Ordering::Relaxed)) {
             js_log(format!("主模型出错，换备用模型：{e}"));
@@ -902,12 +917,16 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
             l2.model = lead.fallback;
             l2.auto = false;
             let t2 = agent::Task::new(cfg, world, asks, trash, emit);
+            *t2.catalog.lock().unwrap() = Some(catalog);
             r = t2.run(&l2, messages, true).await;
-            used += t2.tokens();
+            prompt += t2.prompt.load(std::sync::atomic::Ordering::Relaxed);
+            completion += t2.completion.load(std::sync::atomic::Ordering::Relaxed);
+            estimate = match (estimate, t2.estimate()) { (Some(a), Some(b)) => Some(a + b), _ => None };
         }
         match r {
             Ok(_) => {
-                let _ = on_event.send(ChatEvent::Usage { prompt: used, completion: 0 });
+                let _ = on_event.send(ChatEvent::Usage { prompt, completion });
+                let _ = on_event.send(ChatEvent::Cost { amount: estimate });
                 let _ = on_event.send(ChatEvent::Done);
             }
             Err(message) => {

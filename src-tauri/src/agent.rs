@@ -62,6 +62,26 @@ pub trait MemoryStore: Send + Sync {
     fn add(&self, agent: &str, text: &str) -> Result<(), String>;
 }
 
+#[derive(Default)]
+struct DelegateStats {
+    tokens: std::sync::atomic::AtomicU64,
+    prompt: std::sync::atomic::AtomicU64,
+    completion: std::sync::atomic::AtomicU64,
+    cost: Mutex<Option<f64>>,
+    has_usage: std::sync::atomic::AtomicBool,
+    writes: std::sync::atomic::AtomicUsize,
+}
+
+#[derive(Clone)]
+struct DelegateSummary {
+    call: String,
+    agent_id: String,
+    agent: String,
+    count: u64,
+    unit: String,
+    cost: Option<f64>,
+}
+
 pub struct Task {
     pub cfg: Config,
     pub world: Arc<dyn World>,
@@ -70,6 +90,10 @@ pub struct Task {
     pub trash: PathBuf,
     pub emit: Arc<dyn Fn(ChatEvent) + Send + Sync>,
     tokens: AtomicU64,
+    pub prompt: AtomicU64,
+    pub completion: AtomicU64,
+    cost: Mutex<Option<f64>>,
+    has_usage: std::sync::atomic::AtomicBool,
     steps: AtomicU64,
     /// 这次任务里已经允许过的「工具 · 范围」（写文件、打开浏览器只问一次）
     allowed: Mutex<HashSet<String>>,
@@ -82,6 +106,8 @@ pub struct Task {
     budget_ask: tokio::sync::Mutex<()>,
     /// 用户在预算卡上选了「停止」：之后谁再撞上预算都直接停，不再问
     budget_stop: std::sync::atomic::AtomicBool,
+    pub(crate) catalog: Mutex<Option<crate::catalog::Catalog>>,
+    last_delegate: Mutex<Option<DelegateSummary>>,
 }
 
 /// 预算用满时每次「再给」加多少（照原型「再给 2万」）
@@ -177,14 +203,33 @@ fn file_name(p: &str) -> String {
     Path::new(p).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string())
 }
 
+fn handoff_summary(result: &str, writes: u64) -> (u64, String) {
+    if writes > 0 { return (writes, "份文件".into()); }
+    let count = result.split("\n\n").filter(|part| !part.trim().is_empty()).count() as u64;
+    (count, "段结果".into())
+}
+
 impl Task {
     pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>) -> Arc<Self> {
         let par = cfg.limits.parallel.max(1) as usize;
-        Arc::new(Self { cfg, world, asks, trash, emit, tokens: AtomicU64::new(0), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default() })
+        Arc::new(Self { cfg, world, asks, trash, emit, tokens: AtomicU64::new(0), prompt: AtomicU64::new(0), completion: AtomicU64::new(0), cost: Mutex::new(Some(0.0)), has_usage: Default::default(), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default(), catalog: Mutex::new(None), last_delegate: Mutex::new(None) })
     }
 
-    pub fn tokens(&self) -> u64 {
-        self.tokens.load(Ordering::Relaxed)
+    fn price_for(&self, base: &str, model: &str, provider: &str, prompt: u64, completion: u64) -> Option<f64> {
+        if let Some(cache) = self.catalog.lock().ok().and_then(|guard| guard.clone()) {
+            return crate::catalog::estimate_cny(cache.price(base, model, provider), prompt, completion, self.cfg.usd_cny);
+        }
+        None
+    }
+
+    pub fn tokens(&self) -> u64 { self.tokens.load(Ordering::Relaxed) }
+    pub fn estimate(&self) -> Option<f64> {
+        self.has_usage.load(Ordering::Relaxed).then(|| *self.cost.lock().unwrap()).flatten()
+    }
+
+    fn add_estimate(&self, amount: Option<f64>) {
+        let mut total = self.cost.lock().unwrap();
+        *total = match (*total, amount) { (Some(a), Some(b)) => Some(a + b), _ => None };
     }
 
     /// 用满了哪一项：(种类, 已用, 上限)
@@ -277,7 +322,7 @@ impl Task {
     }
 
     /// 同 run；acc 另外记下这个 Agent 自己用掉的 token（多 Agent 计划卡每一步显示）
-    fn run_acc<'a>(self: &'a Arc<Self>, agent: &'a Agent, mut msgs: Vec<Value>, lead: bool, acc: Option<Arc<AtomicU64>>) -> futures_util::future::BoxFuture<'a, Result<String, String>> {
+    fn run_acc<'a>(self: &'a Arc<Self>, agent: &'a Agent, mut msgs: Vec<Value>, lead: bool, stats: Option<Arc<DelegateStats>>) -> futures_util::future::BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
             let m = self.model(agent).ok_or("还没有设置模型。右键小球 → 设置，添加一个模型。")?;
             let key = crate::config::get_api_key(m.id);
@@ -317,8 +362,19 @@ impl Task {
                     r => r?,
                 };
                 self.tokens.fetch_add(t.tokens, Ordering::Relaxed);
-                if let Some(a) = &acc {
-                    a.fetch_add(t.tokens, Ordering::Relaxed);
+                if t.tokens > 0 { self.has_usage.store(true, Ordering::Relaxed); }
+                self.prompt.fetch_add(t.prompt, Ordering::Relaxed);
+                self.completion.fetch_add(t.completion, Ordering::Relaxed);
+                let local = crate::catalog::is_local_host(&crate::catalog::host_of(&m.base_url).unwrap_or_default());
+                let cost = if !local && t.tokens > 0 { self.price_for(&m.base_url, &m.model, &m.provider, t.prompt, t.completion) } else { None };
+                self.add_estimate(cost);
+                if let Some(stats) = &stats {
+                    stats.tokens.fetch_add(t.tokens, Ordering::Relaxed);
+                    if t.tokens > 0 { stats.has_usage.store(true, Ordering::Relaxed); }
+                    stats.prompt.fetch_add(t.prompt, Ordering::Relaxed);
+                    stats.completion.fetch_add(t.completion, Ordering::Relaxed);
+                    let mut total = stats.cost.lock().unwrap();
+                    *total = match (*total, cost) { (Some(a), Some(b)) => Some(a + b), _ => None };
                 }
                 if t.calls.is_empty() {
                     return Ok(t.content);
@@ -329,14 +385,39 @@ impl Task {
                     "tool_calls": t.calls.iter().map(|c| json!({"id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.args}})).collect::<Vec<_>>()
                 }));
                 // 交给别的 Agent 的几步同时做（受「最多同时子 Agent」限制）；其余工具按顺序做
+                let delegate_calls: Vec<_> = t.calls.iter().filter(|c| c.name == "delegate").collect();
+                if !delegate_calls.is_empty() {
+                    let c = delegate_calls[0];
+                    let args: Value = serde_json::from_str(&c.args).unwrap_or_default();
+                    let who = arg(&args, "agent");
+                    if let Some(to) = self.cfg.agents.iter().skip(1).find(|a| a.id == who || a.name == who) {
+                        if let Some(from) = self.last_delegate.lock().unwrap().clone().filter(|from| from.agent_id != to.id) {
+                            (self.emit)(ChatEvent::Handoff { from_call: from.call, to_call: c.id.clone(), from: from.agent, to: to.name.clone(), count: from.count, unit: from.unit, cost: from.cost });
+                        }
+                    }
+                }
                 let mut results: Vec<Option<String>> = vec![None; t.calls.len()];
+                let mut delegated: Vec<Option<DelegateSummary>> = vec![None; t.calls.len()];
                 let jobs = t.calls.iter().enumerate().filter(|(_, c)| c.name == "delegate").map(|(i, c)| async move { (i, self.delegate(agent, c).await) });
-                for (i, r) in futures_util::future::join_all(jobs).await {
-                    results[i] = Some(r);
+                for (i, (result, summary)) in futures_util::future::join_all(jobs).await {
+                    results[i] = Some(result);
+                    delegated[i] = summary;
+                }
+                if delegate_calls.len() > 1 {
+                    let mut previous: Option<&DelegateSummary> = None;
+                    for current in delegated.iter().flatten() {
+                        if let Some(from) = previous.filter(|from| from.agent_id != current.agent_id) {
+                            (self.emit)(ChatEvent::Handoff { from_call: from.call.clone(), to_call: current.call.clone(), from: from.agent.clone(), to: current.agent.clone(), count: from.count, unit: from.unit.clone(), cost: from.cost });
+                        }
+                        previous = Some(current);
+                    }
+                }
+                if !delegate_calls.is_empty() {
+                    *self.last_delegate.lock().unwrap() = delegated.iter().flatten().last().cloned();
                 }
                 for (i, c) in t.calls.iter().enumerate() {
                     if results[i].is_none() {
-                        results[i] = Some(self.call(agent, c).await);
+                        results[i] = Some(self.call(agent, c, stats.as_ref().map(Arc::clone)).await);
                     }
                 }
                 for (c, r) in t.calls.iter().zip(results) {
@@ -350,40 +431,44 @@ impl Task {
         (self.emit)(ChatEvent::Tool { call: call.into(), agent: agent.name.clone(), name: name.into(), arg: arg.into(), status: status.into(), result: short(result, 600) });
     }
 
-    async fn delegate(self: &Arc<Self>, from: &Agent, c: &llm::Call) -> String {
+    async fn delegate(self: &Arc<Self>, from: &Agent, c: &llm::Call) -> (String, Option<DelegateSummary>) {
         let a: Value = serde_json::from_str(&c.args).unwrap_or_default();
         let who = arg(&a, "agent");
         let task = arg(&a, "task");
         let call = format!("t{}", self.seq.fetch_add(1, Ordering::Relaxed));
         let Some(to) = self.cfg.agents.iter().skip(1).find(|x| x.name == who || x.id == who).cloned() else {
-            return format!("没有叫「{who}」的 Agent");
+            return (format!("没有叫「{who}」的 Agent"), None);
         };
         let model = self.model(&to).map(|m| if m.name.is_empty() { m.model.clone() } else { m.name.clone() }).unwrap_or_default();
-        let team = |status: &str, tokens: u64| {
-            (self.emit)(ChatEvent::Team { call: call.clone(), agent_id: to.id.clone(), agent: to.name.clone(), task: short(&task, 80), model: model.clone(), status: status.into(), tokens })
+        let model_id = self.model(&to).map(|m| m.id).unwrap_or(0);
+        let team = |status: &str, tokens: u64, prompt: u64, completion: u64, cost: Option<f64>| {
+            (self.emit)(ChatEvent::Team { call: call.clone(), agent_id: to.id.clone(), agent: to.name.clone(), task: short(&task, 80), model: model.clone(), model_id, status: status.into(), tokens, prompt, completion, cost })
         };
         let _ = from;
         // 先排队（受「最多同时子 Agent」限制），轮到了才算进行中
-        team("wait", 0);
+        team("wait", 0, 0, 0, None);
         let _permit = self.par.acquire().await;
-        team("run", 0);
-        let acc = Arc::new(AtomicU64::new(0));
-        let r = self.run_acc(&to, vec![json!({"role": "user", "content": task})], false, Some(acc.clone())).await;
-        let used = acc.load(Ordering::Relaxed);
+        team("run", 0, 0, 0, None);
+        let stats = Arc::new(DelegateStats { cost: Mutex::new(Some(0.0)), has_usage: Default::default(), ..DelegateStats::default() });
+        let r = self.run_acc(&to, vec![json!({"role": "user", "content": task})], false, Some(stats.clone())).await;
+        let (tokens, prompt, completion) = (stats.tokens.load(Ordering::Relaxed), stats.prompt.load(Ordering::Relaxed), stats.completion.load(Ordering::Relaxed));
+
         match r {
             Ok(out) => {
-                team("done", used);
-                out
+                let cost = stats.has_usage.load(Ordering::Relaxed).then(|| *stats.cost.lock().unwrap()).flatten();
+                team("done", tokens, prompt, completion, cost);
+                let (count, unit) = handoff_summary(&out, stats.writes.load(Ordering::Relaxed) as u64);
+                (out, Some(DelegateSummary { call, agent_id: to.id, agent: to.name, count, unit, cost }))
             }
             Err(e) => {
-                team("err", used);
-                format!("出错了：{e}")
+                team("err", tokens, prompt, completion, None);
+                (format!("出错了：{e}"), None)
             }
         }
     }
 
     /// 执行一个工具调用，返回给模型的结果文字
-    async fn call(self: &Arc<Self>, agent: &Agent, c: &llm::Call) -> String {
+    async fn call(self: &Arc<Self>, agent: &Agent, c: &llm::Call, stats: Option<Arc<DelegateStats>>) -> String {
         let call = format!("t{}", self.seq.fetch_add(1, Ordering::Relaxed));
         let mut a: Value = match serde_json::from_str(if c.args.trim().is_empty() { "{}" } else { &c.args }) {
             Ok(v) => v,
@@ -436,6 +521,9 @@ impl Task {
         }
         self.pill(&call, agent, &name, &shown, "run", "");
         let r = self.exec(&c.name, &a).await;
+        if c.name == "write_file" && r.is_ok() {
+            if let Some(stats) = stats { stats.writes.fetch_add(1, Ordering::Relaxed); }
+        }
         match &r {
             Ok(out) => self.pill(&call, agent, &name, &shown, "done", out),
             Err(e) => self.pill(&call, agent, &name, &shown, "err", e),
@@ -911,6 +999,48 @@ mod tests {
         let got = e.got.lock().unwrap();
         assert!(!got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "remember"));
         assert_eq!(got[1]["messages"].as_array().unwrap().last().unwrap()["content"], "当前对话不能写入记忆");
+    }
+
+    #[test]
+    fn handoff_count_prefers_successful_file_writes_then_result_paragraphs() {
+        assert_eq!(handoff_summary("a\n\nb\n\nc", 0), (3, "段结果".into()));
+        assert_eq!(handoff_summary("仍然按换行保留分段", 2), (2, "份文件".into()));
+    }
+
+    #[test]
+    fn delegate_handoff_event_connects_successive_agents() {
+        let e = env(vec![
+            tool("delegate", json!({"agent":"研究员","task":"先收集三个来源"})),
+            text("来源一\n\n来源二"),
+            tool("delegate", json!({"agent":"整理员","task":"依据来源做对比"})),
+            text("比较完成"),
+            text("汇总"),
+        ], |c| {
+            c.upsert_agent(Agent { name:"研究员".into(), role:"找来源".into(), ..Agent::default() }).unwrap();
+            c.upsert_agent(Agent { name:"整理员".into(), role:"整理资料".into(), ..Agent::default() }).unwrap();
+        });
+        let out = rt().block_on(e.task.run(&e.task.cfg.lead().clone(), vec![], true));
+        assert_eq!(out.unwrap(), "汇总");
+        let handoffs: Vec<_> = e.events.lock().unwrap().iter().filter_map(|event| match event {
+            ChatEvent::Handoff { from, to, count, unit, .. } => Some((from.clone(), to.clone(), *count, unit.clone())),
+            _ => None,
+        }).collect();
+        assert_eq!(handoffs, vec![("研究员".into(), "整理员".into(), 2, "段结果".into())]);
+    }
+
+    #[test]
+    fn delegate_handoff_cost_uses_the_selected_provider_rate() {
+        let e = env(vec![], |c| {
+            c.usd_cny = 8.0;
+            c.models[0].base_url = "https://api.openai.com/v1".into();
+            c.models[0].provider = "OpenAI".into();
+            c.agents[0].model = c.models[0].id;
+        });
+        e.task.catalog.lock().unwrap().replace(crate::catalog::Catalog::trim(
+            &json!({"openai":{"name":"OpenAI","api":"https://api.openai.com/v1","models":{"m":{"modalities":{"input":["text"],"output":["text"]},"tool_call":true,"cost":{"input":0.15,"output":0.6}}}}}),
+            &Value::Null, "2026-11-21"));
+        assert!((e.task.price_for(&e.task.cfg.models[0].base_url, "m", "OpenAI", 1_000, 2_000).unwrap() - 0.0108).abs() < 1e-12);
+        assert_eq!(e.task.price_for("https://unknown.example/v1", "m", "", 1_000, 2_000), None);
     }
 
     #[test]

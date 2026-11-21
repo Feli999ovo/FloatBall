@@ -1132,6 +1132,9 @@ function run(currentContent) {
       el.insertBefore(txt, el.querySelector(".meta"));
       if (here()) mood("work");
       scrollEnd();
+    } else if (ev.type === "handoff") {
+      handoffRow(el, ev);
+      scrollEnd();
     } else if (ev.type === "budget") {
       budgetCard(el, ev, task);
       conv.need = true; needOn(true); mood("wait");
@@ -1144,6 +1147,8 @@ function run(currentContent) {
       scrollEnd();
     } else if (ev.type === "usage") {
       usage = ev;
+    } else if (ev.type === "cost") {
+      usage = { ...(usage || {}), cost: ev.amount };
     } else if (ev.type === "done") {
       finish();
       txt.classList.remove("cursor"); paint();
@@ -1151,7 +1156,9 @@ function run(currentContent) {
       if (!out) { txt.textContent = "（模型没有返回内容）"; }
       conv.msgs.push({ role: "assistant", content: out });
       saveMsg(conv, "assistant", out).catch(() => {});
-      setMeta(el, usage && usage.prompt + usage.completion ? `${leadModelName()} · ${fmtTok(usage.prompt + usage.completion)} tokens` : leadModelName(), { copy: out });
+      const used = usage && usage.prompt + usage.completion;
+      const cost = Number.isFinite(usage?.cost) ? ` · 约 ${fmtCny(usage.cost)}${Number(S.cfg?.usd_cny) === 7.2 ? "（默认汇率）" : ""}` : "";
+      setMeta(el, used ? `${leadModelName()} · ${fmtTok(used)} tokens${cost}` : `${leadModelName()}${cost}`, { copy: out });
       const meta = el.querySelector(".meta");
       if (codeTask && (S.cfg.handoff || {}).hint !== false) {
         const b = document.createElement("button"); b.type = "button"; b.className = "ho-hint"; b.textContent = "交给终端";
@@ -1209,6 +1216,24 @@ function agentModelName(a) {
   const m = ms.find((x) => x.id === a.model), d = ms.find((x) => x.id === S.cfg.default_model);
   return m ? mn(m) : d ? mn(d) + "（默认）" : "未设置";
 }
+function fmtCny(n) {
+  if (!Number.isFinite(Number(n))) return "";
+  const v = Number(n);
+  return "¥" + (v < 0.01 ? v.toFixed(4) : v.toFixed(2));
+}
+function handoffRow(el, ev) {
+  const c = el.querySelector(".x-plan");
+  if (!c) return;
+  const ol = c.children[1];
+  const key = `${ev.from_call || ev.from}-${ev.to_call || ev.to}`;
+  if (ol.querySelector(`[data-handoff="${CSS.escape(key)}"]`)) return;
+  const row = document.createElement("li");
+  row.className = "x-ph"; row.dataset.handoff = key;
+  row.textContent = `${ev.from} → ${ev.to}：已交接 ${ev.count || 0} ${ev.unit || "段结果"}${ev.cost != null ? ` · ${fmtCny(ev.cost)}` : ""}`;
+  const target = [...ol.querySelectorAll(".x-ps")].find((item) => item.dataset.agent === ev.to || item.querySelector("b")?.textContent === ev.to);
+  if (target) ol.insertBefore(row, target);
+  else ol.appendChild(row);
+}
 function teamRow(el, ev) {
   let c = el.querySelector(".x-plan");
   if (!c) {
@@ -1220,7 +1245,7 @@ function teamRow(el, ev) {
   let r = ol.querySelector(`.x-ps[data-call="${ev.call}"]`);
   const a = agOf(ev.agent_id) || { id: ev.agent_id, name: ev.agent, tint: "#E6D49A" };
   if (!r) {
-    r = document.createElement("li"); r.className = "x-ps"; r.dataset.call = ev.call;
+    r = document.createElement("li"); r.className = "x-ps"; r.dataset.call = ev.call; r.dataset.agent = ev.agent;
     r.innerHTML = avHTML(a) + '<span class="x-psn"><b></b><span class="x-pm"></span></span><span class="x-pss"></span><span class="x-ptk"></span><span class="x-pst"></span>';
     r.querySelector("b").textContent = ev.agent; r.querySelector(".x-pm").textContent = ev.model || agentModelName(a); r.querySelector(".x-pss").textContent = ev.task;
     // 点开一步：一行「为什么交给它」（它的职责和会用的工具）
@@ -1238,11 +1263,17 @@ function teamRow(el, ev) {
     r.querySelector(".x-pst").textContent = { run: "进行中", done: "✓", err: "出错" }[ev.status] || "等待";
   }
   r.dataset.tok = ev.tokens || 0;
-  r.querySelector(".x-ptk").textContent = ev.tokens ? fmtTok(ev.tokens) : "";
+  if (ev.status === "done") r.dataset.cost = ev.cost == null ? "" : String(ev.cost);
+  r.querySelector(".x-ptk").textContent = ev.tokens ? fmtTok(ev.tokens) + (ev.cost != null ? ` · ${fmtCny(ev.cost)}` : "") : "";
   const rows = [...ol.querySelectorAll(".x-ps")], n = rows.length, tot = rows.reduce((s, x) => s + +x.dataset.tok, 0);
+  const priced = rows.filter((x) => x.dataset.st === "done");
+  const complete = rows.length > 0 && rows.every((x) => x.dataset.st === "done");
   c.firstChild.textContent = `主控 · ${n} 步计划 · 点一步看为什么交给它`;
   c.setAttribute("aria-label", `主控的 ${n} 步计划`);
-  c.lastChild.textContent = `共 ${fmtTok(tot)} tokens`;
+  const hasUnknown = priced.some((x) => x.dataset.cost === "");
+  const actualTotal = priced.reduce((sum, item) => sum + Number(item.dataset.cost || 0), 0);
+  const totalLabel = complete && priced.length && !hasUnknown && Number.isFinite(actualTotal) ? ` · 约 ${fmtCny(actualTotal)}${Number(S.cfg?.usd_cny) === 7.2 ? "（默认汇率）" : ""}` : "";
+  c.lastChild.textContent = `共 ${fmtTok(tot)} tokens${totalLabel}`;
   if (ev.status === "run") S.agBusy[ev.agent_id] = ev.task; else delete S.agBusy[ev.agent_id];
   agSync();
 }
