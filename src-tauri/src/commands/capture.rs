@@ -74,7 +74,10 @@ pub async fn share_sources() -> Result<Vec<capture::Source>, String> {
 }
 
 #[tauri::command]
-pub async fn capture_shared(app: AppHandle, target: capture::Target) -> Result<Option<String>, String> {
+pub async fn capture_shared(
+    app: AppHandle,
+    target: capture::Target,
+) -> Result<Option<String>, String> {
     let supported = {
         let state = app.state::<AppState>();
         let cfg = state.cfg.lock().unwrap();
