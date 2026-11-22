@@ -1,6 +1,7 @@
 use super::*;
 
 /// 用户对确认卡片的回答
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Default, serde::Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Answer {

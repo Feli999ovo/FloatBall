@@ -95,6 +95,7 @@ pub fn clip(text: &str) -> Option<String> {
 }
 
 /// 给工具栏的一次选中
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize)]
 pub struct Picked {
     pub text: String,

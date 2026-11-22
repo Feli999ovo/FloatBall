@@ -1,46 +1,31 @@
-name: Specta compatibility
+name: Generate Specta contract
 on:
   push:
     branches: [ipc-contract]
 permissions:
   contents: read
 jobs:
-  rust:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    env:
-      FLOATBALL_REGENERATE_CONTRACT: '1'
-    defaults:
-      run:
-        working-directory: src-tauri
+  generate:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - run: cargo test --locked --lib ipc_contract
-      - name: Inspect Windows test imports
-        if: runner.os == 'Windows' && failure()
-        shell: pwsh
-        run: |
-          python -m pip install pefile
-          python ../tools/tmp-pe-imports.py target/debug
-      - name: Save generated files and format changes
+      - run: cargo run --locked --features gen-ipc --bin gen_ipc -- ../src/ipc.d.ts
+        working-directory: src-tauri
+      - name: Save format patch
         if: always()
-        shell: bash
         run: |
-          cargo fmt
-          git diff --binary > ../fmt-and-lock.patch
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          git diff --binary > fmt.patch
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: specta-contract-${{ runner.os }}
+          name: generated-contract
           path: |
-            fmt-and-lock.patch
+            fmt.patch
             src/ipc.d.ts

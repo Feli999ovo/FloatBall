@@ -1,5 +1,6 @@
 use crate::*;
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize)]
 pub(crate) struct SelStatus {
     supported: bool,
@@ -8,6 +9,7 @@ pub(crate) struct SelStatus {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn sel_status(state: State<'_, AppState>) -> SelStatus {
     SelStatus {
         supported: selection::SUPPORTED,
@@ -18,6 +20,7 @@ pub fn sel_status(state: State<'_, AppState>) -> SelStatus {
 
 /// 工具栏量好自己的大小后调用：放到松开点旁边并显示（不抢焦点，原应用的选区保持不变）
 /// 返回毛玻璃底图（和对话卡片同一种：截下工具栏将要盖住的桌面、模糊）。只有 Windows 有，拿不到就是 None，前端用不透明的底。
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(serde::Serialize)]
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) struct SelBackdrop {
@@ -27,6 +30,7 @@ pub(crate) struct SelBackdrop {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option<SelBackdrop> {
     log::info!("sel_place 开始 {w}x{h} @ {x},{y}");
     let win = app.get_webview_window("selbar")?;
@@ -69,6 +73,7 @@ pub async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option
 
 /// 展开或收起「⋯」时只改大小，左上角不动（底部超出屏幕时往上挪）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn sel_resize(app: AppHandle, w: f64, h: f64) {
     let Some(win) = app.get_webview_window("selbar") else {
         return;
@@ -89,6 +94,7 @@ pub fn sel_resize(app: AppHandle, w: f64, h: f64) {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn sel_hide(app: AppHandle) {
     if let Some(win) = app.get_webview_window("selbar") {
         selection::bar_hide(&win);
@@ -97,6 +103,7 @@ pub fn sel_hide(app: AppHandle) {
 
 /// 工具栏上点了某个动作：交给小球（展开对话并发出去）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn sel_act(app: AppHandle, act: String, text: String) {
     if let Some(win) = app.get_webview_window("selbar") {
         selection::bar_hide(&win);
@@ -110,6 +117,7 @@ pub fn sel_act(app: AppHandle, act: String, text: String) {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn sel_copy(text: String) -> Result<(), String> {
     #[cfg(any(windows, target_os = "macos"))]
     {
@@ -126,6 +134,7 @@ pub fn sel_copy(text: String) -> Result<(), String> {
 
 /// 用默认浏览器打开网页（只许 http/https）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("只能打开网页".into());
@@ -135,6 +144,7 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 /// macOS：打开 系统设置 → 隐私与安全性 → 辅助功能
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn sel_open_privacy() -> Result<(), String> {
     if cfg!(target_os = "macos") {
         let _ = selection::trusted(true);

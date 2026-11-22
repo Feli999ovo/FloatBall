@@ -4,6 +4,7 @@ version = "0.1.0"
 license = "MIT"
 description = "液态玻璃悬浮球 · 桌面 AI 助手"
 edition = "2021"
+default-run = "floatball"
 
 [lib]
 name = "floatball_lib"
@@ -12,7 +13,18 @@ crate-type = ["rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+gen-ipc = ["dep:specta", "dep:specta-typescript", "dep:tauri-specta"]
+
+[[bin]]
+name = "gen_ipc"
+path = "src/bin/gen_ipc.rs"
+required-features = ["gen-ipc"]
+
 [dependencies]
+specta = { version = "=2.0.0-rc.28", features = ["derive", "function", "serde_json"], optional = true }
+specta-typescript = { version = "=0.0.15", optional = true }
+tauri-specta = { version = "=2.0.0-rc.29", features = ["typescript"], optional = true }
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
@@ -53,9 +65,6 @@ block2 = "0.6"
 
 [dev-dependencies]
 tempfile = "3"
-specta = { version = "=2.0.0-rc.28", features = ["derive", "function", "serde_json"] }
-specta-typescript = "=0.0.15"
-tauri-specta = { version = "=2.0.0-rc.29", features = ["typescript"] }
 
 [profile.release]
 codegen-units = 1

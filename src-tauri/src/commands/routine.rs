@@ -2,6 +2,7 @@ use crate::*;
 
 /// 定时任务：新增或修改（id 为空就是新的），返回 id
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_routine(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -56,6 +57,7 @@ pub fn save_routine(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn delete_routine(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -68,6 +70,7 @@ pub fn delete_routine(
 
 /// 各个定时任务下一次的时间（秒，本地时区算），界面显示「下次 明天 09:00」
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn routine_next(state: State<'_, AppState>) -> HashMap<String, i64> {
     state
         .cfg
@@ -82,6 +85,7 @@ pub fn routine_next(state: State<'_, AppState>) -> HashMap<String, i64> {
 
 /// 定时任务跑完（界面报回来）：记一条运行记录
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn routine_done(
     app: AppHandle,
     state: State<'_, AppState>,

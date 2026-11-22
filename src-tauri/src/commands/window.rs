@@ -1,6 +1,7 @@
 use crate::*;
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_position(state: State<'_, AppState>, x: f64, y: f64) -> Result<(), String> {
     let mut c = state.cfg.lock().unwrap();
     c.position = Some((x, y));
@@ -66,12 +67,14 @@ pub(crate) fn open_settings_window<R: Runtime>(app: &AppHandle<R>) {
 
 /// 设置窗口取走它的玻璃底图（只取一次，图只在内存里）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn settings_backdrop(state: State<'_, AppState>) -> Option<capture::ScreenBackdrop> {
     state.settings_bd.lock().unwrap().take()
 }
 
 /// agent：直接打开这个 Agent 的编辑页（Agent 弹卡的「更换」模型）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn open_settings(app: AppHandle, agent: Option<String>) {
     if let Some(id) = agent.filter(|x| !x.is_empty()) {
         if let Some(st) = app.try_state::<AppState>() {
@@ -87,6 +90,7 @@ pub fn open_settings(app: AppHandle, agent: Option<String>) {
 
 /// 设置窗口启动时取走「要去编辑的 Agent」
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn settings_goto(state: State<'_, AppState>) -> Option<String> {
     state.settings_goto.lock().unwrap().take()
 }
@@ -209,6 +213,7 @@ pub(crate) fn on_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
 
 /// 右键菜单：照原型 .x-menu，自绘在一个透明小窗口（ctxmenu.html）里，和卡片同一种玻璃。
 /// 项目先放程序已有的功能；以后的功能 PR 再往 ctx_items 里加。
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize, Clone)]
 pub(crate) struct CtxItem {
     id: &'static str,
@@ -286,6 +291,7 @@ pub(crate) fn ctx_rect(cx: f64, cy: f64, w: f64, h: f64, mon: (f64, f64, f64, f6
     (x, y)
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize, Clone)]
 pub(crate) struct CtxShow {
     items: Vec<CtxItem>,
@@ -293,6 +299,7 @@ pub(crate) struct CtxShow {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn show_context_menu(
     app: AppHandle,
     window: WebviewWindow,
@@ -362,6 +369,7 @@ pub async fn show_context_menu(
 
 /// 菜单里点了一项（或点别处、Esc 关掉时 id 为空）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn ctx_act(app: AppHandle, id: String) {
     if let Some(m) = app.get_webview_window("ctxmenu") {
         let _ = m.hide();
@@ -374,6 +382,7 @@ pub fn ctx_act(app: AppHandle, id: String) {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn hide_ball(app: AppHandle) {
     if let Some(w) = main_window(&app) {
         hide_win(&w);

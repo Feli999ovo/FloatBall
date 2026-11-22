@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConvSummary {
     pub id: i64,
@@ -13,6 +14,7 @@ pub struct ConvSummary {
     pub count: i64,
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Msg {
     pub role: String,
@@ -21,6 +23,7 @@ pub struct Msg {
     pub created: i64,
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize)]
 pub struct Memory {
     pub id: i64,

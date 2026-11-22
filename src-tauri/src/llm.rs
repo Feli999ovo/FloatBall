@@ -10,6 +10,7 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatEvent {
