@@ -4,6 +4,7 @@ import sys, os, json, asyncio, base64
 from PIL import Image
 from playwright.async_api import async_playwright
 from trim_models_dev import trim
+from local_http import serve
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/tmp/fbui"
@@ -15,7 +16,7 @@ def check(cond, msg):
     print(("PASS " if cond else "FAIL ") + msg)
     if not cond: fails.append(msg)
 
-async def main():
+async def main(base_url):
     api = {"alpha": {"name": "Alpha", "api": "https://same.example/v1", "models": {
         "priced": {"tool_call": True, "modalities": {"input": ["text"], "output": ["text"]}, "cost": {"input": 1.25, "output": 3.5}},
         "zero": {"tool_call": True, "modalities": {"input": ["text"], "output": ["text"]}, "cost": {"input": 0, "output": 0}},
@@ -34,7 +35,7 @@ async def main():
         pg.on("console", lambda m: m.type == "error" and errs.append(m.text))
         await pg.expose_function("__resize", lambda w, h: asyncio.ensure_future(pg.set_viewport_size({"width": int(w), "height": int(h)})))
         await pg.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
-        await pg.goto("file://" + os.path.join(ROOT, "src", "index.html"))
+        await pg.goto(base_url + "/index.html")
         await pg.wait_for_timeout(400)
 
         async def shot(name):
@@ -1012,7 +1013,7 @@ async def main():
         mp = await ctxm.new_page(); merrs = []
         mp.on("pageerror", lambda e: merrs.append(str(e)))
         await mp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
-        await mp.goto("file://" + os.path.join(ROOT, "src", "ctxmenu.html")); await mp.wait_for_timeout(200)
+        await mp.goto(base_url + "/ctxmenu.html"); await mp.wait_for_timeout(200)
         items = [{"id": "new_chat", "label": "新对话", "check": None, "sep": False}, {"id": "new_tmp", "label": "新临时对话", "check": None, "sep": False},
                  {"id": "history", "label": "历史记录", "check": None, "sep": False}, {"id": "capture", "label": "截屏提问", "check": None, "sep": False},
                  {"id": "capture_window", "label": "发送当前窗口", "check": None, "sep": False}, {"id": "share", "label": "共享屏幕", "check": None, "sep": False},
@@ -1322,7 +1323,7 @@ async def main():
         bp = await ctx3.new_page(); berrs = []
         bp.on("pageerror", lambda e: berrs.append(str(e)))
         await bp.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
-        await bp.goto("file://" + os.path.join(ROOT, "src", "selbar.html")); await bp.wait_for_timeout(300)
+        await bp.goto(base_url + "/selbar.html"); await bp.wait_for_timeout(300)
         bm = lambda: bp.evaluate("__mock")
         await bp.evaluate("__emit('sel:show', {text: '下季度重点：海外支付', app: 'Microsoft Edge', x: 500, y: 300})"); await bp.wait_for_timeout(300)
         labels = await bp.eval_on_selector_all("#selBar button", "x => x.map(b => b.textContent || b.getAttribute('aria-label'))")
@@ -1395,12 +1396,6 @@ async def main():
         sbd_url = "data:image/jpeg;base64," + base64.b64encode(_b.getvalue()).decode()
         # 模拟系统亚克力：窗口身后的桌面（原型里设置窗口在 1440×900 的 480,150）模糊后垫在下面，再盖原型舞台的那层暗色
         wall_css = "html{background:#111} body::before{content:'';position:fixed;inset:-40px;background:url(" + wu + ") -440px -110px/1440px 900px no-repeat;filter:blur(24px) saturate(165%);z-index:-1} body::after{content:'';position:fixed;inset:0;background:rgba(6,4,24,.4);z-index:-1}"
-        # 服务商 logo 用 CSS mask 加载，file:// 下会被跨域拦掉；真实程序是同源的，这里起个本地 http 服务
-        import http.server, threading, functools
-        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory=os.path.join(ROOT, "src")))
-        srv.RequestHandlerClass.log_message = lambda *a: None
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        base_url = f"http://127.0.0.1:{srv.server_address[1]}"
         for plat in ["macos", "windows"]:
             ctx2 = await b.new_context(viewport={"width": 480, "height": 600}, device_scale_factor=2)
             sp = await ctx2.new_page()
@@ -1849,9 +1844,9 @@ async def main():
             check((await mock()).get("closed") == 3, P + "标题栏的 × 关闭设置窗口")
             check(not serrs, P + "设置窗口无 JS 错误 " + "; ".join(serrs))
             await ctx2.close()
-        srv.shutdown()
         await b.close()
     print("\n%d 项失败" % len(fails) if fails else "\n全部通过")
     sys.exit(1 if fails else 0)
 
-asyncio.run(main())
+with serve(os.path.join(ROOT, "src")) as base_url:
+    asyncio.run(main(base_url))

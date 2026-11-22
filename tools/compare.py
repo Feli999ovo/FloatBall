@@ -11,6 +11,7 @@
 import asyncio, base64, os, sys
 from PIL import Image, ImageDraw, ImageFont
 from playwright.async_api import async_playwright
+from local_http import serve
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VW, VH = 1440, 900
@@ -79,14 +80,14 @@ MOCK = """async (b64) => {
 }"""
 
 
-async def prog_shots(b, wall_b64, out):
+async def prog_shots(b, wall_b64, out, base_url):
     res = {}
     for name, _, acts in PAIRS:
         ctx = await b.new_context(viewport={"width": 96, "height": 96}, device_scale_factor=2)
         pg = await ctx.new_page()
         await pg.expose_function("__resize", lambda w, h, pg=pg: asyncio.ensure_future(pg.set_viewport_size({"width": int(w), "height": int(h)})))
         await pg.add_init_script(path=os.path.join(ROOT, "tools", "mock-tauri.js"))
-        await pg.goto("file://" + os.path.join(ROOT, "src", "index.html")); await pg.wait_for_timeout(500)
+        await pg.goto(base_url + "/index.html"); await pg.wait_for_timeout(500)
         await pg.evaluate(MOCK, wall_b64); await pg.wait_for_timeout(300)
         for a in acts:
             if a.startswith("wait:"):
@@ -114,14 +115,17 @@ def main():
     wp = os.path.join(ROOT, "design-reference", "wallpaper.jpg")
     wall = cover(Image.open(wp).convert("RGB"))
 
-    async def run():
+    async def run(base_url, proto_url):
         async with async_playwright() as p:
-            b = await p.chromium.launch(args=["--allow-file-access-from-files"])
-            r1 = await proto_shots(b, "file://" + os.path.abspath(proto), out)
-            r2 = await prog_shots(b, base64.b64encode(open(wp, "rb").read()).decode(), out)
+            b = await p.chromium.launch()
+            r1 = await proto_shots(b, proto_url, out)
+            r2 = await prog_shots(b, base64.b64encode(open(wp, "rb").read()).decode(), out, base_url)
             await b.close()
             return r1, r2
-    r1, r2 = asyncio.run(run())
+    from urllib.parse import quote
+
+    with serve(os.path.join(ROOT, "src")) as base_url, serve(os.path.dirname(os.path.abspath(proto))) as prototype_url:
+        r1, r2 = asyncio.run(run(base_url, prototype_url + "/" + quote(os.path.basename(proto))))
     f = ImageFont.truetype(font, 22)
     for name, _, _ in PAIRS:
         pim = Image.open(r1[name]).convert("RGB")
