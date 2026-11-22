@@ -13,6 +13,8 @@ pub use ask::{Answer, Asks};
 #[cfg(test)]
 use ask::{MORE_STEPS, MORE_TOKENS};
 
+mod cost;
+
 use crate::config::{Agent, Allow, Config, Model};
 use crate::llm::{self, ChatEvent};
 use serde_json::{json, Value};
@@ -324,43 +326,6 @@ impl Task {
             catalog: Mutex::new(None),
             last_delegate: Mutex::new(None),
         })
-    }
-
-    fn price_for(
-        &self,
-        base: &str,
-        model: &str,
-        provider: &str,
-        prompt: u64,
-        completion: u64,
-    ) -> Option<f64> {
-        if let Some(cache) = self.catalog.lock().ok().and_then(|guard| guard.clone()) {
-            return crate::catalog::estimate_cny(
-                cache.price(base, model, provider),
-                prompt,
-                completion,
-                self.cfg.usd_cny,
-            );
-        }
-        None
-    }
-
-    pub fn tokens(&self) -> u64 {
-        self.tokens.load(Ordering::Relaxed)
-    }
-    pub fn estimate(&self) -> Option<f64> {
-        self.has_usage
-            .load(Ordering::Relaxed)
-            .then(|| *self.cost.lock().unwrap())
-            .flatten()
-    }
-
-    fn add_estimate(&self, amount: Option<f64>) {
-        let mut total = self.cost.lock().unwrap();
-        *total = match (*total, amount) {
-            (Some(a), Some(b)) => Some(a + b),
-            _ => None,
-        };
     }
 
     /// 这个 Agent 用哪个模型：自动省钱时优先用本地免费的，其次自己选的，再次默认
