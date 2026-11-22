@@ -18,9 +18,9 @@ mod stt;
 
 use catalog::Catalog;
 use commands::capture::*;
+use commands::history::*;
 use commands::selection::*;
 use commands::voice::*;
-use commands::history::*;
 use config::{Config, Model};
 use llm::ChatEvent;
 use serde::{Deserialize, Serialize};

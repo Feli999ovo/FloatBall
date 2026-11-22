@@ -29,7 +29,11 @@ pub async fn stt_cancel() {
 }
 
 /// 系统识别：Windows 停下取文字；macOS 把录音写成临时文件交给本机识别
-pub(crate) async fn transcribe_system(bytes: Vec<u8>, mime: &str, lang: String) -> Result<String, String> {
+pub(crate) async fn transcribe_system(
+    bytes: Vec<u8>,
+    mime: &str,
+    lang: String,
+) -> Result<String, String> {
     if cfg!(target_os = "macos") {
         let ext = if mime.contains("mp4") || mime.contains("m4a") || mime.contains("aac") {
             "m4a"
