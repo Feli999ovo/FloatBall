@@ -499,7 +499,8 @@ async def main():
 
         # 10 Esc 收起，回到原位
         before = (await pg.evaluate("__mock"))["pos"]
-        await pg.keyboard.press("Escape"); await pg.wait_for_timeout(400)
+        await pg.keyboard.press("Escape")
+        await pg.wait_for_function("document.body.classList.contains('collapsed') && !morphing")
         m = await pg.evaluate("__mock")
         check(m["size"] == {"w": 96, "h": 96}, f"Esc 收起成小球 {m['size']}")
         check(m["pos"] == {"x": 1300, "y": 380}, f"收起后回到原来的位置 {m['pos']}")
@@ -1165,6 +1166,46 @@ async def main():
         await pg.wait_for_selector("#peek.on", timeout=3000)  # 完成角标先更新，小泡还要等窗口动画
         check(await pg.evaluate("document.querySelector('#orb').classList.contains('s-done') && +document.querySelector('#orb').dataset.done > 0 && document.querySelector('#peek').classList.contains('on')"), "后台完成：唤醒表情，完成小泡和角标照常显示")
         check(not errs, "右键新增入口无 JS 错误 " + "; ".join(errs))
+
+        # P1 只规划、后台排队和输入历史
+        await pg.evaluate("async () => { newChat(); __mock.chatProbe = []; await expand('chat'); }")
+        await pg.click("#planToggle")
+        check(await pg.get_attribute("#planToggle", "aria-pressed") == "true" and await pg.is_visible("#planBanner") and await pg.get_attribute("#ask", "placeholder") == "只规划：先出方案…", "只规划切换、横幅和占位文字")
+        for prompt in ["第一条规划", "第二条排队", "第三条排队", "取消这一条"]:
+            await pg.fill("#ask", prompt)
+            await pg.press("#ask", "Enter")
+        check(await pg.locator(".m.queued").count() == 3 and await pg.evaluate("__mock.chatProbe.map(p => [p.q, p.plan])") == [["第一条规划", True]], "生成中接收待发消息，未提前传给后端")
+        await pg.locator(".m.queued").last.get_by_role("button", name="删除待发消息").click()
+        await shot("p1_plan_and_queue")
+        await pg.evaluate("window.__planConv = S.conv; newChat()")
+        check(await pg.get_attribute("#planToggle", "aria-pressed") == "false", "新对话默认执行")
+        for count in [2, 3]:
+            await pg.evaluate("__mock.finishChatProbe()")
+            await pg.wait_for_function(f"__mock.chatProbe.length === {count}")
+        await pg.evaluate("__mock.finishChatProbe(); goConv(__planConv)")
+        check(await pg.evaluate("__mock.chatProbe.map(p => p.q)") == ["第一条规划", "第二条排队", "第三条排队"], "切走后原对话按顺序发出队列，已取消的消息不发送")
+        await pg.locator(".m.ai").last.get_by_role("button", name="改成执行").click()
+        check(await pg.get_attribute("#planToggle", "aria-pressed") == "false" and await pg.input_value("#ask") == "按上面的方案执行", "改成执行填好草稿，等用户发送")
+        await pg.fill("#ask", "未发送的草稿")
+        for prompt in ["第三条排队", "第二条排队", "第一条规划"]:
+            await pg.press("#ask", "ArrowUp")
+            check(await pg.input_value("#ask") == prompt, "上翻输入历史 " + prompt)
+        for _ in range(3):
+            await pg.press("#ask", "ArrowDown")
+        check(await pg.input_value("#ask") == "未发送的草稿", "下翻到底恢复草稿")
+        await pg.evaluate("document.querySelector('#ask').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowUp', isComposing:true}))")
+        check(await pg.input_value("#ask") == "未发送的草稿", "输入法组字期间不翻历史")
+        await pg.evaluate("newTmpChat()")
+        for prompt in ["临时问题", "停止后不发送"]:
+            await pg.fill("#ask", prompt)
+            await pg.press("#ask", "Enter")
+        await pg.click("#stopBtn")
+        await pg.evaluate("__mock.finishChatProbe()")
+        check("没发出" in await pg.locator(".m.queued").inner_text() and await pg.evaluate("__mock.chatProbe.length") == 4, "停止后待发消息留待手动处理")
+        check(await pg.evaluate("!JSON.parse(localStorage.getItem('fb.askHistory')).includes('临时问题')"), "临时对话不进输入历史")
+        await pg.locator(".m.queued").get_by_role("button", name="重新发送").click()
+        await pg.evaluate("__mock.finishChatProbe(); delete __mock.chatProbe; delete __mock.finishChatProbe; newChat()")
+        check(not errs, "P1 界面无 JS 错误 " + "; ".join(errs))
 
         # ───────── 划词工具栏窗口（原型 selBar） ─────────
         ctx3 = await b.new_context(viewport={"width": 420, "height": 200}, device_scale_factor=2)

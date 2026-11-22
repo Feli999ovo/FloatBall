@@ -84,6 +84,7 @@ struct DelegateSummary {
 
 pub struct Task {
     pub cfg: Config,
+    plan_only: bool,
     pub world: Arc<dyn World>,
     pub asks: Arc<Asks>,
     /// 删除的文件移到这里（悬浮球回收站），可以找回
@@ -150,6 +151,10 @@ fn risk(name: &str) -> u8 {
     }
 }
 
+fn plan_tool(name: &str) -> bool {
+    matches!(name, "web_search" | "fetch_page" | "read_file" | "list_dir" | "read_skill" | "delegate")
+}
+
 fn arg(a: &Value, k: &str) -> String {
     a.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string()
 }
@@ -210,9 +215,9 @@ fn handoff_summary(result: &str, writes: u64) -> (u64, String) {
 }
 
 impl Task {
-    pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>) -> Arc<Self> {
+    pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>, plan_only: bool) -> Arc<Self> {
         let par = cfg.limits.parallel.max(1) as usize;
-        Arc::new(Self { cfg, world, asks, trash, emit, tokens: AtomicU64::new(0), prompt: AtomicU64::new(0), completion: AtomicU64::new(0), cost: Mutex::new(Some(0.0)), has_usage: Default::default(), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default(), catalog: Mutex::new(None), last_delegate: Mutex::new(None) })
+        Arc::new(Self { cfg, plan_only, world, asks, trash, emit, tokens: AtomicU64::new(0), prompt: AtomicU64::new(0), completion: AtomicU64::new(0), cost: Mutex::new(Some(0.0)), has_usage: Default::default(), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default(), catalog: Mutex::new(None), last_delegate: Mutex::new(None) })
     }
 
     fn price_for(&self, base: &str, model: &str, provider: &str, prompt: u64, completion: u64) -> Option<f64> {
@@ -293,10 +298,10 @@ impl Task {
         }
         let mut v: Vec<Value> = DEFS
             .iter()
-            .filter(|d| a.tools.iter().any(|t| t == d.group))
+            .filter(|d| (!self.plan_only || plan_tool(d.name)) && a.tools.iter().any(|t| t == d.group))
             .map(|d| json!({"type": "function", "function": {"name": d.name, "description": d.desc, "parameters": (d.params)()}}))
             .collect();
-        if self.world.memory_store().is_some() {
+        if !self.plan_only && self.world.memory_store().is_some() {
             v.push(json!({"type":"function","function":{
                 "name":"remember",
                 "description":"记住以后对用户有用的事实或偏好。只存一句话，别存密码、密钥或敏感信息。",
@@ -344,6 +349,9 @@ impl Task {
                     prompt.push_str("\n\n独立记忆（用户事实与偏好）：\n");
                     for fact in facts { prompt.push_str(&format!("- {fact}\n")); }
                 }
+            }
+            if self.plan_only {
+                prompt.push_str("\n\n现在是只规划模式：只分析、读资料、给出方案和步骤，不要修改任何东西。");
             }
             msgs = crate::prepare_messages(&prompt, m.vision, msgs);
             loop {
@@ -486,6 +494,9 @@ impl Task {
     /// 执行一个工具调用，返回给模型的结果文字
     async fn call(self: &Arc<Self>, agent: &Agent, c: &llm::Call, stats: Option<Arc<DelegateStats>>) -> String {
         let call = format!("t{}", self.seq.fetch_add(1, Ordering::Relaxed));
+        if self.plan_only && !plan_tool(&c.name) {
+            return "只规划模式下不能做这一步".into();
+        }
         let mut a: Value = match serde_json::from_str(if c.args.trim().is_empty() { "{}" } else { &c.args }) {
             Ok(v) => v,
             Err(_) => return "参数不是合法的 JSON".into(),
@@ -901,7 +912,7 @@ mod tests {
         let events = Arc::new(Mutex::new(vec![]));
         let ev = events.clone();
         let dir = tempfile::tempdir().unwrap();
-        let task = Task::new(cfg, fake.clone(), Arc::new(Asks::default()), dir.path().join("回收站"), Arc::new(move |e| ev.lock().unwrap().push(e)));
+        let task = Task::new(cfg, fake.clone(), Arc::new(Asks::default()), dir.path().join("回收站"), Arc::new(move |e| ev.lock().unwrap().push(e)), false);
         Env { task, fake, events, got, dir }
     }
 
@@ -1219,6 +1230,35 @@ mod tests {
         // 子 Agent 的正文不流到主控的气泡里
         let deltas: String = e.events.lock().unwrap().iter().filter_map(|x| match x { ChatEvent::Delta { text } => Some(text.clone()), _ => None }).collect();
         assert_eq!(deltas, "审查员说没有错别字");
+    }
+
+    #[test]
+    fn planning_limits_main_and_delegated_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("should-not-exist.txt");
+        let write = tool("write_file", json!({"path":path,"content":"不得写入"}));
+        let all_tools = || DEFS.iter().map(|d| d.group.to_string()).collect();
+        let mut e = env_with_memory(
+            vec![write.clone(), tool("delegate", json!({"agent":"审查员","task":"只读审查"})), write, text("审查完成"), text("规划完成")],
+            |c| {
+                c.agents[0].tools = all_tools();
+                c.upsert_agent(Agent { name: "审查员".into(), tools: all_tools(), ..Agent::default() }).unwrap();
+            },
+            Some(crate::store::Store::open(&dir.path().join("memory.db")).unwrap()),
+        );
+        Arc::get_mut(&mut e.task).unwrap().plan_only = true;
+        let result = rt().block_on(e.task.run(e.task.cfg.lead(), vec![json!({"role":"user","content":"规划"})], true));
+        assert_eq!(result.unwrap(), "规划完成");
+        assert!(!path.exists());
+        let got = e.got.lock().unwrap();
+        for request in got.iter() {
+            assert!(request["messages"][0]["content"].as_str().unwrap().contains("现在是只规划模式"));
+            assert!(request["tools"].as_array().unwrap().iter().all(|t| plan_tool(t["function"]["name"].as_str().unwrap())));
+        }
+        assert_eq!(got[1]["messages"].as_array().unwrap().last().unwrap()["content"], "只规划模式下不能做这一步");
+        assert_eq!(got[3]["messages"].as_array().unwrap().last().unwrap()["content"], "只规划模式下不能做这一步");
+        assert!(got[0]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "delegate"));
+        assert!(got[2]["tools"].as_array().unwrap().iter().any(|t| t["function"]["name"] == "read_file"));
     }
 
     #[test]

@@ -879,7 +879,7 @@ pub(crate) fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<
 /// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
 /// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
-fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, temporary: Option<bool>, on_event: Channel<ChatEvent>) -> Result<(), String> {
+fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, temporary: Option<bool>, plan: Option<bool>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
     let lead = cfg.lead().clone();
     let catalog = state.catalog.lock().unwrap().clone();
@@ -912,7 +912,7 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
     let trash = state.data_dir.join("回收站");
     let asks = state.asks.clone();
     let task = tauri::async_runtime::spawn(async move {
-        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone());
+        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone(), plan.unwrap_or_default());
         *t.catalog.lock().unwrap() = Some(catalog.clone());
         let mut r = t.run(&lead, messages.clone(), true).await;
         let mut prompt = t.prompt.load(std::sync::atomic::Ordering::Relaxed);
@@ -924,7 +924,7 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
             let mut l2 = lead.clone();
             l2.model = lead.fallback;
             l2.auto = false;
-            let t2 = agent::Task::new(cfg, world, asks, trash, emit);
+            let t2 = agent::Task::new(cfg, world, asks, trash, emit, plan.unwrap_or_default());
             *t2.catalog.lock().unwrap() = Some(catalog);
             r = t2.run(&l2, messages, true).await;
             prompt += t2.prompt.load(std::sync::atomic::Ordering::Relaxed);
