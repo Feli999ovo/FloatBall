@@ -106,12 +106,13 @@ floatball/
 │  ├─ capabilities/        前端能调用哪些窗口接口
 │  ├─ icons/               应用图标、托盘图标（Mac 用模板图标，自动适配深浅色菜单栏）
 │  └─ src/
-│     ├─ lib.rs            托盘、菜单、快捷键、开机启动、所有命令
+│     ├─ lib.rs            应用状态、启动、全局快捷键、命令注册
+│     ├─ commands/        对话、配置、历史、交接、定时任务、撤回、截屏、划词、窗口和语音命令
 │     ├─ llm.rs            OpenAI 兼容流式调用 + SSE 解析
 │     ├─ config.rs         设置（config.json）+ 钥匙串
 │     ├─ store.rs          历史记录（SQLite）
 │     ├─ changes.rs        文件改动备份、整文件撤回、过期清理。`undo_change(id, confirm_changed)` 执行撤回
-│     ├─ agent.rs          工具与 Agent 执行。`chat` 接收可选 `plan`、`pre_allow` 和 `review_agent`
+│     ├─ agent/            Agent 运行循环、工具、授权、交接、计价及相应用例
 │     ├─ routine.rs        定时任务触发时间和一次性派发状态
 │     └─ capture.rs        截屏、读文本文件
 ├─ tools/                  只用于测试：浏览器里模拟 Tauri 的脚本、界面测试
