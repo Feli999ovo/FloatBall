@@ -253,6 +253,7 @@ fn quote_as(s: &str) -> String {
 }
 
 /// PowerShell -EncodedCommand 要的：UTF-16LE 再 Base64（不为这几行加依赖）
+#[cfg_attr(not(windows), allow(dead_code))] // 只有 Windows 开终端用到（测试里 macOS 也会用）
 pub fn encode_ps(s: &str) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let b: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();

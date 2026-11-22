@@ -19,7 +19,7 @@ pub fn lang_tag(lang: &str) -> Option<&'static str> {
 pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 
 /// 系统识别出错时给用户看的话（按 Windows 的错误码）
-#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn explain_win(code: u32, raw: &str) -> String {
     match code {
         0x8004_5509 => "Windows 的「联机语音识别」没打开：设置 → 隐私和安全性 → 语音，打开后再试；或在悬浮球设置 → 语音里改用服务商识别".into(),

@@ -1846,6 +1846,7 @@ async fn show_context_menu(
         .flatten()
         .or_else(|| window.current_monitor().ok().flatten());
     // 翻向按工作区算（不压住任务栏 / Dock）；截底图按整块显示器的坐标算
+    #[cfg_attr(not(windows), allow(unused_variables))] // mrect 只在 Windows 取底图时用
     let (sf, mrect, work) = match &mon {
         Some(m) => {
             let (wp, wz) = (m.work_area().position, m.work_area().size);
