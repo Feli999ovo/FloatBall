@@ -18,13 +18,13 @@ mod stt;
 
 use catalog::Catalog;
 use commands::capture::*;
-use commands::window::*;
 use commands::chat::*;
 use commands::config::*;
 use commands::history::*;
 use commands::routine::*;
 use commands::selection::*;
 use commands::voice::*;
+use commands::window::*;
 use config::{Config, Model};
 use llm::ChatEvent;
 use serde::{Deserialize, Serialize};
