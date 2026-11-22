@@ -17,7 +17,9 @@ mod cost;
 
 mod tools;
 
-use tools::{arg, describe, file_name, http_url, label, plan_tool, risk, short, DEFS};
+use tools::{arg, describe, http_url, label, plan_tool, risk, short, DEFS};
+#[cfg(test)]
+use tools::{folder, host};
 
 use crate::config::{Agent, Allow, Config, Model};
 use crate::llm::{self, ChatEvent};
