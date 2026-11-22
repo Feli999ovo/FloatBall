@@ -31,6 +31,65 @@ fn filename(path: &Path) -> &std::ffi::OsStr {
     path.file_name().unwrap_or_else(|| std::ffi::OsStr::new("文件"))
 }
 
+/// 把写好的 `from` 放到 `to`：**`to` 已经存在就报 AlreadyExists，绝不覆盖**（别的程序刚好在这一刻建了同名文件也不会被冲掉）。
+/// 用系统自带的「不覆盖改名」，比硬链接通用：FAT32 / exFAT 的 U 盘、一部分网络盘不支持硬链接。
+/// 改名成功后 `from` 已经不存在。
+fn place_new(from: &Path, to: &Path) -> io::Result<()> {
+    match rename_no_replace(from, to) {
+        Err(e) if e.kind() == io::ErrorKind::Unsupported => place_new_fallback(from, to),
+        r => r,
+    }
+}
+
+#[cfg(windows)]
+fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (f, t) = (wide(from), wide(to));
+    // 标志 0 = 不带 MOVEFILE_REPLACE_EXISTING：目标已存在就失败
+    if unsafe { MoveFileExW(f.as_ptr(), t.as_ptr(), 0) } != 0 { return Ok(()); }
+    let e = io::Error::last_os_error();
+    // ERROR_ALREADY_EXISTS(183) / ERROR_FILE_EXISTS(80)
+    Err(if matches!(e.raw_os_error(), Some(183) | Some(80)) { io::Error::from(io::ErrorKind::AlreadyExists) } else { e })
+}
+
+#[cfg(target_os = "macos")]
+fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = |p: &Path| std::ffi::CString::new(p.as_os_str().as_bytes()).map_err(|_| io::Error::other("路径里有空字符"));
+    let (f, t) = (c(from)?, c(to)?);
+    if unsafe { libc::renamex_np(f.as_ptr(), t.as_ptr(), libc::RENAME_EXCL) } == 0 { return Ok(()); }
+    let e = io::Error::last_os_error();
+    // 这个文件系统不支持 RENAME_EXCL（ENOTSUP / EINVAL）→ 走后备办法
+    Err(if matches!(e.raw_os_error(), Some(libc::ENOTSUP) | Some(libc::EINVAL)) { io::Error::from(io::ErrorKind::Unsupported) } else { e })
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    // 没有统一的不覆盖改名（Linux 上用硬链接；不支持就走后备办法）
+    match fs::hard_link(from, to) {
+        Ok(()) => { let _ = fs::remove_file(from); Ok(()) }
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
+        Err(_) => Err(io::Error::from(io::ErrorKind::Unsupported)),
+    }
+}
+
+/// 后备办法（文件系统连不覆盖改名都不支持）：`create_new` 保证目标已存在就报错、绝不覆盖；
+/// 代价是写到一半出错时目标位置会留下不完整的文件——所以出错就把它删掉。
+fn place_new_fallback(from: &Path, to: &Path) -> io::Result<()> {
+    let mut src = fs::File::open(from)?;
+    let mut dst = fs::OpenOptions::new().write(true).create_new(true).open(to)?;
+    let copied = io::copy(&mut src, &mut dst).and_then(|_| dst.sync_all());
+    drop(dst);
+    if let Err(e) = copied {
+        let _ = fs::remove_file(to);
+        return Err(e);
+    }
+    let _ = fs::remove_file(from);
+    Ok(())
+}
+
 fn staged_copy(from: &Path, to: &Path, replace: bool) -> io::Result<()> {
     let parent = to.parent().ok_or_else(|| io::Error::other("文件没有上级目录"))?;
     let staging = parent.join(format!(".floatball-{}", uuid::Uuid::new_v4()));
@@ -38,7 +97,7 @@ fn staged_copy(from: &Path, to: &Path, replace: bool) -> io::Result<()> {
         let _ = fs::remove_file(&staging);
         return Err(e);
     }
-    let result = if replace { fs::rename(&staging, to) } else { fs::hard_link(&staging, to) };
+    let result = if replace { fs::rename(&staging, to) } else { place_new(&staging, to) };
     let _ = fs::remove_file(staging);
     result
 }
@@ -83,7 +142,7 @@ impl Changes {
             let after = stamp(&staging)?;
             if stamp(&path)? != before { return Err(io::Error::other("文件已经变化，请重新尝试")); }
             if before.is_some() { fs::rename(&staging, &path)?; }
-            else { fs::hard_link(&staging, &path)?; }
+            else { place_new(&staging, &path)?; }
             Ok(after)
         })();
         let _ = fs::remove_file(staging);
@@ -182,6 +241,61 @@ mod tests {
         assert_eq!(changes.undo(&deleted.id, false, &trash), Ok(true));
         assert_eq!(fs::read_to_string(path).unwrap(), "待删除");
         assert!(!deleted.backup.unwrap().exists());
+    }
+
+    #[test]
+    fn place_new_never_overwrites_and_moves_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("from"), dir.path().join("to"));
+        fs::write(&from, "新内容").unwrap();
+        place_new(&from, &to).unwrap();
+        assert_eq!(fs::read_to_string(&to).unwrap(), "新内容");
+        assert!(!from.exists(), "放过去后源文件不再存在");
+        // 目标已经有文件：报 AlreadyExists，目标原样、源文件还在
+        fs::write(&from, "另一份").unwrap();
+        let err = place_new(&from, &to).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&to).unwrap(), "新内容");
+        assert_eq!(fs::read_to_string(&from).unwrap(), "另一份");
+    }
+
+    #[test]
+    fn fallback_for_filesystems_without_rename_excl_never_overwrites() {
+        // 硬链接和 RENAME_EXCL 都不支持的盘（FAT32 / exFAT / 部分网络盘）走这条路
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("from"), dir.path().join("to"));
+        fs::write(&from, "完整内容").unwrap();
+        place_new_fallback(&from, &to).unwrap();
+        assert_eq!(fs::read_to_string(&to).unwrap(), "完整内容");
+        assert!(!from.exists());
+        fs::write(&from, "另一份").unwrap();
+        let err = place_new_fallback(&from, &to).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&to).unwrap(), "完整内容", "后备办法也不覆盖已有文件");
+        // 源文件打不开：不留下目标
+        let missing = dir.path().join("nope");
+        let to2 = dir.path().join("to2");
+        assert!(place_new_fallback(&missing, &to2).is_err());
+        assert!(!to2.exists());
+    }
+
+    #[test]
+    fn new_file_write_leaves_no_staging_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (target, backups) = (dir.path().join("新.txt"), dir.path().join("b"));
+        let changes = Changes::default();
+        let change = changes.write(&target, "你好", &backups, "1", "lead").unwrap();
+        assert_eq!(change.kind, "新建");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "你好");
+        let names: Vec<_> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().all(|n| !n.starts_with(".floatball-")), "临时文件已清理 {names:?}");
+        // 同一位置刚好被别的程序建了文件：写入失败，对方的文件原样
+        let other = dir.path().join("别人的.txt");
+        let staged = other.parent().unwrap().join(".floatball-x");
+        fs::write(&other, "别人的").unwrap();
+        fs::write(&staged, "我的").unwrap();
+        assert_eq!(place_new(&staged, &other).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&other).unwrap(), "别人的");
     }
 
     #[test]
