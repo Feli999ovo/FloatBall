@@ -53,6 +53,9 @@ block2 = "0.6"
 
 [dev-dependencies]
 tempfile = "3"
+specta = { version = "=2.0.0-rc.28", features = ["derive", "function", "serde_json"] }
+specta-typescript = "=0.0.15"
+tauri-specta = { version = "=2.0.0-rc.29", features = ["typescript"] }
 
 [profile.release]
 codegen-units = 1

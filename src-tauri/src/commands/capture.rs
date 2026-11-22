@@ -125,6 +125,7 @@ pub fn read_text_file(path: String) -> Result<TextFile, String> {
 
 /// 前端的报错打到终端（npm run dev 时能看到），方便排查
 #[tauri::command]
+#[cfg_attr(test, specta::specta)]
 pub fn js_log(msg: String) {
     eprintln!("[前端] {msg}");
     log::warn!("[前端] {msg}");

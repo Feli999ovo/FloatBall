@@ -10,6 +10,8 @@ mod changes;
 mod commands;
 mod config;
 mod handoff;
+#[cfg(test)]
+mod ipc_contract;
 mod llm;
 mod routine;
 mod selection;
