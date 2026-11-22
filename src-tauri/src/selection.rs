@@ -6,6 +6,7 @@
 //! - Windows：模拟 Ctrl+C 读剪贴板，读完把剪贴板原来的文字/图片放回去。
 //!   只在按下或松开时指针是文字光标（I 形）时才读，避免拖文件、拖窗口时误触发；
 //!   终端（Ctrl+C 会中断程序）和资源管理器一律不读。
+//!
 //! Linux 上暂不支持。
 
 // Linux 上不跑监听线程，手势识别等只在测试里用到
@@ -491,7 +492,7 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
             let c = st.cfg.lock().unwrap();
             (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT)
         };
-        if beat % 200 == 0 {
+        if beat.is_multiple_of(200) {
             log::info!(
                 "划词线程在跑（划词 {}，右 Alt 说话 {talk_on}）",
                 if sel.on { "开" } else { "关" }

@@ -244,13 +244,11 @@ impl Catalog {
                 if kt == want
                     || (kt.starts_with(&want)
                         && !kt[want.len()..].starts_with(|c: char| c.is_ascii_digit()))
-                {
-                    if best
+                    && best
                         .map(|(b, _)| kt.len() < norm(b.rsplit('/').next().unwrap_or(b)).len())
                         .unwrap_or(true)
-                    {
-                        best = Some((k, r));
-                    }
+                {
+                    best = Some((k, r));
                 }
             }
             if let Some((_, r)) = best {

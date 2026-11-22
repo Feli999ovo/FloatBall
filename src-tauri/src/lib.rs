@@ -631,6 +631,7 @@ async fn handoff_pick(start: String) -> Result<Option<String>, String> {
 /// 交给终端：写好交接说明，在终端里、项目文件夹下打开工具。
 /// tool = "custom" 时运行自定义命令。返回 (说明文件, 要粘贴的那句话；能直接带上时为空)
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri 命令的参数由前端传入，不能合并
 fn handoff_go(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1241,6 +1242,7 @@ fn review_agent_for(cfg: &Config, id: &str) -> Result<config::Agent, String> {
 /// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
 /// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri 命令的参数由前端传入，不能合并
 fn chat(
     app: AppHandle,
     state: State<'_, AppState>,

@@ -155,7 +155,7 @@ pub fn next_due<Tz: TimeZone>(r: &Routine, now: &DateTime<Tz>) -> Option<DateTim
     let p = prev_due(r, now)?;
     let mut n = p + period;
     if n <= *now {
-        n = n + period;
+        n += period;
     }
     prev_due(r, &n).filter(|x| x > now).or(Some(n))
 }
@@ -243,9 +243,8 @@ mod tests {
     fn daily_runs_once_after_the_time() {
         let mut r = day("09:00");
         // 2026-11-20 是周五
-        assert_eq!(
+        assert!(
             due(&r, &t(2026, 11, 20, 8, 59)).is_some(),
-            true,
             "前一天 09:00 还在一个周期内，没跑过就补"
         );
         r.last = t(2026, 11, 19, 9, 0).timestamp();

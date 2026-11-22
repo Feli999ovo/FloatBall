@@ -1140,7 +1140,7 @@ mod tests {
         let mut researcher = c.agents[1].clone();
         researcher.skills = vec![id.clone(), id.clone(), "missing".into()];
         c.upsert_agent(researcher).unwrap();
-        assert_eq!(c.agents[1].skills, [id.clone()]);
+        assert_eq!(c.agents[1].skills, std::slice::from_ref(&id));
         let prompt = c.agent_prompt(&c.agents[1]);
         assert!(prompt
             .ends_with("你会的技能（需要时调用 read_skill 读完整步骤）：\n- 核对出处：查资料时"));
@@ -1357,8 +1357,10 @@ mod tests {
 
     #[test]
     fn endpoint_normalizes() {
-        let mut m = Model::default();
-        m.base_url = "https://api.deepseek.com/v1/".into();
+        let mut m = Model {
+            base_url: "https://api.deepseek.com/v1/".into(),
+            ..Default::default()
+        };
         assert_eq!(m.endpoint(), "https://api.deepseek.com/v1/chat/completions");
         m.base_url = "http://localhost:11434/v1/chat/completions".into();
         assert_eq!(m.endpoint(), "http://localhost:11434/v1/chat/completions");

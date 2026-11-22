@@ -247,6 +247,7 @@ pub fn quote_sh(s: &str) -> String {
 }
 
 /// AppleScript 字符串
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 只有 macOS 的终端命令用到
 fn quote_as(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -287,15 +288,14 @@ pub fn open(term: &str, dir: &Path, line: &str) -> Result<(), String> {
             line
         );
         let enc = encode_ps(&ps);
-        let shell = if term == "pwsh" {
-            "pwsh"
-        } else if term == "wt"
-            && which(
-                "pwsh",
-                &std::env::var("PATH").unwrap_or_default(),
-                &[".exe"],
-            )
-            .is_some()
+        let shell = if term == "pwsh"
+            || (term == "wt"
+                && which(
+                    "pwsh",
+                    &std::env::var("PATH").unwrap_or_default(),
+                    &[".exe"],
+                )
+                .is_some())
         {
             "pwsh"
         } else {

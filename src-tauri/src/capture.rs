@@ -7,6 +7,7 @@ use image::{imageops::FilterType, DynamicImage, ImageFormat};
 use std::io::Cursor;
 
 pub const MAX_SIDE: u32 = 1600;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 只有 macOS 的权限检查用到
 pub const SCREEN_PERMISSION: &str = "screen_permission";
 pub const WINDOW_UNAVAILABLE: &str = "这个窗口截不了，改用截屏提问";
 

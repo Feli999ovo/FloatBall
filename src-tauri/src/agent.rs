@@ -4,6 +4,7 @@
 //! - 只读（搜索网页、打开网页读内容、读文件、看文件夹）：自动允许
 //! - 写入（写文件）、打开浏览器：每个范围第一次问，允许后这次任务里不再问
 //! - 发送（发邮件）、删除：每次都问；可以「总是允许」，记在设置里，可撤销
+//!
 //! 预算（设置 → Agents）：单个任务的 token 上限、最多步数（每次请求模型算一步）、最多同时几个子 Agent。
 
 use crate::config::{Agent, Allow, Config, Model};
@@ -17,7 +18,7 @@ use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore};
 
 /// 用户对确认卡片的回答
-#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, serde::Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Answer {
     pub allow: bool,
@@ -26,17 +27,6 @@ pub struct Answer {
     pub reason: String,
     /// 「修改后允许」：改过的内容（邮件正文、文件内容等），空着就照原样
     pub edit: String,
-}
-
-impl Default for Answer {
-    fn default() -> Self {
-        Self {
-            allow: false,
-            always: false,
-            reason: String::new(),
-            edit: String::new(),
-        }
-    }
 }
 
 /// 等待中的确认，按编号找回调
@@ -322,6 +312,7 @@ fn handoff_summary(result: &str, writes: u64) -> (u64, String) {
 }
 
 impl Task {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cfg: Config,
         world: Arc<dyn World>,
@@ -683,6 +674,7 @@ impl Task {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn pill(
         &self,
         call: &str,
@@ -1307,7 +1299,7 @@ fn pct_decode(s: &str) -> String {
     let mut out = vec![];
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 <= b.len() - 1 {
+        if b[i] == b'%' && i + 2 < b.len() {
             if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
                 out.push(v);
                 i += 3;

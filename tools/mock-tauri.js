@@ -1,4 +1,5 @@
 // 只用于在普通浏览器里测试界面：模拟 window.__TAURI__ 的一小部分。真实程序不会加载它。
+// 注意：真实 Tauri 的 invoke 失败时抛出的是字符串，所以这里有些 throw 故意不用 Error，别改成 new Error。
 (() => {
   const st = {
     pos: { x: 1300, y: 380 },
