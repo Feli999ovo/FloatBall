@@ -37,7 +37,8 @@ fn server(replies: Vec<String>) -> (String, Arc<Mutex<Vec<Value>>>) {
                     break;
                 }
             }
-            let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n";
+            let head =
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n";
             s.write_all(head.as_bytes()).unwrap();
             s.write_all(body.as_bytes()).unwrap();
         }

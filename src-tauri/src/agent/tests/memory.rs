@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn ordinary_agents_can_remember_and_only_receive_the_latest_twenty() {
-    let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap())
-        .unwrap();
+    let store =
+        crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
     for n in 0..21 {
         store.remember("lead", &format!("fact-{n:02}")).unwrap();
     }
@@ -45,8 +45,8 @@ fn ordinary_agents_can_remember_and_only_receive_the_latest_twenty() {
 
 #[test]
 fn automatic_memory_event_carries_the_inserted_scoped_row_id() {
-    let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap())
-        .unwrap();
+    let store =
+        crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
     let e = env_with_memory(
         vec![
             tool("remember", json!({"text":"用户喜欢短答案"})),
@@ -123,8 +123,8 @@ fn automatic_memory_event_carries_the_inserted_scoped_row_id() {
 
 #[test]
 fn memory_ask_refusal_does_not_write_and_disallows_always() {
-    let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap())
-        .unwrap();
+    let store =
+        crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
     let e = env_with_memory(
         vec![
             tool("remember", json!({"text":"用户喜欢短答案"})),
@@ -184,8 +184,8 @@ fn memory_ask_refusal_does_not_write_and_disallows_always() {
 
 #[test]
 fn memory_ask_writes_the_edited_text_without_undo_ids() {
-    let store = crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap())
-        .unwrap();
+    let store =
+        crate::store::Store::from_conn(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
     let e = env_with_memory(
         vec![tool("remember", json!({"text":"原始偏好"})), text("好的")],
         |c| c.memory_ask = true,
