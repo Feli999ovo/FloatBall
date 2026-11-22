@@ -31,6 +31,8 @@ pub enum ChatEvent {
         status: String,
         result: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         memory_id: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_id: Option<String>,

@@ -255,6 +255,26 @@
             return null;
           }
         }
+        if (st.receiptProbe) {
+          const out = (event) => { if (st.cancelled !== a.id) ch.onmessage(event); };
+          const tool = (call, name, path, status) => out({ type: "tool", call, agent: "主控", name, path, arg: "周报.txt", status });
+          setTimeout(() => {
+            tool("r1", "读取文件", "D:/旧版/周报.txt", "run");
+            tool("r1", "读取文件", "D:/旧版/周报.txt", "done");
+            tool("r2", "读取文件", "D:/本周/周报.txt", "done");
+            if (st.receiptProbe === "stop") return;
+            tool("w1", "写入文件", "D:/本周/汇总.txt", "wait");
+            st.onAnswer = (ans) => {
+              tool("w1", "写入文件", "D:/本周/汇总.txt", ans.allow ? "done" : "no");
+              out({ type: "delta", text: "文件检查完成" });
+              out({ type: "usage", prompt: 200, completion: 40 });
+              out({ type: "cost", amount: 0.03 });
+              out({ type: "done" });
+            };
+            out({ type: "ask", ask: 92, call: "w1", kind: "写入", desc: "写入汇总.txt", scope: "本周", hi: false });
+          }, 35);
+          return null;
+        }
         // 用工具、需要确认（删除）：看文件夹 → 等确认 → 删或不删
         if (/删除/.test(q)) {
           const send = (e) => { if (st.cancelled !== a.id) ch.onmessage(e); };
