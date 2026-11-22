@@ -410,6 +410,39 @@ async def main():
         check(await pg.evaluate("(__mock.cfg.routines || []).length") == 1, "删除要再点一次确认")
         await pg.click("#tasks .rd .x-sb:has-text('确认删除')"); await pg.wait_for_timeout(250)
         check(await pg.evaluate("[(__mock.cfg.routines || []).length, document.querySelectorAll('#tasks .tk.rt').length]") == [0, 0], "确认删除后没有了")
+
+        # P2 触发规则由 Rust 测试，浏览器覆盖表单与运行参数。
+        for i, (every, prompt, summary) in enumerate([
+            ("workday", "工作日写周报", "工作日 09:00"), ("month", "月末写周报", "每月 31 号 09:00"), ("once", "只写一次周报", "11月30日 09:00 一次"),
+        ], start=1):
+            await pg.click("#tasks .rtadd")
+            await pg.fill("#rtEdprompt", prompt)
+            await pg.select_option("#rtEdevery", every)
+            if every == "month":
+                await pg.select_option("#rtEdmonthday", "31")
+            elif every == "once":
+                await pg.fill("#rtEddate", "2000-01-01")
+                await pg.click("#tasks .rd .x-pri")
+                await pg.wait_for_function("document.querySelector('#toast').textContent.includes('这个时间已经过了')")
+                check(await pg.evaluate("__mock.cfg.routines.length") == 2, "过期的一次性任务不能保存")
+                await pg.fill("#rtEddate", "2099-11-30")
+            elif every == "workday":
+                await pg.click("#tasks .rt-allow summary")
+                await pg.get_by_role("checkbox", name="写文件", exact=True).check()
+                await shot("p2_routine_permissions")
+            await pg.click("#tasks .rd .x-pri")
+            await pg.wait_for_function(f"document.querySelectorAll('#tasks .tk.rt').length === {i} && !document.querySelector('#rtEdprompt')")
+            check(summary in await pg.locator("#tasks .tk.rt").nth(i - 1).locator(".rts").inner_text(), "任务行显示 " + summary)
+        await pg.locator('#tasks .tk.rt[data-rid="rt1"] .name').click()
+        await pg.get_by_role("button", name="编辑", exact=True).click()
+        await pg.click("#tasks .rt-allow summary")
+        check(await pg.get_by_role("checkbox", name="写文件", exact=True).is_checked() and not await pg.get_by_role("checkbox", name="打开网页", exact=True).is_checked(), "预授权只保存勾选项")
+        await pg.get_by_role("button", name="取消", exact=True).click()
+        await pg.evaluate("__mock.routineProbe = '工作日写周报'; __emit('routine', __mock.cfg.routines[0])")
+        await pg.wait_for_function("(__mock.rtDone || []).length === 2")
+        await pg.locator("#tasks .tk:not(.rt) .name").first.click()
+        check(await pg.evaluate("__mock.lastRoutineAllow") == ["写入"] and await pg.locator(".x-ap").count() == 0 and "已预授权" in await pg.locator(".x-tl").inner_text(), "到点运行只传自己的预授权，写入直接显示药丸")
+        await pg.evaluate("delete __mock.routineProbe; __mock.cfg.routines = []; __emit('config')")
         await pg.click("#tabChat"); await pg.wait_for_timeout(100)
 
         # 9c 交给终端（B4）：… 菜单打开；只列本机装了的；要粘贴的先说清楚；交接说明从对话整理、可以改；默认存进项目
