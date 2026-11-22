@@ -199,6 +199,11 @@
         const q = typeof last.content === "string" ? last.content : last.content[0].text;
         st.lastMessages = a.messages.slice();
         const ch = a.onEvent;
+        if (st.chatProbe) {
+          st.chatProbe.push({ q, plan: a.plan, temporary: a.temporary });
+          st.finishChatProbe = () => { ch.onmessage({ type: "delta", text: "已给出方案" }); ch.onmessage({ type: "done" }); };
+          return null;
+        }
         if (!view().ready) { setTimeout(() => ch.onmessage({ type: "error", message: "还没有填 API Key。右键小球 → 设置 → 模型。" }), 50); return null; }
         if (st.rememberNext) {
           const { agent, text } = st.rememberNext;

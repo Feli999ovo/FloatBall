@@ -916,9 +916,17 @@ function scrollEnd() { msgsEl.scrollTop = msgsEl.scrollHeight; }
    原来那个对话的请求在后台接着跑，回复写进它自己的气泡（收在 conv.dom 里，不在屏幕上）。 */
 const convs = new Set(); // 有请求在跑的对话（跑完就删掉）
 const liveById = new Map();
-function Conv(id, title) { return { id, title: title || "新对话", msgs: [], dom: document.createDocumentFragment(), busy: null, stop: null, task: null, tmp: false, tmpChanging: false, history: Promise.resolve(), historyEpoch: 0 }; }
+function Conv(id, title) { return { id, title: title || "新对话", msgs: [], dom: document.createDocumentFragment(), busy: null, stop: null, task: null, tmp: false, tmpChanging: false, plan: false, queue: [], history: Promise.resolve(), historyEpoch: 0 }; }
 S.conv = Conv(null);
-const ASK_PH = "有什么可以帮你？", TMP_PH = "临时对话…";
+const ASK_PH = "有什么可以帮你？", TMP_PH = "临时对话…", PLAN_PH = "只规划：先出方案…";
+const planToggle = $("#planToggle");
+planToggle.onclick = () => { S.conv.plan = !S.conv.plan; syncTmp(); ask.focus(); };
+let askHistory = [], historyDraft = "";
+try {
+  const saved = JSON.parse(localStorage.getItem("fb.askHistory") || "[]");
+  if (Array.isArray(saved)) askHistory = saved.filter((text) => typeof text === "string").slice(0, 50);
+} catch {}
+let historyIndex = -1;
 const tmpQ = $("#tmpQ"), tmpOk = $("#tmpOk"), tmpNo = $("#tmpNo");
 let tmpTarget = null;
 function setConvId(c, id) {
@@ -944,8 +952,11 @@ function syncTmp() {
   $("#tmpBanner").hidden = !c.tmp || $("#vChat").hidden;
   const b = moreDd.querySelector("[data-cm=tmp]");
   b.setAttribute("aria-checked", c.tmp); b.disabled = c.tmpChanging || (c.busy && !c.tmp);
-  const ph = c.tmp ? TMP_PH : ASK_PH;
-  if ((ask.placeholder === ASK_PH || ask.placeholder === TMP_PH) && ask.placeholder !== ph) ask.placeholder = ph;
+  $("#planBanner").hidden = !c.plan || $("#vChat").hidden;
+  planToggle.textContent = c.plan ? "只规划" : "执行";
+  planToggle.setAttribute("aria-pressed", c.plan);
+  const ph = c.plan ? PLAN_PH : c.tmp ? TMP_PH : ASK_PH;
+  if ([ASK_PH, TMP_PH, PLAN_PH].includes(ask.placeholder) && ask.placeholder !== ph) ask.placeholder = ph;
 }
 // 截屏、附件或听写还原占位文字时，也要保留当前会话的临时标记。
 new MutationObserver(syncTmp).observe(ask, { attributes: true, attributeFilter: ["placeholder"] });
@@ -996,7 +1007,7 @@ tmpQ.addEventListener("keydown", (e) => {
 function showConv(c) {
   const o = S.conv;
   if (o === c) return;
-  closeTmp();
+  closeTmp(); historyIndex = -1;
   if (o) { o.msgs = S.msgs; o.title = $("#title").textContent; o.dom.append(...msgsEl.childNodes); }
   S.conv = c; S.convId = c.id; S.msgs = c.msgs; S.busy = c.busy; S.stopFn = c.stop;
   msgsEl.innerHTML = ""; msgsEl.append(...c.dom.childNodes);
@@ -1024,7 +1035,7 @@ function goConv(c) {
   if (S.open) showView("chat"); else expand("chat");
   focusAsk();
 }
-function addUserBubble(text, attach) {
+function addUserBubble(text, attach, conv = S.conv) {
   const el = document.createElement("div");
   el.className = "m user";
   for (const a of attach || []) {
@@ -1032,15 +1043,16 @@ function addUserBubble(text, attach) {
     if (a.kind === "file") { const f = document.createElement("div"); f.className = "file"; f.textContent = "文件：" + a.name; el.appendChild(f); }
   }
   el.appendChild(document.createTextNode(text));
-  msgsEl.appendChild(el);
-  updateEmpty(); scrollEnd();
+  (conv === S.conv ? msgsEl : conv.dom).appendChild(el);
+  if (conv === S.conv) { updateEmpty(); scrollEnd(); }
+  return el;
 }
-function addAiBubble() {
+function addAiBubble(conv = S.conv) {
   const el = document.createElement("div");
   el.className = "m ai";
   el.innerHTML = '<div class="think" hidden></div><div class="txt cursor"></div><div class="meta" hidden></div>';
-  msgsEl.appendChild(el);
-  updateEmpty(); scrollEnd();
+  (conv === S.conv ? msgsEl : conv.dom).appendChild(el);
+  if (conv === S.conv) { updateEmpty(); scrollEnd(); }
   return el;
 }
 function setMeta(el, text, opts = {}) {
@@ -1069,10 +1081,49 @@ function historyText(text, attach) {
   return (tags ? tags + " " : "") + text;
 }
 
+function renderQueue(conv) {
+  for (const item of conv.queue) {
+    const { meta } = item;
+    meta.textContent = item.paused ? "没发出" : "等它说完再发";
+    const remove = () => { conv.queue.splice(conv.queue.indexOf(item), 1); item.el.remove(); };
+    if (item.paused) {
+      const retry = document.createElement("button");
+      retry.textContent = "重新发送";
+      retry.disabled = !!conv.busy;
+      retry.onclick = () => { if (!conv.busy) { remove(); submitPrompt(conv, item); } };
+      meta.appendChild(retry);
+    }
+    const cancel = document.createElement("button");
+    cancel.textContent = item.paused ? "删除" : "×";
+    cancel.setAttribute("aria-label", "删除待发消息");
+    cancel.onclick = remove;
+    meta.appendChild(cancel);
+  }
+}
+function submitPrompt(conv, { text, attach, shared, plan, temporary }) {
+  const shown = shared ? [...attach, shared] : attach;
+  addUserBubble(text, shown, conv);
+  conv.msgs.push({ role: "user", content: buildContent(text, attach) });
+  saveMsg(conv, "user", historyText(text, shown)).catch(() => {});
+  if (!temporary && !conv.tmp && !conv.tmpChanging && text) {
+    askHistory.unshift(text);
+    askHistory.length = Math.min(askHistory.length, 50);
+    historyIndex = -1;
+    try { localStorage.setItem("fb.askHistory", JSON.stringify(askHistory)); } catch {}
+  }
+  if (conv.msgs.length === 1) {
+    conv.title = text.slice(0, 24) || "截图提问";
+    if (conv === S.conv) $("#title").textContent = conv.title;
+  }
+  run(shared ? buildContent(text, shown) : undefined, conv, plan);
+}
+
 async function send(textArg) {
   const text = (textArg ?? ask.value).trim();
-  if ((!text && !S.attach.length) || S.busy || S.sending) return;
-  const c = S.conv, share = activeShare(c);
+  if ((!text && !S.attach.length) || S.sending) return;
+  const c = S.conv, plan = c.plan, temporary = c.tmp || c.tmpChanging;
+  if (c.busy && c.queue.length >= 3) { toast("最多排队 3 条消息"); return; }
+  const share = c.busy ? null : activeShare(c);
   const draft = ask.value;
   let shared;
   if (share) {
@@ -1095,29 +1146,36 @@ async function send(textArg) {
   renderAttach();
   ask.value = ""; autosize();
   showView("chat");
-  const shown = shared ? [...attach, shared] : attach;
-  addUserBubble(text, shown);
-  S.msgs.push({ role: "user", content: buildContent(text, attach) });
-  saveMsg(c, "user", historyText(text, shown)).catch(() => {});
-  if (c.msgs.length === 1) { c.title = text.slice(0, 24) || "截图提问"; $("#title").textContent = c.title; }
-  run(shared ? buildContent(text, shown) : undefined);
+  historyIndex = -1;
+  if (c.busy) {
+    const el = addUserBubble(text, attach, c);
+    el.classList.add("queued");
+    const meta = document.createElement("div"); meta.className = "meta"; el.appendChild(meta);
+    c.queue.push({ text, attach, plan, temporary, el, meta, paused: false });
+    renderQueue(c); scrollEnd();
+  } else {
+    submitPrompt(c, { text, attach, shared, plan, temporary });
+  }
 }
 
 const HO_RE = /改代码|写代码|重构|脚本|bug|报错/i;
-function run(currentContent) {
-  const id = "c" + Date.now(), conv = S.conv;
-  const prompt = currentContent ?? S.msgs[S.msgs.length - 1].content;
+let chatSeq = 0;
+function run(currentContent, conv = S.conv, plan = conv.plan) {
+  const id = "c" + Date.now() + "-" + (++chatSeq);
+  const userMessage = conv.msgs.at(-1);
+  const prompt = currentContent ?? userMessage.content;
   const codeTask = HO_RE.test(typeof prompt === "string" ? prompt : prompt[0].text);
   const here = () => conv === S.conv; // 这个对话是不是正显示在卡片里
-  conv.busy = S.busy = id; convs.add(conv);
-  syncTmp();
-  $("#stopRow").hidden = false;
-  mood("think");
-  const task = { title: (S.msgs[S.msgs.length - 1] && historyText(lastText(), [])) || "提问", st: "run", t0: Date.now(), conv };
+  conv.busy = id; convs.add(conv);
+  if (here()) { S.busy = id; syncTmp(); $("#stopRow").hidden = false; mood("think"); }
+  const task = { title: lastText(conv), st: "run", t0: Date.now(), conv };
   conv.task = task;
   S.tasks.unshift(task); renderTasks();
-  const el = addAiBubble();
+  const el = addAiBubble(conv);
+  for (const item of conv.queue) el.parentNode.appendChild(item.el);
+  renderQueue(conv);
   const scrollEnd = () => { if (here()) msgsEl.scrollTop = msgsEl.scrollHeight; };
+  scrollEnd();
   let txt = el.querySelector(".txt");
   // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
   let out = "", seg = "", usage = null, raf = 0;
@@ -1168,6 +1226,15 @@ function run(currentContent) {
       const cost = Number.isFinite(usage?.cost) ? ` · 约 ${fmtCny(usage.cost)}${Number(S.cfg?.usd_cny) === 7.2 ? "（默认汇率）" : ""}` : "";
       setMeta(el, used ? `${leadModelName()} · ${fmtTok(used)} tokens${cost}` : `${leadModelName()}${cost}`, { copy: out });
       const meta = el.querySelector(".meta");
+      if (plan) {
+        const execute = document.createElement("button");
+        execute.textContent = "改成执行";
+        execute.onclick = () => {
+          conv.plan = false; goConv(conv); syncTmp();
+          ask.value = "按上面的方案执行"; autosize(); ask.focus(); historyIndex = -1;
+        };
+        meta.appendChild(execute);
+      }
       if (codeTask && (S.cfg.handoff || {}).hint !== false) {
         const b = document.createElement("button"); b.type = "button"; b.className = "ho-hint"; b.textContent = "交给终端";
         b.onclick = () => { goConv(conv); hoOpen(); };
@@ -1180,19 +1247,25 @@ function run(currentContent) {
       if (here()) vcSpeak(el, out);
       // 在后台做完的：球角上记一个数，点开回到那条对话（照原型：完成时小球开心 + 角标）
       if (!S.open || !here()) { if (!here()) doneMark(conv); poke(); showPeek(out || "回复好了", false, here() ? null : () => goConv(conv)); }
+      const next = conv.queue.findIndex((item) => !item.paused);
+      if (next >= 0) {
+        const [item] = conv.queue.splice(next, 1); item.el.remove(); submitPrompt(conv, item);
+      }
     } else if (ev.type === "error") {
       finish("err");
       txt.classList.remove("cursor");
       el.classList.add("err");
       txt.textContent = ev.message;
       const noKey = /API Key|设置/.test(ev.message);
-      setMeta(el, "", { retry: () => { el.remove(); goConv(conv); run(); }, settings: noKey });
+      setMeta(el, "", { retry: () => { if (conv.busy || conv.msgs.at(-1) !== userMessage) return; el.remove(); goConv(conv); run(currentContent, conv, plan); }, settings: noKey });
       mood("error", 4000);
       if (!here()) doneMark(conv);
     }
   };
   function finish(st = "done") {
     if (conv.busy === id) { conv.busy = conv.stop = null; conv.need = false; convs.delete(conv); }
+    if (st !== "done") for (const item of conv.queue) item.paused = true;
+    renderQueue(conv);
     if (here()) { S.busy = S.stopFn = null; $("#stopRow").hidden = true; syncTmp(); }
     if (Object.keys(S.agBusy).length && !convs.size) { S.agBusy = {}; agSync(); }
     needOn([...convs].some((x) => x.need));
@@ -1211,8 +1284,8 @@ function run(currentContent) {
     if (here() || !convs.size) mood("idle");
   };
   conv.stop = el._stop; if (here()) S.stopFn = el._stop;
-  const messages = currentContent === undefined ? S.msgs : [...S.msgs.slice(0, -1), { role: "user", content: currentContent }];
-  invoke("chat", { id, messages, temporary: conv.tmp || conv.tmpChanging, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
+  const messages = currentContent === undefined ? conv.msgs : [...conv.msgs.slice(0, -1), { role: "user", content: currentContent }];
+  invoke("chat", { id, messages, temporary: conv.tmp || conv.tmpChanging, plan, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 // ───────── 多 Agent 计划卡（照搬原型 runTeam 的 .x-plan）：主控每交给一个 Agent 一步，卡里多一行 ─────────
 S.agBusy = {}; // Agent id → 正在做的那一步（任务页 Agents 头像条的状态）
@@ -1504,8 +1577,8 @@ function askCard(el, ev) {
   bOnce.focus({ preventScroll: true });
 }
 // 最近一次提问的文字（任务列表里显示）
-function lastText() {
-  const c = S.msgs[S.msgs.length - 1].content;
+function lastText(conv = S.conv) {
+  const c = conv.msgs.at(-1).content;
   const s = typeof c === "string" ? c : (c.find((p) => p.type === "text") || {}).text || "截图提问";
   return s.replace(/^文件「[^」]*」的内容：[\s\S]*?```\n\n/, "").slice(0, 40) || "提问";
 }
@@ -1513,10 +1586,23 @@ $("#stopBtn").onclick = stop;
 
 $("#capsule").addEventListener("submit", (e) => { e.preventDefault(); send(); });
 ask.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  if (e.isComposing) return;
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); return; }
+  if (ask.selectionStart !== ask.selectionEnd || !askHistory.length) return;
+  const caret = ask.selectionStart;
+  if (e.key === "ArrowUp" && !ask.value.slice(0, caret).includes("\n")) {
+    if (historyIndex < 0) historyDraft = ask.value;
+    historyIndex = Math.min(historyIndex + 1, askHistory.length - 1);
+  } else if (e.key === "ArrowDown" && historyIndex >= 0 && !ask.value.slice(caret).includes("\n")) {
+    historyIndex--;
+  } else return;
+  e.preventDefault();
+  ask.value = historyIndex < 0 ? historyDraft : askHistory[historyIndex];
+  ask.setSelectionRange(e.key === "ArrowUp" ? 0 : ask.value.length, e.key === "ArrowUp" ? 0 : ask.value.length);
+  autosize();
 });
 function autosize() { ask.style.height = "auto"; ask.style.height = Math.min(40, ask.scrollHeight) + "px"; }
-ask.addEventListener("input", () => { autosize(); S.lastActive = Date.now(); });
+ask.addEventListener("input", () => { historyIndex = -1; autosize(); S.lastActive = Date.now(); });
 ask.addEventListener("focus", () => { if (!S.busy) mood("listen"); });
 ask.addEventListener("blur", () => { if (!S.busy && orb.className.includes("s-listen")) mood("idle"); });
 $("#setupBtn").onclick = openSettings;

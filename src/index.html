@@ -30,6 +30,7 @@
     </div>
     <form id="capsule" autocomplete="off">
       <div id="attach" hidden></div>
+      <button type="button" id="planToggle" aria-pressed="false">执行</button>
       <textarea id="ask" rows="1" placeholder="有什么可以帮你？" aria-label="输入问题"></textarea>
       <button type="button" class="ib" id="vcMic" title="语音输入" aria-label="语音输入：听写到输入框" aria-pressed="false">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
@@ -66,6 +67,7 @@
       <p>请在系统设置 → 隐私与安全性 → 辅助功能中允许悬浮球读取选中文字。</p>
       <div class="tmpqb"><button class="x-sb" id="feedClose">取消</button><button class="x-sb" id="feedSettings">打开辅助功能设置</button></div>
     </div>
+    <p id="planBanner" hidden>只规划 · 不会改动任何东西</p>
     <p id="tmpBanner" hidden><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/><path d="M9.5 9v6M14.5 9v6"/></svg>临时对话 · 不保存，也不用来记忆</p>
     <div class="tmpq" id="tmpQ" role="alertdialog" aria-labelledby="tmpQT" hidden><p id="tmpQT"></p><div class="tmpqb"><button type="button" class="x-sb" id="tmpNo">取消</button><button type="button" class="x-sb x-pri" id="tmpOk">转成临时</button></div></div>
 
