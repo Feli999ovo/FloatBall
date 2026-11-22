@@ -6,7 +6,11 @@ permissions:
   contents: read
 jobs:
   rust:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     env:
       FLOATBALL_REGENERATE_CONTRACT: '1'
     defaults:
@@ -20,15 +24,17 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - run: cargo test ipc_contract
+      - run: cargo test --lib ipc_contract
       - name: Save generated files and format changes
+        if: always()
         shell: bash
         run: |
           cargo fmt
           git diff --binary > ../fmt-and-lock.patch
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          name: specta-contract
+          name: specta-contract-${{ runner.os }}
           path: |
             fmt-and-lock.patch
             src/ipc.d.ts
