@@ -1451,6 +1451,7 @@ dependencies = [
  "get-selected-text",
  "image",
  "keyring",
+ "libc",
  "log",
  "objc2 0.6.5",
  "objc2-foundation",
