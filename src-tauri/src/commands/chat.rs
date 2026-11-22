@@ -197,3 +197,22 @@ pub fn cancel_chat(state: State<'_, AppState>, id: String) {
         h.abort();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_images_for_text_models() {
+        let msgs = vec![json!({"role":"user","content":[
+            {"type":"text","text":"这是什么"},
+            {"type":"image_url","image_url":{"url":"data:image/jpeg;base64,xx"}}
+        ]})];
+        let out = prepare_messages("你是助手", false, msgs.clone());
+        assert_eq!(out[0]["role"], "system");
+        assert!(out[1]["content"].as_str().unwrap().contains("这是什么"));
+        let out = prepare_messages(" ", true, msgs);
+        assert_eq!(out.len(), 1);
+        assert!(out[0]["content"].is_array());
+    }
+}
