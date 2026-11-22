@@ -73,6 +73,14 @@ jobs:
       - run: cargo test --locked
         working-directory: src-tauri
 
+      - name: 核对前端与 Rust 命令声明
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cargo run --manifest-path src-tauri/Cargo.toml --locked --features gen-ipc --bin gen_ipc -- "$RUNNER_TEMP/floatball-ipc.d.ts"
+          diff -u src/ipc.d.ts "$RUNNER_TEMP/floatball-ipc.d.ts"
+          node tools/check-ipc.mjs
+
       - uses: tauri-apps/tauri-action@v0
         with:
           args: ${{ matrix.args }}
