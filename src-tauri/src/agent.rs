@@ -86,6 +86,8 @@ pub struct Task {
     pub cfg: Config,
     plan_only: bool,
     pre_allow: Vec<String>,
+    changes: Arc<crate::changes::Changes>,
+    backup: PathBuf,
     pub world: Arc<dyn World>,
     pub asks: Arc<Asks>,
     /// 删除的文件移到这里（悬浮球回收站），可以找回
@@ -216,9 +218,9 @@ fn handoff_summary(result: &str, writes: u64) -> (u64, String) {
 }
 
 impl Task {
-    pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>, plan_only: bool, pre_allow: Vec<String>) -> Arc<Self> {
+    pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>, plan_only: bool, pre_allow: Vec<String>, changes: Arc<crate::changes::Changes>, backup: PathBuf) -> Arc<Self> {
         let par = cfg.limits.parallel.max(1) as usize;
-        Arc::new(Self { cfg, plan_only, pre_allow, world, asks, trash, emit, tokens: AtomicU64::new(0), prompt: AtomicU64::new(0), completion: AtomicU64::new(0), cost: Mutex::new(Some(0.0)), has_usage: Default::default(), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default(), catalog: Mutex::new(None), last_delegate: Mutex::new(None) })
+        Arc::new(Self { cfg, plan_only, pre_allow, changes, backup, world, asks, trash, emit, tokens: AtomicU64::new(0), prompt: AtomicU64::new(0), completion: AtomicU64::new(0), cost: Mutex::new(Some(0.0)), has_usage: Default::default(), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default(), catalog: Mutex::new(None), last_delegate: Mutex::new(None) })
     }
 
     fn price_for(&self, base: &str, model: &str, provider: &str, prompt: u64, completion: u64) -> Option<f64> {
@@ -593,7 +595,7 @@ impl Task {
         }
         let path = file_tool.then(|| arg(&a, "path"));
         self.pill(&call, agent, &name, &shown, "run", if pre_authorized { "已预授权" } else { "" }, path.clone());
-        let r = self.exec(&c.name, &a).await;
+        let r = self.exec(&c.name, &a, &call, &agent.id).await;
         if c.name == "write_file" && r.is_ok() {
             if let Some(stats) = stats { stats.writes.fetch_add(1, Ordering::Relaxed); }
         }
@@ -626,7 +628,7 @@ impl Task {
         (r.unwrap_or(Answer { reason: "5 分钟没有确认，已跳过".into(), ..Answer::default() }), false)
     }
 
-    async fn exec(&self, name: &str, a: &Value) -> Result<String, String> {
+    async fn exec(&self, name: &str, a: &Value, call: &str, agent_id: &str) -> Result<String, String> {
         match name {
             "web_search" => self.world.search(&arg(a, "query")).await,
             "fetch_page" => {
@@ -642,26 +644,16 @@ impl Task {
                     return Err("没有给文件路径".into());
                 }
                 let content = a.get("content").and_then(Value::as_str).unwrap_or("");
-                if let Some(d) = Path::new(&p).parent() {
-                    std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
-                }
-                std::fs::write(&p, content).map_err(|e| e.to_string())?;
+                let change = self.changes.write(Path::new(&p), content, &self.backup, call, agent_id).map_err(|e| e.to_string())?;
+                (self.emit)(ChatEvent::Change { change });
                 Ok(format!("已写入 {p}（{} 字）", content.chars().count()))
             }
             "delete_file" => {
                 let p = PathBuf::from(arg(a, "path"));
-                if !p.is_file() {
-                    return Err("找不到这个文件（文件夹不能删）".into());
-                }
-                std::fs::create_dir_all(&self.trash).map_err(|e| e.to_string())?;
-                let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
-                let to = self.trash.join(format!("{stamp}-{}", file_name(&p.to_string_lossy())));
-                if std::fs::rename(&p, &to).is_err() {
-                    // 不在同一个磁盘：先复制再删
-                    std::fs::copy(&p, &to).map_err(|e| e.to_string())?;
-                    std::fs::remove_file(&p).map_err(|e| e.to_string())?;
-                }
-                Ok(format!("已删除 {}，移到了悬浮球回收站：{}", p.display(), to.display()))
+                let change = self.changes.delete(&p, &self.trash, agent_id).map_err(|e| e.to_string())?;
+                let result = format!("已删除 {}，移到了悬浮球回收站：{}", p.display(), change.backup.as_deref().unwrap().display());
+                (self.emit)(ChatEvent::Change { change });
+                Ok(result)
             }
             "send_email" => {
                 let enc = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~@".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
@@ -924,7 +916,7 @@ mod tests {
         let events = Arc::new(Mutex::new(vec![]));
         let ev = events.clone();
         let dir = tempfile::tempdir().unwrap();
-        let task = Task::new(cfg, fake.clone(), Arc::new(Asks::default()), dir.path().join("回收站"), Arc::new(move |e| ev.lock().unwrap().push(e)), false, vec![]);
+        let task = Task::new(cfg, fake.clone(), Arc::new(Asks::default()), dir.path().join("回收站"), Arc::new(move |e| ev.lock().unwrap().push(e)), false, vec![], Arc::new(crate::changes::Changes::default()), dir.path().join("改动备份"));
         Env { task, fake, events, got, dir }
     }
 

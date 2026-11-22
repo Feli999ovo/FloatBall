@@ -194,6 +194,11 @@
         (st.memories ||= {})[a.agent] = a.id == null ? [] : (st.memories[a.agent] || []).filter((m) => m.id !== a.id);
         window.__emit("memory:changed", a.agent);
         return null;
+      case "undo_change":
+        (st.undoResults ||= []).push(a);
+        if (a.id === "modify" && !a.confirmChanged) return false;
+        if (a.id === "delete") throw new Error("原位置已经有同名文件，没有撤回");
+        return true;
       case "cancel_chat": st.cancelled = a.id; return null;
       case "chat": {
         const last = a.messages[a.messages.length - 1];
@@ -263,6 +268,12 @@
             tool("r1", "读取文件", "D:/旧版/周报.txt", "done");
             tool("r2", "读取文件", "D:/本周/周报.txt", "done");
             if (st.receiptProbe === "stop") return;
+            if (st.receiptProbe === "changes") {
+              const change = (id, kind, path, backup) => out({ type: "change", change: { id, kind, path, backup, agent_id: "lead" } });
+              change("new", "新建", "D:/本周/总结.txt", null);
+              change("modify", "修改", "D:/本周/汇总.txt", "D:/数据/改动备份/汇总.txt");
+              change("delete", "删除", "D:/旧版/失效.txt", "D:/数据/回收站/失效.txt");
+            }
             tool("w1", "写入文件", "D:/本周/汇总.txt", "wait");
             st.onAnswer = (ans) => {
               tool("w1", "写入文件", "D:/本周/汇总.txt", ans.allow ? "done" : "no");
