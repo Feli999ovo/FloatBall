@@ -19,7 +19,6 @@ mod stt;
 use catalog::Catalog;
 use commands::capture::*;
 use commands::config::*;
-use commands::handoff::*;
 use commands::history::*;
 use commands::routine::*;
 use commands::selection::*;
