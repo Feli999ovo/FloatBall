@@ -1,0 +1,46 @@
+name: Compare Windows screenshots
+on:
+  push:
+    branches: [r5-controlled]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: 悬浮球-windows-latest
+          github-token: ${{ github.token }}
+          run-id: 45075150372
+          path: baseline
+      - uses: actions/download-artifact@v8
+        with:
+          name: 悬浮球-windows-latest
+          github-token: ${{ github.token }}
+          run-id: 45077376155
+          path: candidate
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($kind in @('baseline', 'candidate')) {
+            $installer = (Get-ChildItem $kind -Recurse -Filter *.exe | Select-Object -First 1).FullName
+            7z x $installer "-o$kind/unpacked" floatball.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Could not extract application' }
+            $exe = (Get-ChildItem "$kind/unpacked" -Recurse -Filter floatball.exe | Select-Object -First 1).FullName
+            $config = '{"models":[{"id":1,"model":"fixture","base_url":"http://127.0.0.1:9/v1","no_key":true}],"default_model":1}'
+            foreach ($dir in @((Join-Path (Split-Path $exe) 'data'), (Join-Path $env:APPDATA 'com.floatball.desktop'))) {
+              New-Item -ItemType Directory -Force $dir | Out-Null
+              Set-Content -Path (Join-Path $dir 'config.json') -Value $config -Encoding utf8
+            }
+            ./tools/shoot-windows.ps1 -Exe $exe -Out "$kind/shots" -Wallpaper design-reference/wallpaper.jpg
+            New-Item -ItemType Directory -Force "compare/$kind" | Out-Null
+            Get-ChildItem "$kind/shots" | Where-Object Name -Match '^(01_|04_|07b_)' | Copy-Item -Destination "compare/$kind"
+          }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: controlled-screenshots
+          path: compare
