@@ -41,6 +41,7 @@ pub enum ChatEvent {
     Team { call: String, agent_id: String, agent: String, task: String, model: String, model_id: u32, status: String, tokens: u64, prompt: u64, completion: u64, cost: Option<f64> },
     Handoff { from_call: String, to_call: String, from: String, to: String, count: u64, unit: String, cost: Option<f64> },
     Cost { amount: Option<f64> },
+    Change { change: crate::changes::Change },
     /// 预算用满（kind：tokens / steps），任务暂停，等用户选「再给一些」或「停止」，答案也走 answer_ask（allow = 再给）
     Budget { ask: u64, kind: String, used: u64, limit: u64, more: u64 },
     /// 需要用户确认（发送、删除、写文件等）。界面显示确认卡片，用户的选择通过 answer_ask 传回

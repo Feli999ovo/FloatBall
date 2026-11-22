@@ -1042,7 +1042,7 @@ tmpQ.addEventListener("keydown", (e) => {
 function showConv(c) {
   const o = S.conv;
   if (o === c) return;
-  closeTmp(); historyIndex = -1;
+  closeTmp(); closeChange(); historyIndex = -1;
   if (o) { o.msgs = S.msgs; o.title = $("#title").textContent; o.dom.append(...msgsEl.childNodes); }
   S.conv = c; S.convId = c.id; S.msgs = c.msgs; S.busy = c.busy; S.stopFn = c.stop;
   msgsEl.innerHTML = ""; msgsEl.append(...c.dom.childNodes);
@@ -1103,7 +1103,7 @@ function setMeta(el, text, opts = {}) {
   if (text) { const s = document.createElement("span"); s.textContent = text; meta.appendChild(s); }
 }
 
-function renderReceipt(el, tools, confirmations, task, usage, model) {
+function renderReceipt(el, tools, confirmations, task, usage, model, changes) {
   if (!tools.size) return;
   const counts = new Map(), reads = new Set(), writes = new Set(), deletes = new Set(), effects = [];
   let read = 0, write = 0, allowed = 0, denied = 0;
@@ -1135,6 +1135,7 @@ function renderReceipt(el, tools, confirmations, task, usage, model) {
     ["工具", [...counts].map(([name, n]) => `${name} × ${n}`).join("、")],
     ["读过", [...reads].join("\n")], ["写过", [...writes].join("\n")], ["移到回收站", [...deletes].join("\n")],
     ["确认", `允许 ${allowed} 次 · 拒绝 ${denied} 次`], ["其他操作", effects.join("\n")],
+    ["改动", changes.map(({ kind, path }) => `${kind} · ${path}`).join("\n")],
     ["模型", model], ["用量", tokens ? `${fmtTok(tokens)} tokens` : "未知"], ["花费", cost],
   ];
   for (const [title, text] of rows) {
@@ -1148,6 +1149,62 @@ function renderReceipt(el, tools, confirmations, task, usage, model) {
     if (!detail.hidden) detail.scrollIntoView({ block: "nearest" });
   };
   meta.append(summary, button); meta.after(detail);
+}
+
+const changeQ = $("#changeQ"), changeOk = $("#changeOk"), changeNo = $("#changeNo");
+let changeTarget = null;
+function closeChange() {
+  changeQ.hidden = true; changeTarget = null; changeOk.disabled = changeNo.disabled = false;
+}
+changeNo.onclick = () => { const button = changeTarget?.button; closeChange(); button?.focus(); };
+changeQ.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !changeNo.disabled) { e.stopPropagation(); changeNo.click(); }
+});
+changeOk.onclick = async () => {
+  const target = changeTarget;
+  if (!target) return;
+  changeOk.disabled = changeNo.disabled = true;
+  try {
+    const undone = await invoke("undo_change", { id: target.id, confirmChanged: target.confirmChanged });
+    if (undone) { target.button.textContent = "已撤回"; target.button.disabled = true; }
+    if (changeTarget !== target) return;
+    if (undone) { closeChange(); return; }
+    target.confirmChanged = true;
+    $("#changeQT").textContent = "这个文件之后又被改过，撤回会丢掉之后的改动";
+    changeOk.textContent = "仍要撤回";
+  } catch (e) {
+    if (changeTarget === target) { closeChange(); toastErr(e); target.button.focus(); }
+  } finally {
+    if (changeTarget === target) { changeOk.disabled = changeNo.disabled = false; changeNo.focus(); }
+  }
+};
+function renderChanges(el, changes) {
+  if (!changes.length) return;
+  const button = document.createElement("button"), list = document.createElement("div");
+  button.type = "button";
+  const total = new Set(changes.map(({ path }) => path)).size;
+  button.textContent = `这一轮改了 ${total} 个文件 · 查看`;
+  button.setAttribute("aria-expanded", "false");
+  list.className = "file-changes"; list.hidden = true;
+  for (const { id, path, kind } of [...changes].reverse()) {
+    const row = document.createElement("div"), text = document.createElement("span"), undo = document.createElement("button");
+    const mark = { 新建: "新", 修改: "改", 删除: "删" }[kind];
+    text.textContent = `${mark} · ${path}`;
+    undo.type = "button"; undo.className = "x-sb"; undo.textContent = "撤回";
+    undo.onclick = () => {
+      changeTarget = { id, button: undo, confirmChanged: false };
+      $("#changeQT").textContent = `撤回对这个文件的${kind}？\n${path}`;
+      changeOk.textContent = "撤回"; changeQ.hidden = false; changeNo.focus();
+    };
+    row.append(text, undo); list.appendChild(row);
+  }
+  button.onclick = () => {
+    list.hidden = !list.hidden;
+    button.setAttribute("aria-expanded", !list.hidden);
+    button.textContent = `这一轮改了 ${total} 个文件 · ${list.hidden ? "查看" : "收起"}`;
+    if (!list.hidden) list.scrollIntoView({ block: "nearest" });
+  };
+  el.querySelector(".meta").appendChild(button); el.appendChild(list);
 }
 
 function buildContent(text, attach) {
@@ -1261,9 +1318,12 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
   let txt = el.querySelector(".txt");
   // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
   let out = "", seg = "", usage = null, raf = 0;
-  const tools = new Map(), confirmations = new Map();
+  const tools = new Map(), confirmations = new Map(), changes = [];
   const model = leadModelName();
-  const receipt = () => renderReceipt(el, tools, confirmations, task, usage, model);
+  const receipt = () => {
+    renderReceipt(el, tools, confirmations, task, usage, model, changes);
+    renderChanges(el, changes);
+  };
   const paint = () => { raf = 0; const live = conv.busy === id; txt.innerHTML = live && !seg ? "" : live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
   const ch = new Channel();
   ch.onmessage = (ev) => {
@@ -1271,6 +1331,8 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
     if (ev.type === "delta") {
       out += ev.text; seg += ev.text; // 说话时保持思考的光点（照原型：流式输出时是 think）
       if (!raf) raf = requestAnimationFrame(paint);
+    } else if (ev.type === "change") {
+      changes.push(ev.change);
     } else if (ev.type === "tool") {
       tools.set(ev.call, ev);
       toolPill(el, ev);

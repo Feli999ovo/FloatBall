@@ -5,6 +5,7 @@
 mod agent;
 mod applog;
 mod capture;
+mod changes;
 mod catalog;
 mod stt;
 mod config;
@@ -41,6 +42,7 @@ pub struct AppState {
     store: Mutex<Option<store::Store>>,
     chats: Mutex<HashMap<String, JoinHandle<()>>>,
     asks: Arc<agent::Asks>,
+    changes: Arc<changes::Changes>,
     /// 已注册的全局快捷键和它触发的动作（发给小球窗口的 menu 事件名）
     shortcuts: Mutex<Vec<(Shortcut, &'static str)>>,
     menu_window: Mutex<Option<capture::WindowKey>>,
@@ -879,6 +881,14 @@ pub(crate) fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<
     out
 }
 
+#[tauri::command]
+async fn undo_change(app: AppHandle, id: String, confirm_changed: bool) -> Result<bool, String> {
+    let state = app.state::<AppState>();
+    let changes = state.changes.clone();
+    let trash = state.data_dir.join("回收站");
+    tauri::async_runtime::spawn_blocking(move || changes.undo(&id, confirm_changed, &trash)).await.map_err(|e| e.to_string())?
+}
+
 /// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
 /// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
@@ -914,21 +924,23 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
     });
     let trash = state.data_dir.join("回收站");
     let asks = state.asks.clone();
+    let changes = state.changes.clone();
+    let backup = state.data_dir.join("改动备份").join(uuid::Uuid::new_v4().to_string());
     let task = tauri::async_runtime::spawn(async move {
         let pre_allow = pre_allow.unwrap_or_default();
-        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone(), plan.unwrap_or_default(), pre_allow.clone());
+        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone(), plan.unwrap_or_default(), pre_allow.clone(), changes.clone(), backup.clone());
         *t.catalog.lock().unwrap() = Some(catalog.clone());
         let mut r = t.run(&lead, messages.clone(), true).await;
         let mut prompt = t.prompt.load(std::sync::atomic::Ordering::Relaxed);
         let mut completion = t.completion.load(std::sync::atomic::Ordering::Relaxed);
         let mut estimate = t.estimate();
-        let backup = cfg.models.iter().any(|m| m.id == lead.fallback && Some(m.id) != cfg.model_for(&lead).map(|x| x.id));
-        if let (Err(e), true, false) = (&r, backup, got.load(std::sync::atomic::Ordering::Relaxed)) {
+        let has_fallback = cfg.models.iter().any(|m| m.id == lead.fallback && Some(m.id) != cfg.model_for(&lead).map(|x| x.id));
+        if let (Err(e), true, false) = (&r, has_fallback, got.load(std::sync::atomic::Ordering::Relaxed)) {
             js_log(format!("主模型出错，换备用模型：{e}"));
             let mut l2 = lead.clone();
             l2.model = lead.fallback;
             l2.auto = false;
-            let t2 = agent::Task::new(cfg, world, asks, trash, emit, plan.unwrap_or_default(), pre_allow);
+            let t2 = agent::Task::new(cfg, world, asks, trash, emit, plan.unwrap_or_default(), pre_allow, changes, backup);
             *t2.catalog.lock().unwrap() = Some(catalog);
             r = t2.run(&l2, messages, true).await;
             prompt += t2.prompt.load(std::sync::atomic::Ordering::Relaxed);
@@ -1439,6 +1451,7 @@ pub fn run() {
             log::info!("数据目录 {}", data_dir.display());
             let cfg = Config::load(&cfg_dir);
             log::info!("配置目录 {}，划词 {}", cfg_dir.display(), cfg.sel.on);
+            changes::prune(&data_dir.join("改动备份"), std::time::SystemTime::now());
             let store = store::Store::open(&data_dir).map_err(|e| log::error!("history db: {e}")).ok();
             app.manage(AppState {
                 cfg: Mutex::new(cfg.clone()),
@@ -1449,6 +1462,7 @@ pub fn run() {
                 store: Mutex::new(store),
                 chats: Mutex::new(HashMap::new()),
                 asks: Arc::new(agent::Asks::default()),
+                changes: Arc::new(changes::Changes::default()),
                 shortcuts: Mutex::new(vec![]),
                 menu_window: Mutex::new(None),
                 current_window: Mutex::new(None),
@@ -1497,7 +1511,7 @@ pub fn run() {
             save_model,
             delete_model,
             set_default_model,
-            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_skill, delete_skill, save_limits, save_memory_prefs, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, answer_ask, save_perm,
+            save_prefs, settings_backdrop, settings_goto, screens, sel_status, sel_place, sel_resize, sel_hide, sel_act, sel_copy, open_url, sel_open_privacy, save_agent, delete_agent, save_skill, delete_skill, save_limits, save_memory_prefs, save_handoff_prefs, handoff_scan, handoff_pick, handoff_go, save_routine, delete_routine, routine_next, routine_done, undo_change, answer_ask, save_perm,
             list_models,
             model_caps,
             catalog_refresh,
