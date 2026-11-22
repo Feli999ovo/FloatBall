@@ -18,6 +18,8 @@ mod stt;
 
 use catalog::Catalog;
 use commands::capture::*;
+use commands::selection::*;
+use commands::voice::*;
 use commands::history::*;
 use config::{Config, Model};
 use llm::ChatEvent;
@@ -782,112 +784,6 @@ fn save_position(state: State<'_, AppState>, x: f64, y: f64) -> Result<(), Strin
     c.save(&state.cfg_dir)
 }
 
-/// 选了服务商识别但没配好时的提示
-const VOICE_NO_PROVIDER: &str =
-    "语音识别选的是服务商，但还没有添加模型：设置 → 模型里添加，或在设置 → 语音里改用系统识别";
-const VOICE_NO_KEY: &str =
-    "语音识别选的服务商还没填 API Key：设置 → 模型里补上，或在设置 → 语音里改用系统识别";
-
-/// 按下说话时调用：系统识别在 Windows 上从这里开始听麦克风（其他情况什么都不做）
-#[tauri::command]
-async fn stt_begin(state: State<'_, AppState>) -> Result<(), String> {
-    let v = state.cfg.lock().unwrap().voice.clone();
-    if v.engine != "system" {
-        return Ok(());
-    }
-    if !stt::SUPPORTED {
-        return Err(stt::UNSUPPORTED.into());
-    }
-    tauri::async_runtime::spawn_blocking(move || stt::begin(&v.lang))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-/// 取消录音：系统识别不要结果
-#[tauri::command]
-async fn stt_cancel() {
-    let _ = tauri::async_runtime::spawn_blocking(stt::cancel).await;
-}
-
-/// 系统识别：Windows 停下取文字；macOS 把录音写成临时文件交给本机识别
-async fn transcribe_system(bytes: Vec<u8>, mime: &str, lang: String) -> Result<String, String> {
-    if cfg!(target_os = "macos") {
-        let ext = if mime.contains("mp4") || mime.contains("m4a") || mime.contains("aac") {
-            "m4a"
-        } else if mime.contains("wav") {
-            "wav"
-        } else {
-            "webm"
-        };
-        let path =
-            std::env::temp_dir().join(format!("floatball-voice-{}.{ext}", std::process::id()));
-        std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-        let p2 = path.clone();
-        let r = tauri::async_runtime::spawn_blocking(move || recognize_file(&p2, &lang))
-            .await
-            .map_err(|e| e.to_string())?;
-        let _ = std::fs::remove_file(&path);
-        r
-    } else {
-        let _ = (bytes, lang);
-        tauri::async_runtime::spawn_blocking(stt::end)
-            .await
-            .map_err(|e| e.to_string())?
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn recognize_file(p: &std::path::Path, lang: &str) -> Result<String, String> {
-    stt::file(p, lang)
-}
-#[cfg(not(target_os = "macos"))]
-fn recognize_file(_p: &std::path::Path, _lang: &str) -> Result<String, String> {
-    Err(stt::UNSUPPORTED.into())
-}
-
-/// 语音识别：系统自带（默认）或语音设置里选的模型服务商。返回识别出的文字
-#[tauri::command]
-async fn transcribe(
-    state: State<'_, AppState>,
-    audio: String,
-    mime: String,
-) -> Result<String, String> {
-    use base64::Engine;
-    let engine = state.cfg.lock().unwrap().voice.engine.clone();
-    if engine == "system" {
-        let lang = state.cfg.lock().unwrap().voice.lang.clone();
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(audio.trim())
-            .map_err(|_| "录音数据不对".to_string())?;
-        return transcribe_system(bytes, &mime, lang).await;
-    }
-    let (m, v) = {
-        let c = state.cfg.lock().unwrap();
-        let v = c.voice.clone();
-        let m = c
-            .models
-            .iter()
-            .find(|m| m.id == v.model)
-            .or_else(|| c.models.iter().find(|m| m.id == c.default_model))
-            .or(c.models.first())
-            .cloned();
-        (m, v)
-    };
-    let m = m.ok_or(VOICE_NO_PROVIDER)?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(audio.trim())
-        .map_err(|_| "录音数据不对".to_string())?;
-    if bytes.len() > 24 * 1024 * 1024 {
-        return Err("录音太长了，请分几次说".into());
-    }
-    let key = if m.no_key {
-        None
-    } else {
-        Some(config::get_api_key(m.id).ok_or(VOICE_NO_KEY)?)
-    };
-    llm::transcribe(&m.base(), key.as_deref(), &v.stt, &v.lang, bytes, &mime).await
-}
-
 /// 表单里填了 Key 就用填的；没填就用这个模型已经存的
 fn key_for(api_key: Option<String>, id: Option<u32>) -> Option<String> {
     api_key
@@ -1002,168 +898,6 @@ fn settings_backdrop(state: State<'_, AppState>) -> Option<capture::ScreenBackdr
 }
 
 // ───────── 划词工具栏 ─────────
-
-#[derive(Serialize)]
-struct SelStatus {
-    supported: bool,
-    trusted: bool,
-    recent: Vec<String>,
-}
-
-#[tauri::command]
-fn sel_status(state: State<'_, AppState>) -> SelStatus {
-    SelStatus {
-        supported: selection::SUPPORTED,
-        trusted: selection::trusted(false),
-        recent: state.sel_recent.lock().unwrap().clone(),
-    }
-}
-
-/// 工具栏量好自己的大小后调用：放到松开点旁边并显示（不抢焦点，原应用的选区保持不变）
-/// 返回毛玻璃底图（和对话卡片同一种：截下工具栏将要盖住的桌面、模糊）。只有 Windows 有，拿不到就是 None，前端用不透明的底。
-#[derive(serde::Serialize)]
-#[cfg_attr(not(windows), allow(dead_code))]
-struct SelBackdrop {
-    url: String,
-    w: f64,
-    h: f64,
-}
-
-#[tauri::command]
-async fn sel_place(app: AppHandle, w: f64, h: f64, x: f64, y: f64) -> Option<SelBackdrop> {
-    log::info!("sel_place 开始 {w}x{h} @ {x},{y}");
-    let win = app.get_webview_window("selbar")?;
-    #[cfg(windows)]
-    let was = selection::bar_shown();
-    #[cfg(windows)]
-    if was {
-        selection::bar_hide(&win); // 截图时别把上一次的工具栏截进去
-    }
-    let placed = selection::place(&win, x, y, w, h);
-    #[cfg(windows)]
-    let bd = match placed {
-        Some(p) => {
-            let (bx, by, bw, bh) = selection::backdrop_rect(&p, 220.0);
-            let (px, py) = (p.left + p.w as i32 / 2, p.top + p.h as i32 / 2);
-            let shot = tauri::async_runtime::spawn_blocking(move || {
-                capture::backdrop_at(px, py, bx, by, bw, bh)
-            });
-            match tokio::time::timeout(std::time::Duration::from_millis(250), shot).await {
-                Ok(Ok(Ok(url))) => Some(SelBackdrop {
-                    url,
-                    w: bw as f64 / p.sf,
-                    h: bh as f64 / p.sf,
-                }),
-                _ => None,
-            }
-        }
-        None => None,
-    };
-    #[cfg(not(windows))]
-    let bd = {
-        let _ = placed;
-        None
-    };
-    log::info!("sel_place 显示工具栏，底图 {}", bd.is_some());
-    selection::bar_show(&win);
-    log::info!("sel_place 完成");
-    bd
-}
-
-/// 展开或收起「⋯」时只改大小，左上角不动（底部超出屏幕时往上挪）
-#[tauri::command]
-fn sel_resize(app: AppHandle, w: f64, h: f64) {
-    let Some(win) = app.get_webview_window("selbar") else {
-        return;
-    };
-    let sf = win.scale_factor().unwrap_or(1.0);
-    let (wp, hp) = ((w * sf).round() as u32, (h * sf).round() as u32);
-    if let (Ok(pos), Ok(Some(m))) = (win.outer_position(), win.current_monitor()) {
-        let bottom = m.position().y + m.size().height as i32 - 8;
-        let y = if pos.y + hp as i32 > bottom {
-            (bottom - hp as i32).max(m.position().y)
-        } else {
-            pos.y
-        };
-        let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, y));
-        selection::bar_rect((pos.x, y, wp, hp));
-    }
-    let _ = win.set_size(tauri::PhysicalSize::new(wp, hp));
-}
-
-#[tauri::command]
-fn sel_hide(app: AppHandle) {
-    if let Some(win) = app.get_webview_window("selbar") {
-        selection::bar_hide(&win);
-    }
-}
-
-/// 工具栏上点了某个动作：交给小球（展开对话并发出去）
-#[tauri::command]
-fn sel_act(app: AppHandle, act: String, text: String) {
-    if let Some(win) = app.get_webview_window("selbar") {
-        selection::bar_hide(&win);
-    }
-    show_ball(&app);
-    let _ = app.emit_to(
-        "main",
-        "sel:act",
-        serde_json::json!({ "act": act, "text": text }),
-    );
-}
-
-#[tauri::command]
-fn sel_copy(text: String) -> Result<(), String> {
-    #[cfg(any(windows, target_os = "macos"))]
-    {
-        arboard::Clipboard::new()
-            .and_then(|mut c| c.set_text(text))
-            .map_err(|e| e.to_string())
-    }
-    #[cfg(not(any(windows, target_os = "macos")))]
-    {
-        let _ = text;
-        Err("这个系统上还不支持".into())
-    }
-}
-
-/// 用默认浏览器打开网页（只许 http/https）
-#[tauri::command]
-fn open_url(url: String) -> Result<(), String> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("只能打开网页".into());
-    }
-    open_external(&url)
-}
-
-/// macOS：打开 系统设置 → 隐私与安全性 → 辅助功能
-#[tauri::command]
-fn sel_open_privacy() -> Result<(), String> {
-    if cfg!(target_os = "macos") {
-        let _ = selection::trusted(true);
-        open_external(
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-        )
-    } else {
-        Ok(())
-    }
-}
-
-fn open_external(target: &str) -> Result<(), String> {
-    #[cfg(windows)]
-    let r = {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("rundll32")
-            .args(["url.dll,FileProtocolHandler", target])
-            .creation_flags(0x0800_0000)
-            .spawn()
-    };
-    #[cfg(target_os = "macos")]
-    let r = std::process::Command::new("open").arg(target).spawn();
-    #[cfg(not(any(windows, target_os = "macos")))]
-    let r = std::process::Command::new("xdg-open").arg(target).spawn();
-    r.map(|_| ()).map_err(|e| e.to_string())
-}
 
 /// agent：直接打开这个 Agent 的编辑页（Agent 弹卡的「更换」模型）
 #[tauri::command]
@@ -1901,14 +1635,14 @@ pub fn run() {
             settings_backdrop,
             settings_goto,
             screens,
-            sel_status,
-            sel_place,
-            sel_resize,
-            sel_hide,
-            sel_act,
-            sel_copy,
-            open_url,
-            sel_open_privacy,
+            commands::selection::sel_status,
+            commands::selection::sel_place,
+            commands::selection::sel_resize,
+            commands::selection::sel_hide,
+            commands::selection::sel_act,
+            commands::selection::sel_copy,
+            commands::selection::open_url,
+            commands::selection::sel_open_privacy,
             save_agent,
             delete_agent,
             save_skill,
@@ -1929,8 +1663,8 @@ pub fn run() {
             list_models,
             model_caps,
             catalog_refresh,
-            stt_begin,
-            stt_cancel,
+            commands::voice::stt_begin,
+            commands::voice::stt_cancel,
             open_settings,
             save_position,
             test_connection,
