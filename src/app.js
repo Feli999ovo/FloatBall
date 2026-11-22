@@ -339,6 +339,7 @@ document.addEventListener("keydown", (e) => {
 function showView(v) {
   $("#feedPermission").hidden = true;
   $("#vChat").hidden = v !== "chat";
+  const openingTasks = v === "task" && $("#vTask").hidden;
   $("#vTask").hidden = v !== "task";
   $("#tabChat").setAttribute("aria-selected", v !== "task"); $("#tabTask").setAttribute("aria-selected", v === "task");
   $("#tabChat").tabIndex = v === "task" ? -1 : 0; $("#tabTask").tabIndex = v === "task" ? 0 : -1;
@@ -350,7 +351,10 @@ function showView(v) {
   $("#card").classList.toggle("ho", v === "ho" || v === "skill"); // 交给终端打开时把「对话 | 任务」和标题栏让给面板：卡片只有 260 高
   $("#histBtn").setAttribute("aria-pressed", v === "hist");
   if (v === "hist") loadHistory();
-  if (v === "task") { renderTasks(); rtRefresh().then(renderTasks); }
+  if (v === "task") {
+    if (openingTasks && pendingCards.size) $("#tasks").scrollTop = 0;
+    renderTasks(); rtRefresh().then(renderTasks);
+  }
   if (v === "chat") updateEmpty();
   syncTmp();
   syncShare();
@@ -366,15 +370,33 @@ $(".seg").addEventListener("keydown", (e) => {
 });
 
 /* ───────── 任务：这次打开以来发出的请求，正在回答的可以停（取自参考版本） ───────── */
+const pendingCards = new Map();
+function syncPending() {
+  needOn(pendingCards.size > 0);
+  renderTasks();
+}
 function renderTasks() {
-  const run = S.tasks.filter((t) => t.st === "run").length;
-  $("#tBadge").hidden = !run; $("#tBadge").textContent = run;
+  const badgeCount = S.tasks.filter((t) => t.st === "run").length + pendingCards.size;
+  $("#tBadge").hidden = !badgeCount; $("#tBadge").textContent = badgeCount;
   if ($("#vTask").hidden) return;
   const box = $("#tasks");
   box.textContent = "";
-  if (agList().length > 1) { box.appendChild(agRow()); agSync(); }
-  // 照原型分组：进行中、定时任务、已完成
   const head = (t) => { const h = document.createElement("p"); h.className = "hg"; h.textContent = t; box.appendChild(h); return h; };
+  if (pendingCards.size) {
+    head("等你处理").id = "pendingHead";
+    for (const { conv, card, desc } of pendingCards.values()) {
+      const row = document.createElement("button"); row.type = "button"; row.className = "tk pending-row";
+      row.textContent = `${conv.title} · ${desc}`; row.title = row.textContent;
+      row.onclick = () => {
+        goConv(conv, false);
+        card.scrollIntoView({ block: "nearest" });
+        card.tabIndex = -1;
+        card.focus({ preventScroll: true });
+      };
+      box.appendChild(row);
+    }
+  }
+  if (agList().length > 1) { box.appendChild(agRow()); agSync(); }
   const rts = (S.cfg && S.cfg.routines) || [];
   const act = S.tasks.filter((t) => t.st === "run"), fin = S.tasks.filter((t) => t.st !== "run");
   if (act.length) { head("进行中"); act.forEach((t) => box.appendChild(taskRow(t))); }
@@ -1048,7 +1070,7 @@ function showConv(c) {
   msgsEl.innerHTML = ""; msgsEl.append(...c.dom.childNodes);
   $("#title").textContent = c.title;
   $("#stopRow").hidden = !c.busy;
-  needOn([...convs].some((x) => x.need));
+  needOn(pendingCards.size > 0);
   seen(c);
   syncTmp(); syncShare(); updateEmpty(); scrollEnd();
 }
@@ -1065,10 +1087,10 @@ function doneMark(c) { unseen.add(c); badge(); }
 function seen(c) { unseen.delete(c); badge(); }
 function badge() { const n = unseen.size; orb.querySelector(".dn").dataset.n = n; if (n) orb.dataset.done = n; else delete orb.dataset.done; }
 // 回到某条对话（任务页点一行、点后台任务的小泡）
-function goConv(c) {
+function goConv(c, focus = true) {
   showConv(c); seen(c);
   if (S.open) showView("chat"); else expand("chat");
-  focusAsk();
+  if (focus) focusAsk();
 }
 function addUserBubble(text, attach, conv = S.conv) {
   const el = document.createElement("div");
@@ -1178,7 +1200,45 @@ changeOk.onclick = async () => {
     if (changeTarget === target) { changeOk.disabled = changeNo.disabled = false; changeNo.focus(); }
   }
 };
-function renderChanges(el, changes) {
+function agentModel(agent) {
+  const c = S.cfg || {};
+  return c.models?.find((m) => m.id === agent?.model) || c.models?.find((m) => m.id === c.default_model);
+}
+function renderReview(list, changes, conv) {
+  const agents = agList(), authors = new Set(changes.map(({ agent_id }) => agent_id));
+  const reviewers = agents.filter((agent) => !authors.has(agent.id));
+  if (!reviewers.length) return;
+  const usedModels = new Set(agents.filter((agent) => authors.has(agent.id)).map((agent) => agentModel(agent)?.id));
+  const recommended = reviewers.find((agent) => !usedModels.has(agentModel(agent)?.id)) || reviewers[0];
+  const button = document.createElement("button"), form = document.createElement("form"), select = document.createElement("select"), start = document.createElement("button");
+  button.type = "button"; button.className = start.className = "x-sb";
+  button.textContent = "请别的 Agent 审查"; button.setAttribute("aria-expanded", "false");
+  select.className = "x-in"; select.setAttribute("aria-label", "审查 Agent");
+  for (const agent of reviewers) select.add(new Option(agent.name, agent.id));
+  select.value = recommended.id;
+  start.type = "submit"; start.textContent = "开始审查";
+  form.hidden = true; form.append(select, start);
+  button.onclick = () => {
+    form.hidden = !form.hidden; button.setAttribute("aria-expanded", !form.hidden);
+    if (!form.hidden) select.focus();
+  };
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    if (conv.busy) { toast("请等当前回复结束再开始审查"); return; }
+    const agent = reviewers.find(({ id }) => id === select.value);
+    if (!agent) return;
+    const files = changes.map(({ kind, path, backup }) => `${kind} · 原位置：${path} · 新：${kind === "删除" ? "无" : path} · 旧：${backup || "无"}`);
+    const prompt = `请审查这一轮的改动，只读，不要修改。改动：\n${files.join("\n")}\n找出错误、遗漏和风险，按严重程度列出。`;
+    const title = `审查 · ${agent.name}`;
+    form.hidden = true; button.setAttribute("aria-expanded", "false");
+    addUserBubble(title, [], conv);
+    conv.msgs.push({ role: "user", content: prompt });
+    saveMsg(conv, "user", title).catch(() => {});
+    run(undefined, conv, true, [], agent);
+  };
+  list.append(button, form);
+}
+function renderChanges(el, changes, conv) {
   if (!changes.length) return;
   const button = document.createElement("button"), list = document.createElement("div");
   button.type = "button";
@@ -1186,6 +1246,7 @@ function renderChanges(el, changes) {
   button.textContent = `这一轮改了 ${total} 个文件 · 查看`;
   button.setAttribute("aria-expanded", "false");
   list.className = "file-changes"; list.hidden = true;
+  renderReview(list, changes, conv);
   for (const { id, path, kind } of [...changes].reverse()) {
     const row = document.createElement("div"), text = document.createElement("span"), undo = document.createElement("button");
     const mark = { 新建: "新", 修改: "改", 删除: "删" }[kind];
@@ -1299,7 +1360,7 @@ async function send(textArg) {
 
 const HO_RE = /改代码|写代码|重构|脚本|bug|报错/i;
 let chatSeq = 0;
-function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
+function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = [], reviewAgent = null) {
   const id = "c" + Date.now() + "-" + (++chatSeq);
   const userMessage = conv.msgs.at(-1);
   const prompt = currentContent ?? userMessage.content;
@@ -1307,10 +1368,13 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
   const here = () => conv === S.conv; // 这个对话是不是正显示在卡片里
   conv.busy = id; convs.add(conv);
   if (here()) { S.busy = id; syncTmp(); $("#stopRow").hidden = false; mood("think"); }
-  const task = { title: lastText(conv), st: "run", t0: Date.now(), conv };
+  const task = { title: reviewAgent ? `审查 · ${reviewAgent.name}` : lastText(conv), st: "run", t0: Date.now(), conv };
   conv.task = task;
   S.tasks.unshift(task); renderTasks();
   const el = addAiBubble(conv);
+  if (reviewAgent) {
+    const title = document.createElement("strong"); title.className = "review-title"; title.textContent = task.title; el.prepend(title);
+  }
   for (const item of conv.queue) el.parentNode.appendChild(item.el);
   renderQueue(conv);
   const scrollEnd = () => { if (here()) msgsEl.scrollTop = msgsEl.scrollHeight; };
@@ -1319,10 +1383,15 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
   // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
   let out = "", seg = "", usage = null, raf = 0;
   const tools = new Map(), confirmations = new Map(), changes = [];
-  const model = leadModelName();
+  const reviewModel = reviewAgent && agentModel(reviewAgent);
+  const model = reviewAgent ? reviewModel?.name || reviewModel?.model || "" : leadModelName();
   const receipt = () => {
     renderReceipt(el, tools, confirmations, task, usage, model, changes);
-    renderChanges(el, changes);
+    renderChanges(el, changes, conv);
+  };
+  const clearPending = (ask) => { if (pendingCards.delete(ask)) syncPending(); };
+  const addPending = (ev, card, desc) => {
+    pendingCards.set(ev.ask, { conv, card, desc, call: ev.call }); syncPending(); mood("wait");
   };
   const paint = () => { raf = 0; const live = conv.busy === id; txt.innerHTML = live && !seg ? "" : live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
   const ch = new Channel();
@@ -1335,6 +1404,13 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       changes.push(ev.change);
     } else if (ev.type === "tool") {
       tools.set(ev.call, ev);
+      if (ev.status !== "wait") {
+        for (const [ask, pending] of pendingCards) {
+          if (pending.conv !== conv || pending.call !== ev.call) continue;
+          pending.card.querySelectorAll("button,input").forEach((control) => (control.disabled = true));
+          clearPending(ask);
+        }
+      }
       toolPill(el, ev);
       if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
       el.insertBefore(txt, el.querySelector(".meta"));
@@ -1351,14 +1427,14 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       handoffRow(el, ev);
       scrollEnd();
     } else if (ev.type === "budget") {
-      budgetCard(el, ev, task);
-      conv.need = true; needOn(true); mood("wait");
+      const card = budgetCard(el, ev, task, () => clearPending(ev.ask));
+      addPending(ev, card, "预算用完，已暂停");
       if (!S.open || !here()) showPeek(`预算用完，已暂停：${task.title}`, false, () => goConv(conv));
       scrollEnd();
     } else if (ev.type === "ask") {
       confirmations.set(ev.ask, null);
-      askCard(el, ev, (allow) => confirmations.set(ev.ask, allow));
-      conv.need = true; needOn(true); mood("wait"); // 原型：等你确认 → 「等你」表情，收起时球角上亮「!」
+      const card = askCard(el, ev, (allow) => { confirmations.set(ev.ask, allow); clearPending(ev.ask); });
+      addPending(ev, card, ev.desc);
       if (!S.open || !here()) showPeek("需要你确认：" + ev.desc, false, () => goConv(conv));
       scrollEnd();
     } else if (ev.type === "usage") {
@@ -1378,7 +1454,7 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       setMeta(el, tools.size ? "" : usageLine, { copy: out });
       receipt();
       const meta = el.querySelector(".meta");
-      if (plan) {
+      if (plan && !reviewAgent) {
         const execute = document.createElement("button");
         execute.textContent = "改成执行";
         execute.onclick = () => {
@@ -1387,7 +1463,7 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
         };
         meta.appendChild(execute);
       }
-      if (codeTask && (S.cfg.handoff || {}).hint !== false) {
+      if (!reviewAgent && codeTask && (S.cfg.handoff || {}).hint !== false) {
         const b = document.createElement("button"); b.type = "button"; b.className = "ho-hint"; b.textContent = "交给终端";
         b.onclick = () => { goConv(conv); hoOpen(); };
         meta.appendChild(b);
@@ -1409,19 +1485,20 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       el.classList.add("err");
       txt.textContent = ev.message;
       const noKey = /API Key|设置/.test(ev.message);
-      setMeta(el, "", { retry: () => { if (conv.busy || conv.msgs.at(-1) !== userMessage) return; el.remove(); goConv(conv); run(currentContent, conv, plan); }, settings: noKey });
+      setMeta(el, "", { retry: () => { if (conv.busy || conv.msgs.at(-1) !== userMessage) return; el.remove(); goConv(conv); run(currentContent, conv, plan, preAllow, reviewAgent); }, settings: noKey });
       receipt();
       mood("error", 4000);
       if (!here()) doneMark(conv);
     }
   };
   function finish(st = "done") {
-    if (conv.busy === id) { conv.busy = conv.stop = null; conv.need = false; convs.delete(conv); }
+    if (conv.busy === id) { conv.busy = conv.stop = null; convs.delete(conv); }
+    for (const [ask, pending] of pendingCards) if (pending.conv === conv) pendingCards.delete(ask);
     if (st !== "done") for (const item of conv.queue) item.paused = true;
     renderQueue(conv);
     if (here()) { S.busy = S.stopFn = null; $("#stopRow").hidden = true; syncTmp(); }
     if (Object.keys(S.agBusy).length && !convs.size) { S.agBusy = {}; agSync(); }
-    needOn([...convs].some((x) => x.need));
+    needOn(pendingCards.size > 0);
     if (task.st === "run") {
       task.st = st; task.t1 = Date.now(); renderTasks();
       if (task.rt) invoke("routine_done", { id: task.rt.id, ok: st === "done", note: { done: task.rt.note, err: "运行失败，下次按时重试", stop: "已停止" }[st] || "" }).catch(() => {});
@@ -1439,7 +1516,7 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
   };
   conv.stop = el._stop; if (here()) S.stopFn = el._stop;
   const messages = currentContent === undefined ? conv.msgs : [...conv.msgs.slice(0, -1), { role: "user", content: currentContent }];
-  invoke("chat", { id, messages, temporary: conv.tmp || conv.tmpChanging, plan, preAllow, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
+  invoke("chat", { id, messages, temporary: conv.tmp || conv.tmpChanging, plan, preAllow, reviewAgent: reviewAgent?.id ?? null, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 // ───────── 多 Agent 计划卡（照搬原型 runTeam 的 .x-plan）：主控每交给一个 Agent 一步，卡里多一行 ─────────
 S.agBusy = {}; // Agent id → 正在做的那一步（任务页 Agents 头像条的状态）
@@ -1598,8 +1675,7 @@ const ICO_PATH = {
 const icoSvg = (n, cls) => `<svg class="x-ico${cls ? " " + cls : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO_PATH[n] || ""}</svg>`;
 const fmtTok = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + "K");
 function leadModelName() {
-  const c = S.cfg || {}, lead = (c.agents || [])[0] || {}, ms = c.models || [];
-  const m = ms.find((x) => x.id === lead.model) || ms.find((x) => x.id === c.default_model);
+  const m = agentModel(agList()[0]);
   return m ? m.name || m.model : "";
 }
 function toolPill(el, ev) {
@@ -1659,7 +1735,7 @@ function memoryUndo(w, ev) {
 }
 // 预算用满（照原型 capCard / capGo）：正在做的步骤停住，对话里一张小卡「再给 2万 / 停止」
 const wan = (n) => Math.round(n / 1000) / 10 + "万";
-function budgetCard(el, ev, task) {
+function budgetCard(el, ev, task, onDecision) {
   task.why = "预算"; renderTasks();
   const tok = ev.kind === "tokens";
   const c = document.createElement("div");
@@ -1675,7 +1751,7 @@ function budgetCard(el, ev, task) {
   let done = false;
   const go = (b, allow) => {
     if (done) return; done = true;
-    needOn(false); hidePeek();
+    onDecision(); hidePeek();
     task.why = ""; renderTasks();
     c.querySelectorAll("button").forEach((x) => (x.disabled = true)); b.classList.add("on");
     const n = document.createElement("p"); n.className = "x-apn"; c.appendChild(n);
@@ -1686,7 +1762,8 @@ function budgetCard(el, ev, task) {
   };
   more.addEventListener("click", () => go(more, true));
   stop.addEventListener("click", () => go(stop, false));
-  more.focus({ preventScroll: true });
+  if (task.conv === S.conv) more.focus({ preventScroll: true });
+  return c;
 }
 
 function askCard(el, ev, onDecision) {
@@ -1709,7 +1786,6 @@ function askCard(el, ev, onDecision) {
   const fin = (b, answer) => {
     if (done) return; done = true;
     onDecision(answer.allow);
-    needOn(false);
     c.querySelectorAll("button,input").forEach((x) => (x.disabled = true)); b.classList.add("on");
     invoke("answer_ask", { ask: ev.ask, answer: { allow: false, always: false, reason: "", edit: "", ...answer } }).then((ok) => { if (!ok) note("这一步已经结束了"); }).catch(() => {});
     if (answer.always) note(`以后「${ev.kind} · ${ev.scope}」不再询问`);
@@ -1730,7 +1806,8 @@ function askCard(el, ev, onDecision) {
   rsOk.addEventListener("click", () => { const v = rsIn.value.trim(); if (!v) { rsIn.focus(); return; } fin(rsOk, { allow: false, reason: v }); });
   edIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); edOk.click(); } });
   rsIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); rsOk.click(); } });
-  bOnce.focus({ preventScroll: true });
+  if (el.isConnected) bOnce.focus({ preventScroll: true });
+  return c;
 }
 // 最近一次提问的文字（任务列表里显示）
 function lastText(conv = S.conv) {

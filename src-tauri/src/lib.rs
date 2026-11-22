@@ -889,12 +889,23 @@ async fn undo_change(app: AppHandle, id: String, confirm_changed: bool) -> Resul
     tauri::async_runtime::spawn_blocking(move || changes.undo(&id, confirm_changed, &trash)).await.map_err(|e| e.to_string())?
 }
 
+fn review_agent_for(cfg: &Config, id: &str) -> Result<config::Agent, String> {
+    let mut agent = cfg.agents.iter().find(|a| a.id == id).cloned().ok_or("找不到这个 Agent")?;
+    if !agent.tools.iter().any(|tool| tool == "读文件") { agent.tools.push("读文件".into()); }
+    Ok(agent)
+}
+
 /// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
 /// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
-fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, temporary: Option<bool>, plan: Option<bool>, pre_allow: Option<Vec<String>>, on_event: Channel<ChatEvent>) -> Result<(), String> {
+fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, temporary: Option<bool>, plan: Option<bool>, pre_allow: Option<Vec<String>>, review_agent: Option<String>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
-    let lead = cfg.lead().clone();
+    let review = review_agent.is_some();
+    let lead = match review_agent {
+        Some(id) => review_agent_for(&cfg, &id)?,
+        None => cfg.lead().clone(),
+    };
+    let plan = review || plan.unwrap_or_default();
     let catalog = state.catalog.lock().unwrap().clone();
     let got = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (g2, ch) = (got.clone(), on_event.clone());
@@ -927,10 +938,10 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
     let changes = state.changes.clone();
     let backup = state.data_dir.join("改动备份").join(uuid::Uuid::new_v4().to_string());
     let task = tauri::async_runtime::spawn(async move {
-        let pre_allow = pre_allow.unwrap_or_default();
-        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone(), plan.unwrap_or_default(), pre_allow.clone(), changes.clone(), backup.clone());
+        let pre_allow = if review { vec![] } else { pre_allow.unwrap_or_default() };
+        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone(), plan, pre_allow.clone(), changes.clone(), backup.clone());
         *t.catalog.lock().unwrap() = Some(catalog.clone());
-        let mut r = t.run(&lead, messages.clone(), true).await;
+        let mut r = t.run(&lead, messages.clone(), !review).await;
         let mut prompt = t.prompt.load(std::sync::atomic::Ordering::Relaxed);
         let mut completion = t.completion.load(std::sync::atomic::Ordering::Relaxed);
         let mut estimate = t.estimate();
@@ -940,9 +951,9 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
             let mut l2 = lead.clone();
             l2.model = lead.fallback;
             l2.auto = false;
-            let t2 = agent::Task::new(cfg, world, asks, trash, emit, plan.unwrap_or_default(), pre_allow, changes, backup);
+            let t2 = agent::Task::new(cfg, world, asks, trash, emit, plan, pre_allow, changes, backup);
             *t2.catalog.lock().unwrap() = Some(catalog);
-            r = t2.run(&l2, messages, true).await;
+            r = t2.run(&l2, messages, !review).await;
             prompt += t2.prompt.load(std::sync::atomic::Ordering::Relaxed);
             completion += t2.completion.load(std::sync::atomic::Ordering::Relaxed);
             estimate = match (estimate, t2.estimate()) { (Some(a), Some(b)) => Some(a + b), _ => None };
