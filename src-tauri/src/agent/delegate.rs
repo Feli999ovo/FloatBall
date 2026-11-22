@@ -32,7 +32,13 @@ pub(super) fn handoff_summary(result: &str, writes: u64) -> (u64, String) {
 }
 
 impl Task {
-    pub(super) fn emit_handoff(&self, from: &DelegateSummary, to_id: &str, to_name: &str, to_call: &str) {
+    pub(super) fn emit_handoff(
+        &self,
+        from: &DelegateSummary,
+        to_id: &str,
+        to_name: &str,
+        to_call: &str,
+    ) {
         if from.agent_id != to_id {
             (self.emit)(ChatEvent::Handoff {
                 from_call: from.call.clone(),

@@ -25,9 +25,9 @@ mod exec;
 
 mod delegate;
 
-use delegate::{DelegateStats, DelegateSummary};
 #[cfg(test)]
 use delegate::handoff_summary;
+use delegate::{DelegateStats, DelegateSummary};
 
 mod world;
 
@@ -297,7 +297,6 @@ impl Task {
             }
         })
     }
-
 }
 
 #[cfg(test)]
