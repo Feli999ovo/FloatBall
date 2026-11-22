@@ -24,7 +24,13 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - run: cargo test --lib ipc_contract
+      - run: cargo test --locked --lib ipc_contract
+      - name: Inspect Windows test imports
+        if: runner.os == 'Windows' && failure()
+        shell: pwsh
+        run: |
+          python -m pip install pefile
+          python ../tools/tmp-pe-imports.py target/debug
       - name: Save generated files and format changes
         if: always()
         shell: bash

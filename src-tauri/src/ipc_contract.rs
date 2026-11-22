@@ -6,8 +6,8 @@ use tauri_specta::{collect_commands, Builder};
 #[test]
 fn ipc_contract() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/ipc.d.ts");
-    let builder = Builder::<tauri::Wry>::new()
-        .commands(collect_commands![super::commands::capture::js_log]);
+    let builder =
+        Builder::<tauri::Wry>::new().commands(collect_commands![super::commands::capture::js_log]);
     let dir = tempfile::tempdir().expect("create a temporary export directory");
     let generated = dir.path().join("ipc.d.ts");
     builder
