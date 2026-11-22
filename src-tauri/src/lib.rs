@@ -23,7 +23,6 @@ use commands::config::*;
 use commands::history::*;
 use commands::routine::*;
 use commands::selection::*;
-use commands::voice::*;
 use commands::window::*;
 use config::{Config, Model};
 use llm::ChatEvent;
@@ -387,7 +386,7 @@ pub fn run() {
             commands::window::ctx_act,
             commands::window::hide_ball,
             commands::capture::js_log,
-            transcribe
+            commands::voice::transcribe
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
