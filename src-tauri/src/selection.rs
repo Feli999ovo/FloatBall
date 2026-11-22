@@ -6,6 +6,7 @@
 //! - Windows：模拟 Ctrl+C 读剪贴板，读完把剪贴板原来的文字/图片放回去。
 //!   只在按下或松开时指针是文字光标（I 形）时才读，避免拖文件、拖窗口时误触发；
 //!   终端（Ctrl+C 会中断程序）和资源管理器一律不读。
+//!
 //! Linux 上暂不支持。
 
 // Linux 上不跑监听线程，手势识别等只在测试里用到
@@ -46,7 +47,8 @@ impl Recognizer {
             return Some(Gesture::Drag);
         }
         if let Some((lx, ly, lt)) = self.last_click {
-            if t.duration_since(lt).as_millis() <= DCLICK_MS && (x - lx).hypot(y - ly) <= DCLICK_PX {
+            if t.duration_since(lt).as_millis() <= DCLICK_MS && (x - lx).hypot(y - ly) <= DCLICK_PX
+            {
                 self.last_click = None;
                 return Some(Gesture::DoubleClick);
             }
@@ -59,10 +61,27 @@ impl Recognizer {
 /// 这些程序里不读选中文字：终端里 Ctrl+C 会中断正在跑的程序；资源管理器里会复制文件
 pub fn never_read(exe: &str) -> bool {
     const NEVER: [&str; 13] = [
-        "windowsterminal", "cmd", "powershell", "pwsh", "conhost", "openconsole", "mintty", "wezterm-gui", "alacritty", "putty", "explorer", "kitty", "wt",
+        "windowsterminal",
+        "cmd",
+        "powershell",
+        "pwsh",
+        "conhost",
+        "openconsole",
+        "mintty",
+        "wezterm-gui",
+        "alacritty",
+        "putty",
+        "explorer",
+        "kitty",
+        "wt",
     ];
     let e = exe.to_lowercase();
-    let e = e.rsplit(['/', '\\']).next().unwrap_or("").trim_end_matches(".exe").to_string();
+    let e = e
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(".exe")
+        .to_string();
     NEVER.contains(&e.as_str())
 }
 
@@ -100,8 +119,13 @@ pub struct Pointer {
 #[cfg(windows)]
 mod plat {
     use super::Pointer;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_LMENU, VK_LWIN, VK_MENU, VK_RBUTTON, VK_RMENU, VK_RWIN, VK_SHIFT};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorInfo, GetSystemMetrics, LoadCursorW, CURSORINFO, IDC_IBEAM, SM_SWAPBUTTON};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_LMENU, VK_LWIN, VK_MENU,
+        VK_RBUTTON, VK_RMENU, VK_RWIN, VK_SHIFT,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetCursorInfo, GetSystemMetrics, LoadCursorW, CURSORINFO, IDC_IBEAM, SM_SWAPBUTTON,
+    };
 
     pub const PHYSICAL: bool = true;
 
@@ -112,12 +136,30 @@ mod plat {
             if GetCursorInfo(&mut ci) == 0 {
                 return None;
             }
-            let ibeam = !ci.hCursor.is_null() && ci.hCursor == LoadCursorW(std::ptr::null_mut(), IDC_IBEAM);
-            let left = if GetSystemMetrics(SM_SWAPBUTTON) != 0 { VK_RBUTTON } else { VK_LBUTTON };
+            let ibeam =
+                !ci.hCursor.is_null() && ci.hCursor == LoadCursorW(std::ptr::null_mut(), IDC_IBEAM);
+            let left = if GetSystemMetrics(SM_SWAPBUTTON) != 0 {
+                VK_RBUTTON
+            } else {
+                VK_LBUTTON
+            };
             let held = |vk: u16| (GetAsyncKeyState(vk as i32) as u16) & 0x8000 != 0;
             // AltGr 等于 Ctrl + 右 Alt：按着 Ctrl 不算
-            let ralt = held(VK_RMENU) && !held(VK_LMENU) && !held(VK_CONTROL) && !held(VK_SHIFT) && !held(VK_LWIN) && !held(VK_RWIN);
-            Some(Pointer { down: held(left), alt: held(VK_MENU), esc: held(VK_ESCAPE), ibeam, ralt, x: ci.ptScreenPos.x as f64, y: ci.ptScreenPos.y as f64 })
+            let ralt = held(VK_RMENU)
+                && !held(VK_LMENU)
+                && !held(VK_CONTROL)
+                && !held(VK_SHIFT)
+                && !held(VK_LWIN)
+                && !held(VK_RWIN);
+            Some(Pointer {
+                down: held(left),
+                alt: held(VK_MENU),
+                esc: held(VK_ESCAPE),
+                ibeam,
+                ralt,
+                x: ci.ptScreenPos.x as f64,
+                y: ci.ptScreenPos.y as f64,
+            })
         }
     }
 
@@ -185,7 +227,9 @@ mod plat {
                 alt: CGEventSourceFlagsState(COMBINED) & ALT_MASK != 0,
                 esc: CGEventSourceKeyState(COMBINED, KEY_ESC),
                 ibeam: true,
-                ralt: CGEventSourceKeyState(COMBINED, KEY_RALT) && !CGEventSourceKeyState(COMBINED, KEY_LALT) && CGEventSourceFlagsState(COMBINED) & OTHER_MASK == 0,
+                ralt: CGEventSourceKeyState(COMBINED, KEY_RALT)
+                    && !CGEventSourceKeyState(COMBINED, KEY_LALT)
+                    && CGEventSourceFlagsState(COMBINED) & OTHER_MASK == 0,
                 x: p.x,
                 y: p.y,
             })
@@ -219,12 +263,20 @@ pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 /// 读选中的文字。和 SnipDo、PopClip、Easydict 的做法一样分两步：
 /// 1. 先问系统的无障碍接口（Windows 的 UI Automation，mac 的辅助功能）：不碰剪贴板，也不管光标是什么形状；
 /// 2. 读不到再模拟复制（Ctrl+C / ⌘C）读剪贴板，再放回去。Windows 上只在 I 形光标下做这一步，免得在按钮、图标上乱复制。
-fn read_selection(own_pid: u64, ibeam: bool, settings: &crate::config::Sel) -> Option<(String, String)> {
+fn read_selection(
+    own_pid: u64,
+    ibeam: bool,
+    settings: &crate::config::Sel,
+) -> Option<(String, String)> {
     let w = active_win_pos_rs::get_active_window().ok()?;
     if w.process_id == own_pid {
         return None;
     }
-    let exe = w.process_path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+    let exe = w
+        .process_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
     if (cfg!(windows) && never_read(&exe)) || settings.excluded(&w.app_name, &exe) {
         return None;
     }
@@ -262,7 +314,9 @@ fn read_selection(own_pid: u64, ibeam: bool, settings: &crate::config::Sel) -> O
 }
 
 pub fn feed(settings: &crate::config::Sel) -> Result<String, &'static str> {
-    if !trusted(false) { return Err("permission"); }
+    if !trusted(false) {
+        return Err("permission");
+    }
     #[cfg(any(windows, target_os = "macos"))]
     {
         let ibeam = plat::pointer().is_some_and(|p| p.ibeam);
@@ -278,8 +332,12 @@ pub fn feed(settings: &crate::config::Sel) -> Result<String, &'static str> {
 /// Windows UI Automation：取有焦点的控件（找不到文字就往上找几层，网页里焦点常在子元素上）的文本选区。
 #[cfg(windows)]
 mod uia {
-    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
-    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    };
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId,
+    };
 
     /// 最多读这么多字（工具栏本来也会截断）
     const MAX: i32 = 20_000;
@@ -294,7 +352,9 @@ mod uia {
             let mut el = ua.GetFocusedElement()?;
             let mut why = "焦点和上层都没有文本接口";
             for _ in 0..8 {
-                if let Ok(tp) = el.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) {
+                if let Ok(tp) =
+                    el.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                {
                     why = "有文本接口，选区为空";
                     let ranges = tp.GetSelection()?;
                     let mut out = String::new();
@@ -323,14 +383,19 @@ mod uia {
 #[cfg(windows)]
 mod edit {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetClassNameW, GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId, SendMessageTimeoutW, GUITHREADINFO,
-        SMTO_ABORTIFHUNG, WM_GETTEXT, WM_GETTEXTLENGTH,
+        GetClassNameW, GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId,
+        SendMessageTimeoutW, GUITHREADINFO, SMTO_ABORTIFHUNG, WM_GETTEXT, WM_GETTEXTLENGTH,
     };
     const EM_GETSEL: u32 = 0x00B0;
     /// 文本太长就不读（选区下标只有 16 位能直接拿到）
     const MAX_LEN: usize = 2_000_000;
 
-    fn send(h: windows_sys::Win32::Foundation::HWND, msg: u32, w: usize, l: isize) -> Option<usize> {
+    fn send(
+        h: windows_sys::Win32::Foundation::HWND,
+        msg: u32,
+        w: usize,
+        l: isize,
+    ) -> Option<usize> {
         let mut r = 0usize;
         let ok = unsafe { SendMessageTimeoutW(h, msg, w, l, SMTO_ABORTIFHUNG, 300, &mut r) };
         (ok != 0).then_some(r)
@@ -357,7 +422,13 @@ mod edit {
             }
             // 选区起止（按 UTF-16 下标）：传指针让系统跨进程带回 32 位值
             let (mut a, mut b) = (0u32, 0u32);
-            send(h, EM_GETSEL, &mut a as *mut u32 as usize, &mut b as *mut u32 as isize).ok_or("控件没响应")?;
+            send(
+                h,
+                EM_GETSEL,
+                &mut a as *mut u32 as usize,
+                &mut b as *mut u32 as isize,
+            )
+            .ok_or("控件没响应")?;
             let (a, b) = (a as usize, b as usize);
             if b <= a {
                 return Ok(String::new());
@@ -367,7 +438,8 @@ mod edit {
                 return Err("文本太长或选区不对");
             }
             let mut buf = vec![0u16; len + 1];
-            let got = send(h, WM_GETTEXT, buf.len(), buf.as_mut_ptr() as isize).ok_or("控件没响应")?;
+            let got =
+                send(h, WM_GETTEXT, buf.len(), buf.as_mut_ptr() as isize).ok_or("控件没响应")?;
             let got = got.min(len);
             Ok(String::from_utf16_lossy(&buf[a.min(got)..b.min(got)]))
         }
@@ -393,7 +465,10 @@ pub fn idle(sel_on: bool, talk_on: bool) -> bool {
 pub fn spawn<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     #[cfg(any(windows, target_os = "macos"))]
     {
-        let h = std::thread::Builder::new().name("划词".into()).spawn(move || watch(app)).expect("划词线程");
+        let h = std::thread::Builder::new()
+            .name("划词".into())
+            .spawn(move || watch(app))
+            .expect("划词线程");
         let _ = WATCHER.set(h.thread().clone());
     }
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -413,9 +488,15 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
         // 每 5 秒记一次，看线程有没有卡住（下面读窗口状态要等主线程）
         beat = beat.wrapping_add(1);
         let st = app.state::<crate::AppState>();
-        let (sel, talk_on) = { let c = st.cfg.lock().unwrap(); (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT) };
-        if beat % 200 == 0 {
-            log::info!("划词线程在跑（划词 {}，右 Alt 说话 {talk_on}）", if sel.on { "开" } else { "关" });
+        let (sel, talk_on) = {
+            let c = st.cfg.lock().unwrap();
+            (c.sel.clone(), c.talk_shortcut == crate::config::TALK_RALT)
+        };
+        if beat.is_multiple_of(200) {
+            log::info!(
+                "划词线程在跑（划词 {}，右 Alt 说话 {talk_on}）",
+                if sel.on { "开" } else { "关" }
+            );
         }
         if idle(sel.on, talk_on) {
             // 两样都关：收起工具栏，停住线程，不再读鼠标和键盘，直到设置改了被 wake 叫醒
@@ -445,7 +526,11 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
             let _ = app.emit_to("main", "voice:key", talk);
         }
         let shown = bar_shown();
-        let bar = if shown { app.get_webview_window("selbar") } else { None };
+        let bar = if shown {
+            app.get_webview_window("selbar")
+        } else {
+            None
+        };
         let shown = shown && bar.is_some();
         if !sel.on {
             if shown {
@@ -460,7 +545,12 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
         let now = Instant::now();
         if p.down && !was_down {
             // 在工具栏上按下：交给工具栏自己；在别处按下：收起
-            let on_bar = shown && inside(p.x, p.y, f64::from_bits(BAR_SF.load(std::sync::atomic::Ordering::Relaxed)));
+            let on_bar = shown
+                && inside(
+                    p.x,
+                    p.y,
+                    f64::from_bits(BAR_SF.load(std::sync::atomic::Ordering::Relaxed)),
+                );
             if on_bar {
                 was_down = true;
                 continue;
@@ -483,13 +573,27 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
                         std::thread::sleep(Duration::from_millis(60));
                         let st = app2.state::<crate::AppState>();
                         if cfg!(target_os = "macos") && !plat::trusted(false) {
-                            let _ = app2.emit_to("selbar", "sel:hint", Picked { text: String::new(), app: String::new(), x, y });
+                            let _ = app2.emit_to(
+                                "selbar",
+                                "sel:hint",
+                                Picked {
+                                    text: String::new(),
+                                    app: String::new(),
+                                    x,
+                                    y,
+                                },
+                            );
                             return;
                         }
                         log::info!("开始读选中文字");
                         let settings = st.cfg.lock().unwrap().sel.clone();
                         let got = read_selection(own_pid, ibeam, &settings);
-                        log::info!("读完：{}", got.as_ref().map(|(_, t)| format!("{} 字", t.chars().count())).unwrap_or_else(|| "没读到".into()));
+                        log::info!(
+                            "读完：{}",
+                            got.as_ref()
+                                .map(|(_, t)| format!("{} 字", t.chars().count()))
+                                .unwrap_or_else(|| "没读到".into())
+                        );
                         let Some((who, text)) = got else { return };
                         let (name, exe) = who.split_once('\u{1}').unwrap_or((&who, ""));
                         if st.cfg.lock().unwrap().sel.excluded(name, exe) {
@@ -497,7 +601,16 @@ fn watch<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
                         }
                         if let Some(text) = clip(&text) {
                             st.note_app(name);
-                            let r = app2.emit_to("selbar", "sel:show", Picked { text, app: name.to_string(), x, y });
+                            let r = app2.emit_to(
+                                "selbar",
+                                "sel:show",
+                                Picked {
+                                    text,
+                                    app: name.to_string(),
+                                    x,
+                                    y,
+                                },
+                            );
                             log::info!("通知工具栏：{:?}", r.is_ok());
                         }
                     });
@@ -533,7 +646,9 @@ pub fn bar_hide<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>) {
 #[cfg(any(windows, target_os = "macos"))]
 /// 点 (x, y)（Windows 物理像素；其他系统逻辑像素，乘这块屏幕的缩放）落在工具栏上没有
 fn inside(x: f64, y: f64, sf: f64) -> bool {
-    let Some((l, t, w, h)) = *BAR_RECT.lock().unwrap() else { return false };
+    let Some((l, t, w, h)) = *BAR_RECT.lock().unwrap() else {
+        return false;
+    };
     let s = if plat::PHYSICAL { 1.0 } else { sf };
     let (x, y) = (x * s, y * s);
     x >= l as f64 && y >= t as f64 && x < (l + w as i32) as f64 && y < (t + h as i32) as f64
@@ -543,21 +658,48 @@ fn inside(x: f64, y: f64, sf: f64) -> bool {
 /// 工具栏放好的位置（物理像素）：窗口左上角和大小、所在屏幕的左上角和大小、缩放。毛玻璃底图按它截。
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(not(windows), allow(dead_code))]
-pub struct Placed { pub left: i32, pub top: i32, pub w: u32, pub h: u32, pub mx: i32, pub my: i32, pub mw: u32, pub mh: u32, pub sf: f64 }
+pub struct Placed {
+    pub left: i32,
+    pub top: i32,
+    pub w: u32,
+    pub h: u32,
+    pub mx: i32,
+    pub my: i32,
+    pub mw: u32,
+    pub mh: u32,
+    pub sf: f64,
+}
 
-pub fn place<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64, bw: f64, bh: f64) -> Option<Placed> {
+pub fn place<R: tauri::Runtime>(
+    w: &tauri::WebviewWindow<R>,
+    x: f64,
+    y: f64,
+    bw: f64,
+    bh: f64,
+) -> Option<Placed> {
     use tauri::{PhysicalPosition, PhysicalSize};
     // 先找到点所在的屏幕，算出它的缩放
     let mons = w.available_monitors().unwrap_or_default();
     let pick = mons.iter().find(|m| {
-        let s = if plat::PHYSICAL { 1.0 } else { m.scale_factor() };
+        let s = if plat::PHYSICAL {
+            1.0
+        } else {
+            m.scale_factor()
+        };
         let (p, z) = (m.position(), m.size());
         let (px, py) = (x * s, y * s);
-        px >= p.x as f64 && py >= p.y as f64 && px < p.x as f64 + z.width as f64 && py < p.y as f64 + z.height as f64
+        px >= p.x as f64
+            && py >= p.y as f64
+            && px < p.x as f64 + z.width as f64
+            && py < p.y as f64 + z.height as f64
     });
     let m = pick.or(mons.first())?;
     let sf = m.scale_factor();
-    let (px, py) = if plat::PHYSICAL { (x, y) } else { (x * sf, y * sf) };
+    let (px, py) = if plat::PHYSICAL {
+        (x, y)
+    } else {
+        (x * sf, y * sf)
+    };
     let (w_px, h_px) = (bw * sf, bh * sf);
     let (mp, mz) = (m.position(), m.size());
     let gap = 14.0 * sf;
@@ -565,14 +707,35 @@ pub fn place<R: tauri::Runtime>(w: &tauri::WebviewWindow<R>, x: f64, y: f64, bw:
     if top < mp.y as f64 + 8.0 {
         top = py + gap + 8.0 * sf;
     }
-    let left = (px - w_px / 2.0).clamp(mp.x as f64 + 8.0, (mp.x as f64 + mz.width as f64 - w_px - 8.0).max(mp.x as f64 + 8.0));
-    let top = top.clamp(mp.y as f64 + 8.0, (mp.y as f64 + mz.height as f64 - h_px - 8.0).max(mp.y as f64 + 8.0));
-    let (l, t, ww, hh) = (left.round() as i32, top.round() as i32, w_px.round() as u32, h_px.round() as u32);
+    let left = (px - w_px / 2.0).clamp(
+        mp.x as f64 + 8.0,
+        (mp.x as f64 + mz.width as f64 - w_px - 8.0).max(mp.x as f64 + 8.0),
+    );
+    let top = top.clamp(
+        mp.y as f64 + 8.0,
+        (mp.y as f64 + mz.height as f64 - h_px - 8.0).max(mp.y as f64 + 8.0),
+    );
+    let (l, t, ww, hh) = (
+        left.round() as i32,
+        top.round() as i32,
+        w_px.round() as u32,
+        h_px.round() as u32,
+    );
     let _ = w.set_size(PhysicalSize::new(ww, hh));
     let _ = w.set_position(PhysicalPosition::new(l, t));
     bar_rect((l, t, ww, hh));
     BAR_SF.store(sf.to_bits(), std::sync::atomic::Ordering::Relaxed);
-    Some(Placed { left: l, top: t, w: ww, h: hh, mx: mp.x, my: mp.y, mw: mz.width, mh: mz.height, sf })
+    Some(Placed {
+        left: l,
+        top: t,
+        w: ww,
+        h: hh,
+        mx: mp.x,
+        my: mp.y,
+        mw: mz.width,
+        mh: mz.height,
+        sf,
+    })
 }
 
 /// 底图截多大：工具栏往下多截一块（「⋯」展开的菜单会往下长），但不超出屏幕
@@ -625,7 +788,13 @@ mod tests {
 
     #[test]
     fn never_reads_terminals_and_explorer() {
-        for e in ["WindowsTerminal.exe", "C:\\Windows\\System32\\cmd.exe", "pwsh.exe", "explorer.exe", "conhost.exe"] {
+        for e in [
+            "WindowsTerminal.exe",
+            "C:\\Windows\\System32\\cmd.exe",
+            "pwsh.exe",
+            "explorer.exe",
+            "conhost.exe",
+        ] {
             assert!(never_read(e), "{e}");
         }
         for e in ["msedge.exe", "WINWORD.EXE", "Code.exe", ""] {
@@ -646,12 +815,42 @@ mod backdrop_tests {
     use super::*;
     #[test]
     fn backdrop_rect_clips_to_screen() {
-        let p = Placed { left: 1900, top: 1000, w: 300, h: 44, mx: 1920, my: 0, mw: 1920, mh: 1080, sf: 1.0 };
+        let p = Placed {
+            left: 1900,
+            top: 1000,
+            w: 300,
+            h: 44,
+            mx: 1920,
+            my: 0,
+            mw: 1920,
+            mh: 1080,
+            sf: 1.0,
+        };
         // 屏幕左边是另一块屏：x 为负，交给 blur_region 判断不完全在屏幕里
         assert_eq!(backdrop_rect(&p, 220.0).0, -20);
-        let p = Placed { left: 2000, top: 900, w: 300, h: 44, mx: 1920, my: 0, mw: 1920, mh: 1080, sf: 2.0 };
+        let p = Placed {
+            left: 2000,
+            top: 900,
+            w: 300,
+            h: 44,
+            mx: 1920,
+            my: 0,
+            mw: 1920,
+            mh: 1080,
+            sf: 2.0,
+        };
         assert_eq!(backdrop_rect(&p, 220.0), (80, 900, 300, 180));
-        let p = Placed { left: 2000, top: 100, w: 300, h: 44, mx: 1920, my: 0, mw: 1920, mh: 1080, sf: 1.5 };
+        let p = Placed {
+            left: 2000,
+            top: 100,
+            w: 300,
+            h: 44,
+            mx: 1920,
+            my: 0,
+            mw: 1920,
+            mh: 1080,
+            sf: 1.5,
+        };
         assert_eq!(backdrop_rect(&p, 220.0), (80, 100, 300, 44 + 330));
     }
 }

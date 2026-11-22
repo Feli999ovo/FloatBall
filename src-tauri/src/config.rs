@@ -43,7 +43,21 @@ pub struct Model {
 
 impl Default for Model {
     fn default() -> Self {
-        Self { id: 0, name: String::new(), base_url: "https://api.openai.com/v1".into(), model: String::new(), vision: true, no_key: false, provider: String::new(), tools: None, vision_known: true, reasoning: None, ctx: None, caps_src: String::new(), logo: String::new() }
+        Self {
+            id: 0,
+            name: String::new(),
+            base_url: "https://api.openai.com/v1".into(),
+            model: String::new(),
+            vision: true,
+            no_key: false,
+            provider: String::new(),
+            tools: None,
+            vision_known: true,
+            reasoning: None,
+            ctx: None,
+            caps_src: String::new(),
+            logo: String::new(),
+        }
     }
 }
 
@@ -64,7 +78,9 @@ pub const TOOLS: [&str; 6] = ["搜索网页", "读文件", "写文件", "删除"
 pub const MAX_AGENTS: usize = 16;
 const MAX_SKILLS: usize = 50;
 pub const DEFAULT_USD_CNY: f64 = 7.2;
-fn default_usd_cny() -> f64 { DEFAULT_USD_CNY }
+fn default_usd_cny() -> f64 {
+    DEFAULT_USD_CNY
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Skill {
@@ -102,13 +118,33 @@ pub struct Agent {
 
 impl Default for Agent {
     fn default() -> Self {
-        Self { id: String::new(), name: String::new(), role: String::new(), prompt: String::new(), tint: "#E6D49A".into(), emoji: String::new(), tools: vec!["读文件".into()], skills: vec![], model: 0, fallback: 0, auto: false }
+        Self {
+            id: String::new(),
+            name: String::new(),
+            role: String::new(),
+            prompt: String::new(),
+            tint: "#E6D49A".into(),
+            emoji: String::new(),
+            tools: vec!["读文件".into()],
+            skills: vec![],
+            model: 0,
+            fallback: 0,
+            auto: false,
+        }
     }
 }
 
 impl Agent {
     pub fn lead(prompt: &str) -> Self {
-        Self { id: LEAD.into(), name: "主控".into(), role: "拆解与分派".into(), prompt: prompt.into(), tint: "#C9B8F2".into(), tools: vec!["读文件".into(), "写文件".into()], ..Self::default() }
+        Self {
+            id: LEAD.into(),
+            name: "主控".into(),
+            role: "拆解与分派".into(),
+            prompt: prompt.into(),
+            tint: "#C9B8F2".into(),
+            tools: vec!["读文件".into(), "写文件".into()],
+            ..Self::default()
+        }
     }
 }
 
@@ -138,7 +174,14 @@ pub struct Handoff {
 
 impl Default for Handoff {
     fn default() -> Self {
-        Self { tool: String::new(), term: String::new(), dirs: vec![], save: true, custom: String::new(), hint: true }
+        Self {
+            tool: String::new(),
+            term: String::new(),
+            dirs: vec![],
+            save: true,
+            custom: String::new(),
+            hint: true,
+        }
     }
 }
 
@@ -152,7 +195,11 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { tokens: 50_000, steps: 50, parallel: 3 }
+        Self {
+            tokens: 50_000,
+            steps: 50,
+            parallel: 3,
+        }
     }
 }
 
@@ -248,7 +295,17 @@ pub const HOVER_IDS: [&str; 4] = ["shot", "new", "hist", "tasks"];
 
 impl Default for Hover {
     fn default() -> Self {
-        Self { on: true, delay: 350, order: HOVER_IDS.iter().map(|id| HoverItem { id: id.to_string(), show: true }).collect() }
+        Self {
+            on: true,
+            delay: 350,
+            order: HOVER_IDS
+                .iter()
+                .map(|id| HoverItem {
+                    id: id.to_string(),
+                    show: true,
+                })
+                .collect(),
+        }
     }
 }
 
@@ -256,15 +313,28 @@ impl Hover {
     /// 去掉不认识的、重复的，补上缺的；最多显示 4 个
     pub fn normalized(mut self) -> Self {
         let mut seen = vec![];
-        self.order.retain(|o| HOVER_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && { seen.push(o.id.clone()); true });
+        self.order.retain(|o| {
+            HOVER_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && {
+                seen.push(o.id.clone());
+                true
+            }
+        });
         for id in HOVER_IDS {
             if !self.order.iter().any(|o| o.id == id) {
-                self.order.push(HoverItem { id: id.into(), show: false });
+                self.order.push(HoverItem {
+                    id: id.into(),
+                    show: false,
+                });
             }
         }
         let mut n = 0;
         for o in &mut self.order {
-            if o.show { n += 1; if n > 4 { o.show = false; } }
+            if o.show {
+                n += 1;
+                if n > 4 {
+                    o.show = false;
+                }
+            }
         }
         self.delay = self.delay.clamp(100, 1500);
         self
@@ -291,17 +361,32 @@ pub struct Voice {
 
 impl Default for Voice {
     fn default() -> Self {
-        Self { lang: "auto".into(), after: "send".into(), tts: false, model: 0, stt: "whisper-1".into(), engine: "system".into() }
+        Self {
+            lang: "auto".into(),
+            after: "send".into(),
+            tts: false,
+            model: 0,
+            stt: "whisper-1".into(),
+            engine: "system".into(),
+        }
     }
 }
 
 impl Voice {
     pub fn normalized(mut self) -> Self {
-        if !["auto", "zh", "en", "yue"].contains(&self.lang.as_str()) { self.lang = "auto".into(); }
-        if self.after != "box" { self.after = "send".into(); }
+        if !["auto", "zh", "en", "yue"].contains(&self.lang.as_str()) {
+            self.lang = "auto".into();
+        }
+        if self.after != "box" {
+            self.after = "send".into();
+        }
         self.stt = self.stt.trim().to_string();
-        if self.stt.is_empty() { self.stt = "whisper-1".into(); }
-        if self.engine != "provider" { self.engine = "system".into(); }
+        if self.stt.is_empty() {
+            self.stt = "whisper-1".into();
+        }
+        if self.engine != "provider" {
+            self.engine = "system".into();
+        }
         self
     }
 }
@@ -323,17 +408,30 @@ pub struct Sel {
     pub apps: Vec<String>,
 }
 
-pub const SEL_IDS: [&str; 10] = ["ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink"];
+pub const SEL_IDS: [&str; 10] = [
+    "ask", "explain", "tr", "sum", "rew", "copy", "read", "search", "expand", "shrink",
+];
 pub const SEL_MAX: usize = 6;
 
 impl Default for Sel {
     fn default() -> Self {
-        let apps: &[&str] = if cfg!(target_os = "macos") { &["1Password", "钥匙串访问", "终端"] } else { &["1Password", "KeePass", "Bitwarden"] };
+        let apps: &[&str] = if cfg!(target_os = "macos") {
+            &["1Password", "钥匙串访问", "终端"]
+        } else {
+            &["1Password", "KeePass", "Bitwarden"]
+        };
         Self {
             // 默认关：Windows 上读选中文字要模拟 Ctrl+C，会动剪贴板，由用户自己在设置里打开
             on: false,
             mode: "instant".into(),
-            order: SEL_IDS.iter().enumerate().map(|(i, id)| HoverItem { id: id.to_string(), show: i < SEL_MAX }).collect(),
+            order: SEL_IDS
+                .iter()
+                .enumerate()
+                .map(|(i, id)| HoverItem {
+                    id: id.to_string(),
+                    show: i < SEL_MAX,
+                })
+                .collect(),
             tr: "auto".into(),
             apps: apps.iter().map(|a| a.to_string()).collect(),
         }
@@ -343,16 +441,38 @@ impl Default for Sel {
 impl Sel {
     pub fn normalized(mut self) -> Self {
         let mut seen = vec![];
-        self.order.retain(|o| SEL_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && { seen.push(o.id.clone()); true });
+        self.order.retain(|o| {
+            SEL_IDS.contains(&o.id.as_str()) && !seen.contains(&o.id) && {
+                seen.push(o.id.clone());
+                true
+            }
+        });
         for id in SEL_IDS {
             if !self.order.iter().any(|o| o.id == id) {
-                self.order.push(HoverItem { id: id.into(), show: false });
+                self.order.push(HoverItem {
+                    id: id.into(),
+                    show: false,
+                });
             }
         }
-        if self.mode != "alt" { self.mode = "instant".into(); }
-        if !["auto", "en", "zh", "ja"].contains(&self.tr.as_str()) { self.tr = "auto".into(); }
+        if self.mode != "alt" {
+            self.mode = "instant".into();
+        }
+        if !["auto", "en", "zh", "ja"].contains(&self.tr.as_str()) {
+            self.tr = "auto".into();
+        }
         let mut seen: Vec<String> = vec![];
-        self.apps = self.apps.into_iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty() && !seen.contains(&a.to_lowercase()) && { seen.push(a.to_lowercase()); true }).collect();
+        self.apps = self
+            .apps
+            .into_iter()
+            .map(|a| a.trim().to_string())
+            .filter(|a| {
+                !a.is_empty() && !seen.contains(&a.to_lowercase()) && {
+                    seen.push(a.to_lowercase());
+                    true
+                }
+            })
+            .collect();
         self
     }
 
@@ -361,7 +481,10 @@ impl Sel {
     pub fn excluded(&self, app_name: &str, exe: &str) -> bool {
         let (n, e) = (app_name.to_lowercase(), exe.to_lowercase());
         let e = e.trim_end_matches(".exe");
-        self.apps.iter().any(|a| { let a = a.to_lowercase(); n.contains(&a) || (!e.is_empty() && e.contains(&a.replace(' ', ""))) })
+        self.apps.iter().any(|a| {
+            let a = a.to_lowercase();
+            n.contains(&a) || (!e.is_empty() && e.contains(&a.replace(' ', "")))
+        })
     }
 }
 
@@ -410,14 +533,40 @@ impl Default for Config {
 /// 研究员默认只带「读文件」：搜索网页默认不带（J 定的），要联网时在设置里给它勾上。
 pub fn default_agents() -> Vec<Agent> {
     let ag = |id: &str, name: &str, role: &str, tint: &str, tools: &[&str], prompt: &str| Agent {
-        id: id.into(), name: name.into(), role: role.into(), tint: tint.into(), prompt: prompt.into(),
-        tools: tools.iter().map(|t| t.to_string()).collect(), ..Agent::default()
+        id: id.into(),
+        name: name.into(),
+        role: role.into(),
+        tint: tint.into(),
+        prompt: prompt.into(),
+        tools: tools.iter().map(|t| t.to_string()).collect(),
+        ..Agent::default()
     };
     vec![
         Agent::lead(DEFAULT_PROMPT),
-        ag("research", "研究员", "搜索与阅读", "#A9BEDB", &["读文件"], "你是研究员。按要求查找、阅读资料，给出要点和出处；不确定的标明不确定。"),
-        ag("organize", "整理员", "文件与表格", "#AECDB6", &["读文件", "写文件"], "你是整理员。把资料整理成清楚的表格、清单或文件；保持数据原样，不编造。"),
-        ag("writer", "写手", "起草与润色", "#DCC0A8", &["读文件", "写文件"], "你是写手。根据给你的材料起草或润色文字，结构清楚、语气自然，默认用中文。"),
+        ag(
+            "research",
+            "研究员",
+            "搜索与阅读",
+            "#A9BEDB",
+            &["读文件"],
+            "你是研究员。按要求查找、阅读资料，给出要点和出处；不确定的标明不确定。",
+        ),
+        ag(
+            "organize",
+            "整理员",
+            "文件与表格",
+            "#AECDB6",
+            &["读文件", "写文件"],
+            "你是整理员。把资料整理成清楚的表格、清单或文件；保持数据原样，不编造。",
+        ),
+        ag(
+            "writer",
+            "写手",
+            "起草与润色",
+            "#DCC0A8",
+            &["读文件", "写文件"],
+            "你是写手。根据给你的材料起草或润色文字，结构清楚、语气自然，默认用中文。",
+        ),
     ]
 }
 
@@ -429,7 +578,10 @@ impl Config {
     }
 
     pub fn load(dir: &Path) -> Config {
-        let Some(v) = fs::read_to_string(Self::path(dir)).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) else {
+        let Some(v) = fs::read_to_string(Self::path(dir))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        else {
             return Config::default();
         };
         let mut c: Config = serde_json::from_value(v.clone()).unwrap_or_default();
@@ -440,43 +592,73 @@ impl Config {
                 c.models = vec![Model {
                     id: 1,
                     name: String::new(),
-                    base_url: v.get("base_url").and_then(Value::as_str).unwrap_or(&d.base_url).to_string(),
+                    base_url: v
+                        .get("base_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&d.base_url)
+                        .to_string(),
                     model: model.to_string(),
                     vision: v.get("vision").and_then(Value::as_bool).unwrap_or(true),
-                    no_key: v.get("allow_no_key").and_then(Value::as_bool).unwrap_or(false),
+                    no_key: v
+                        .get("allow_no_key")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     ..Model::default()
                 }];
                 c.default_model = 1;
             }
         }
         c.clear_conflicting_shortcut_defaults(&v);
-        c.fix_agents(if v.get("agents").is_none() { v.get("system_prompt").and_then(Value::as_str) } else { None });
+        c.fix_agents(if v.get("agents").is_none() {
+            v.get("system_prompt").and_then(Value::as_str)
+        } else {
+            None
+        });
         c
     }
 
     pub fn shortcut_bindings(&self) -> [(&str, &'static str); 8] {
-        [(&self.shortcut, "toggle"), (&self.new_shortcut, "new_chat"), (&self.capture_shortcut, "capture"),
-         (&self.tasks_shortcut, "tasks"), (&self.talk_shortcut, "talk"), (&self.win_shortcut, "capture_window"),
-         (&self.share_shortcut, "share"), (&self.feed_shortcut, "feed")]
+        [
+            (&self.shortcut, "toggle"),
+            (&self.new_shortcut, "new_chat"),
+            (&self.capture_shortcut, "capture"),
+            (&self.tasks_shortcut, "tasks"),
+            (&self.talk_shortcut, "talk"),
+            (&self.win_shortcut, "capture_window"),
+            (&self.share_shortcut, "share"),
+            (&self.feed_shortcut, "feed"),
+        ]
     }
 
     fn clear_conflicting_shortcut_defaults(&mut self, raw: &Value) {
         let conflicts = |action, key: &str| {
-            let Ok(key) = key.parse::<Shortcut>() else { return false };
-            self.shortcut_bindings().iter().any(|(other, name)| *name != action && other.trim().parse::<Shortcut>().ok() == Some(key))
+            let Ok(key) = key.parse::<Shortcut>() else {
+                return false;
+            };
+            self.shortcut_bindings().iter().any(|(other, name)| {
+                *name != action && other.trim().parse::<Shortcut>().ok() == Some(key)
+            })
         };
-        let window = raw.get("win_shortcut").is_none() && conflicts("capture_window", &self.win_shortcut);
+        let window =
+            raw.get("win_shortcut").is_none() && conflicts("capture_window", &self.win_shortcut);
         let share = raw.get("share_shortcut").is_none() && conflicts("share", &self.share_shortcut);
         let feed = raw.get("feed_shortcut").is_none() && conflicts("feed", &self.feed_shortcut);
-        if window { self.win_shortcut.clear(); }
-        if share { self.share_shortcut.clear(); }
-        if feed { self.feed_shortcut.clear(); }
+        if window {
+            self.win_shortcut.clear();
+        }
+        if share {
+            self.share_shortcut.clear();
+        }
+        if feed {
+            self.feed_shortcut.clear();
+        }
     }
 
     /// 主控永远在第一个；早期版本的系统提示词搬进主控的指令；指向已删模型的 Agent 改回跟随默认
     fn fix_agents(&mut self, old_prompt: Option<&str>) {
         if !self.agents.iter().any(|a| a.id == LEAD) {
-            self.agents.insert(0, Agent::lead(old_prompt.unwrap_or(DEFAULT_PROMPT)));
+            self.agents
+                .insert(0, Agent::lead(old_prompt.unwrap_or(DEFAULT_PROMPT)));
         }
         if let Some(i) = self.agents.iter().position(|a| a.id == LEAD) {
             let lead = self.agents.remove(i);
@@ -488,8 +670,12 @@ impl Config {
         self.system_prompt.clear();
         let ids: Vec<u32> = self.models.iter().map(|m| m.id).collect();
         for a in &mut self.agents {
-            if !ids.contains(&a.model) { a.model = 0; }
-            if !ids.contains(&a.fallback) { a.fallback = 0; }
+            if !ids.contains(&a.model) {
+                a.model = 0;
+            }
+            if !ids.contains(&a.fallback) {
+                a.fallback = 0;
+            }
             a.tools.retain(|t| TOOLS.contains(&t.as_str()));
         }
         if !self.agents[0].tools.iter().any(|t| t == "读文件") {
@@ -505,16 +691,30 @@ impl Config {
         skill.name = skill.name.trim().to_string();
         skill.when = skill.when.trim().to_string();
         skill.steps = skill.steps.trim().to_string();
-        if skill.name.is_empty() || skill.steps.is_empty() { return Err("请填写技能名字和步骤".into()); }
-        if skill.name.chars().count() > 60 || skill.when.chars().count() > 500 || skill.steps.chars().count() > 6000 {
+        if skill.name.is_empty() || skill.steps.is_empty() {
+            return Err("请填写技能名字和步骤".into());
+        }
+        if skill.name.chars().count() > 60
+            || skill.when.chars().count() > 500
+            || skill.steps.chars().count() > 6000
+        {
             return Err("技能内容超过长度限制".into());
         }
         if skill.id.is_empty() {
-            if self.skills.len() >= MAX_SKILLS { return Err("技能库最多保存 50 个技能".into()); }
-            skill.id = (1..).map(|n| format!("sk{n}")).find(|id| !self.skills.iter().any(|s| &s.id == id)).unwrap();
+            if self.skills.len() >= MAX_SKILLS {
+                return Err("技能库最多保存 50 个技能".into());
+            }
+            skill.id = (1..)
+                .map(|n| format!("sk{n}"))
+                .find(|id| !self.skills.iter().any(|s| &s.id == id))
+                .unwrap();
             self.skills.push(skill);
         } else {
-            let saved = self.skills.iter_mut().find(|s| s.id == skill.id).ok_or("这个技能已被删除")?;
+            let saved = self
+                .skills
+                .iter_mut()
+                .find(|s| s.id == skill.id)
+                .ok_or("这个技能已被删除")?;
             *saved = skill;
         }
         Ok(())
@@ -522,11 +722,18 @@ impl Config {
 
     pub fn remove_skill(&mut self, id: &str) {
         self.skills.retain(|s| s.id != id);
-        for agent in &mut self.agents { agent.skills.retain(|s| s != id); }
+        for agent in &mut self.agents {
+            agent.skills.retain(|s| s != id);
+        }
     }
 
-    pub(crate) fn assigned_skills<'a>(&'a self, agent: &'a Agent) -> impl Iterator<Item = &'a Skill> {
-        self.skills.iter().filter(move |skill| agent.skills.contains(&skill.id))
+    pub(crate) fn assigned_skills<'a>(
+        &'a self,
+        agent: &'a Agent,
+    ) -> impl Iterator<Item = &'a Skill> {
+        self.skills
+            .iter()
+            .filter(move |skill| agent.skills.contains(&skill.id))
     }
 
     pub fn agent_prompt(&self, agent: &Agent) -> String {
@@ -535,7 +742,11 @@ impl Config {
         if skills.peek().is_some() {
             prompt.push_str("\n\n你会的技能（需要时调用 read_skill 读完整步骤）：");
             for skill in skills {
-                let when = if skill.when.trim().is_empty() { "（没写什么时候用）" } else { &skill.when };
+                let when = if skill.when.trim().is_empty() {
+                    "（没写什么时候用）"
+                } else {
+                    &skill.when
+                };
                 prompt.push_str(&format!("\n- {}：{when}", skill.name));
             }
         }
@@ -545,18 +756,43 @@ impl Config {
     /// 新增（id 为空或不存在）或修改一个 Agent，返回它的 id
     pub fn upsert_agent(&mut self, mut a: Agent) -> Result<String, String> {
         a.name = a.name.trim().chars().take(12).collect();
-        if a.name.is_empty() { a.name = "未命名".into(); }
+        if a.name.is_empty() {
+            a.name = "未命名".into();
+        }
         a.role = a.role.trim().chars().take(40).collect();
         a.prompt = a.prompt.trim().to_string();
-        a.emoji = a.emoji.trim().chars().last().map(String::from).unwrap_or_default();
+        a.emoji = a
+            .emoji
+            .trim()
+            .chars()
+            .last()
+            .map(String::from)
+            .unwrap_or_default();
         let mut seen = vec![];
-        a.tools.retain(|t| TOOLS.contains(&t.as_str()) && !seen.contains(t) && { seen.push(t.clone()); true });
+        a.tools.retain(|t| {
+            TOOLS.contains(&t.as_str()) && !seen.contains(t) && {
+                seen.push(t.clone());
+                true
+            }
+        });
         let mut assigned = std::collections::HashSet::new();
-        a.skills.retain(|id| self.skills.iter().any(|s| &s.id == id) && assigned.insert(id.clone()));
-        if !self.models.iter().any(|m| m.id == a.model) { a.model = 0; }
-        if !self.models.iter().any(|m| m.id == a.fallback) || a.fallback == a.model && a.model != 0 { a.fallback = 0; }
-        if let Some(old) = self.agents.iter_mut().find(|x| !a.id.is_empty() && x.id == a.id) {
-            if a.id == LEAD && !a.tools.iter().any(|t| t == "读文件") { a.tools.push("读文件".into()); }
+        a.skills
+            .retain(|id| self.skills.iter().any(|s| &s.id == id) && assigned.insert(id.clone()));
+        if !self.models.iter().any(|m| m.id == a.model) {
+            a.model = 0;
+        }
+        if !self.models.iter().any(|m| m.id == a.fallback) || a.fallback == a.model && a.model != 0
+        {
+            a.fallback = 0;
+        }
+        if let Some(old) = self
+            .agents
+            .iter_mut()
+            .find(|x| !a.id.is_empty() && x.id == a.id)
+        {
+            if a.id == LEAD && !a.tools.iter().any(|t| t == "读文件") {
+                a.tools.push("读文件".into());
+            }
             *old = a.clone();
             return Ok(a.id);
         }
@@ -569,20 +805,29 @@ impl Config {
     }
 
     pub fn remove_agent(&mut self, id: &str) -> Result<(), String> {
-        if id == LEAD { return Err("主控不能删".into()); }
+        if id == LEAD {
+            return Err("主控不能删".into());
+        }
         self.agents.retain(|a| a.id != id);
         Ok(())
     }
 
     /// 这个 Agent 用的模型：它自己选的，没选就用默认
     pub fn model_for(&self, a: &Agent) -> Option<&Model> {
-        self.models.iter().find(|m| m.id == a.model).or_else(|| self.current())
+        self.models
+            .iter()
+            .find(|m| m.id == a.model)
+            .or_else(|| self.current())
     }
 
     /// 自动省钱时优先使用可以调用工具的免 Key 模型。
     pub fn effective_model_for(&self, agent: &Agent) -> Option<&Model> {
         if agent.auto {
-            if let Some(model) = self.models.iter().find(|m| m.no_key && m.tools != Some(false)) {
+            if let Some(model) = self
+                .models
+                .iter()
+                .find(|m| m.no_key && m.tools != Some(false))
+            {
                 return Some(model);
             }
         }
@@ -592,8 +837,11 @@ impl Config {
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let tmp = dir.join("config.json.tmp");
-        fs::write(&tmp, serde_json::to_string_pretty(self).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        fs::write(
+            &tmp,
+            serde_json::to_string_pretty(self).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         fs::rename(&tmp, Self::path(dir)).map_err(|e| e.to_string())
     }
 
@@ -631,8 +879,12 @@ impl Config {
     pub fn remove(&mut self, id: u32) {
         self.models.retain(|m| m.id != id);
         for a in &mut self.agents {
-            if a.model == id { a.model = 0; }
-            if a.fallback == id { a.fallback = 0; }
+            if a.model == id {
+                a.model = 0;
+            }
+            if a.fallback == id {
+                a.fallback = 0;
+            }
         }
         if self.default_model == id {
             self.default_model = self.models.first().map_or(0, |m| m.id);
@@ -642,7 +894,11 @@ impl Config {
 
 /// 每个模型的 Key 在钥匙串里的名字。1 号沿用最早的名字，这样早期版本存的 Key 不用搬。
 fn key_user(id: u32) -> String {
-    if id == 1 { "api_key".into() } else { format!("api_key_{id}") }
+    if id == 1 {
+        "api_key".into()
+    } else {
+        format!("api_key_{id}")
+    }
 }
 
 fn entry(id: u32) -> Result<keyring::Entry, String> {
@@ -650,7 +906,11 @@ fn entry(id: u32) -> Result<keyring::Entry, String> {
 }
 
 pub fn get_api_key(id: u32) -> Option<String> {
-    entry(id).ok()?.get_password().ok().filter(|s| !s.is_empty())
+    entry(id)
+        .ok()?
+        .get_password()
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 /// key 为空表示删除
@@ -671,13 +931,37 @@ mod tests {
     use super::*;
 
     fn model(name: &str) -> Model {
-        Model { model: name.into(), ..Model::default() }
+        Model {
+            model: name.into(),
+            ..Model::default()
+        }
     }
 
     #[test]
     fn hover_normalizes() {
-        let h = Hover { on: true, delay: 9, order: vec![HoverItem { id: "hist".into(), show: true }, HoverItem { id: "zzz".into(), show: true }, HoverItem { id: "hist".into(), show: false }] }.normalized();
-        assert_eq!(h.order.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["hist", "shot", "new", "tasks"]);
+        let h = Hover {
+            on: true,
+            delay: 9,
+            order: vec![
+                HoverItem {
+                    id: "hist".into(),
+                    show: true,
+                },
+                HoverItem {
+                    id: "zzz".into(),
+                    show: true,
+                },
+                HoverItem {
+                    id: "hist".into(),
+                    show: false,
+                },
+            ],
+        }
+        .normalized();
+        assert_eq!(
+            h.order.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["hist", "shot", "new", "tasks"]
+        );
         assert_eq!(h.order.iter().filter(|o| o.show).count(), 1);
         assert_eq!(h.delay, 100);
     }
@@ -699,13 +983,48 @@ mod tests {
 
     #[test]
     fn voice_normalizes() {
-        let v = Voice { lang: "fr".into(), after: "x".into(), tts: true, model: 3, stt: "  ".into(), engine: "x".into() }.normalized();
-        assert_eq!(v, Voice { lang: "auto".into(), after: "send".into(), tts: true, model: 3, stt: "whisper-1".into(), engine: "system".into() });
-        assert_eq!(Voice { engine: "provider".into(), ..Voice::default() }.normalized().engine, "provider");
+        let v = Voice {
+            lang: "fr".into(),
+            after: "x".into(),
+            tts: true,
+            model: 3,
+            stt: "  ".into(),
+            engine: "x".into(),
+        }
+        .normalized();
+        assert_eq!(
+            v,
+            Voice {
+                lang: "auto".into(),
+                after: "send".into(),
+                tts: true,
+                model: 3,
+                stt: "whisper-1".into(),
+                engine: "system".into()
+            }
+        );
+        assert_eq!(
+            Voice {
+                engine: "provider".into(),
+                ..Voice::default()
+            }
+            .normalized()
+            .engine,
+            "provider"
+        );
         // 默认用系统自带识别
         assert_eq!(Voice::default().engine, "system");
-        let v = Voice { lang: "yue".into(), after: "box".into(), stt: " whisper-large-v3 ".into(), ..Voice::default() }.normalized();
-        assert_eq!((v.lang.as_str(), v.after.as_str(), v.stt.as_str()), ("yue", "box", "whisper-large-v3"));
+        let v = Voice {
+            lang: "yue".into(),
+            after: "box".into(),
+            stt: " whisper-large-v3 ".into(),
+            ..Voice::default()
+        }
+        .normalized();
+        assert_eq!(
+            (v.lang.as_str(), v.after.as_str(), v.stt.as_str()),
+            ("yue", "box", "whisper-large-v3")
+        );
         // 旧配置里没有 voice、talk_shortcut：用默认值
         let c: Config = serde_json::from_str("{}").unwrap();
         assert_eq!(c.voice, Voice::default());
@@ -714,12 +1033,39 @@ mod tests {
 
     #[test]
     fn sel_normalizes_and_matches_apps() {
-        let s = Sel { on: true, mode: "x".into(), tr: "fr".into(), apps: vec![" 1Password ".into(), "1password".into(), "".into(), "Windows Terminal".into()],
-            order: vec![HoverItem { id: "copy".into(), show: true }, HoverItem { id: "bad".into(), show: true }, HoverItem { id: "copy".into(), show: false }] }.normalized();
+        let s = Sel {
+            on: true,
+            mode: "x".into(),
+            tr: "fr".into(),
+            apps: vec![
+                " 1Password ".into(),
+                "1password".into(),
+                "".into(),
+                "Windows Terminal".into(),
+            ],
+            order: vec![
+                HoverItem {
+                    id: "copy".into(),
+                    show: true,
+                },
+                HoverItem {
+                    id: "bad".into(),
+                    show: true,
+                },
+                HoverItem {
+                    id: "copy".into(),
+                    show: false,
+                },
+            ],
+        }
+        .normalized();
         assert_eq!((s.mode.as_str(), s.tr.as_str()), ("instant", "auto"));
         assert_eq!(s.apps, vec!["1Password", "Windows Terminal"]);
         assert_eq!(s.order.len(), 10);
-        assert_eq!((s.order[0].id.as_str(), s.order[0].show, s.order[1].show), ("copy", true, false));
+        assert_eq!(
+            (s.order[0].id.as_str(), s.order[0].show, s.order[1].show),
+            ("copy", true, false)
+        );
         assert!(s.excluded("1Password 8", "1Password.exe"));
         assert!(s.excluded("Terminal", "WindowsTerminal.exe"));
         assert!(!s.excluded("Microsoft Edge", "msedge.exe"));
@@ -735,7 +1081,14 @@ mod tests {
         let old = r#"{"handoff":{"tool":"codex","term":"powershell","dirs":["C:/work"],"save":false,"custom":"my-agent {file}"}}"#;
         let c: Config = serde_json::from_str(old).unwrap();
         assert!(c.handoff.hint);
-        assert_eq!((c.handoff.tool.as_str(), c.handoff.term.as_str(), c.handoff.custom.as_str()), ("codex", "powershell", "my-agent {file}"));
+        assert_eq!(
+            (
+                c.handoff.tool.as_str(),
+                c.handoff.term.as_str(),
+                c.handoff.custom.as_str()
+            ),
+            ("codex", "powershell", "my-agent {file}")
+        );
         assert_eq!(c.handoff.dirs, vec!["C:/work"]);
         assert!(!c.handoff.save);
         let mut h = c.handoff;
@@ -762,7 +1115,10 @@ mod tests {
 
     #[test]
     fn old_config_without_skills_loads_empty_lists() {
-        let c: Config = serde_json::from_str(r#"{"agents":[{"id":"lead","name":"主控"},{"id":"research","name":"研究员"}]}"#).unwrap();
+        let c: Config = serde_json::from_str(
+            r#"{"agents":[{"id":"lead","name":"主控"},{"id":"research","name":"研究员"}]}"#,
+        )
+        .unwrap();
         assert!(c.skills.is_empty());
         assert!(c.agents.iter().all(|a| a.skills.is_empty()));
     }
@@ -770,16 +1126,24 @@ mod tests {
     #[test]
     fn skill_limit_assignment_and_deletion() {
         let mut c = Config::default();
-        let skill = Skill { id: String::new(), name: "核对出处".into(), when: "查资料时".into(), steps: "先找原文".into() };
-        for _ in 0..MAX_SKILLS { c.save_skill(skill.clone()).unwrap(); }
+        let skill = Skill {
+            id: String::new(),
+            name: "核对出处".into(),
+            when: "查资料时".into(),
+            steps: "先找原文".into(),
+        };
+        for _ in 0..MAX_SKILLS {
+            c.save_skill(skill.clone()).unwrap();
+        }
         assert!(c.save_skill(skill).is_err());
         let id = c.skills[0].id.clone();
         let mut researcher = c.agents[1].clone();
         researcher.skills = vec![id.clone(), id.clone(), "missing".into()];
         c.upsert_agent(researcher).unwrap();
-        assert_eq!(c.agents[1].skills, [id.clone()]);
+        assert_eq!(c.agents[1].skills, std::slice::from_ref(&id));
         let prompt = c.agent_prompt(&c.agents[1]);
-        assert!(prompt.ends_with("你会的技能（需要时调用 read_skill 读完整步骤）：\n- 核对出处：查资料时"));
+        assert!(prompt
+            .ends_with("你会的技能（需要时调用 read_skill 读完整步骤）：\n- 核对出处：查资料时"));
         assert!(!prompt.contains("先找原文"));
         assert_eq!(c.agent_prompt(c.lead()), c.lead().prompt);
         c.remove_skill(&id);
@@ -791,10 +1155,24 @@ mod tests {
     fn new_capture_shortcuts_have_defaults() {
         let d = tempfile::tempdir().unwrap();
         let c = Config::load(d.path());
-        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str(), c.feed_shortcut.as_str()), ("Alt+W", "Alt+Shift+S", "Alt+C"));
+        assert_eq!(
+            (
+                c.win_shortcut.as_str(),
+                c.share_shortcut.as_str(),
+                c.feed_shortcut.as_str()
+            ),
+            ("Alt+W", "Alt+Shift+S", "Alt+C")
+        );
         fs::write(Config::path(d.path()), r#"{"capture_shortcut":"Alt+S"}"#).unwrap();
         let c = Config::load(d.path());
-        assert_eq!((c.win_shortcut.as_str(), c.share_shortcut.as_str(), c.feed_shortcut.as_str()), ("Alt+W", "Alt+Shift+S", "Alt+C"));
+        assert_eq!(
+            (
+                c.win_shortcut.as_str(),
+                c.share_shortcut.as_str(),
+                c.feed_shortcut.as_str()
+            ),
+            ("Alt+W", "Alt+Shift+S", "Alt+C")
+        );
     }
 
     #[test]
@@ -815,7 +1193,14 @@ mod tests {
         let path = Config::path(d.path());
         fs::write(&path, r#"{"capture_shortcut":"Alt+Shift+S"}"#).unwrap();
         let c = Config::load(d.path());
-        assert_eq!((c.capture_shortcut.as_str(), c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+Shift+S", "Alt+W", ""));
+        assert_eq!(
+            (
+                c.capture_shortcut.as_str(),
+                c.win_shortcut.as_str(),
+                c.share_shortcut.as_str()
+            ),
+            ("Alt+Shift+S", "Alt+W", "")
+        );
         let mut parsed = Vec::new();
         for (key, _) in c.shortcut_bindings() {
             if let Ok(key) = key.parse::<Shortcut>() {
@@ -823,9 +1208,20 @@ mod tests {
                 parsed.push(key);
             }
         }
-        fs::write(&path, r#"{"new_shortcut":"Alt+W","capture_shortcut":"Alt+S","share_shortcut":"Alt+S"}"#).unwrap();
+        fs::write(
+            &path,
+            r#"{"new_shortcut":"Alt+W","capture_shortcut":"Alt+S","share_shortcut":"Alt+S"}"#,
+        )
+        .unwrap();
         let c = Config::load(d.path());
-        assert_eq!((c.new_shortcut.as_str(), c.win_shortcut.as_str(), c.share_shortcut.as_str()), ("Alt+W", "", "Alt+S"));
+        assert_eq!(
+            (
+                c.new_shortcut.as_str(),
+                c.win_shortcut.as_str(),
+                c.share_shortcut.as_str()
+            ),
+            ("Alt+W", "", "Alt+S")
+        );
     }
 
     #[test]
@@ -838,10 +1234,26 @@ mod tests {
         .unwrap();
         let c = Config::load(d.path());
         assert_eq!(c.shortcut, "Alt+K");
-        assert_eq!((c.capture_shortcut.as_str(), c.new_shortcut.as_str(), c.tasks_shortcut.as_str()), ("Alt+S", "Alt+N", "Alt+T"));
+        assert_eq!(
+            (
+                c.capture_shortcut.as_str(),
+                c.new_shortcut.as_str(),
+                c.tasks_shortcut.as_str()
+            ),
+            ("Alt+S", "Alt+N", "Alt+T")
+        );
         assert_eq!(c.position, Some((3.0, 4.0)));
         let m = c.current().unwrap();
-        assert_eq!((m.id, m.model.as_str(), m.base_url.as_str(), m.no_key, m.vision), (1, "x", "http://localhost:11434/v1", true, true));
+        assert_eq!(
+            (
+                m.id,
+                m.model.as_str(),
+                m.base_url.as_str(),
+                m.no_key,
+                m.vision
+            ),
+            (1, "x", "http://localhost:11434/v1", true, true)
+        );
     }
 
     #[test]
@@ -852,8 +1264,15 @@ mod tests {
         assert_eq!(c.upsert(model("a")).unwrap(), (1, true));
         assert_eq!(c.upsert(model("b")).unwrap(), (2, true));
         assert_eq!(c.current().unwrap().model, "a"); // 第一个自动成为默认
-        // 修改不换编号
-        assert_eq!(c.upsert(Model { id: 2, ..model(" b2 ") }).unwrap(), (2, false));
+                                                     // 修改不换编号
+        assert_eq!(
+            c.upsert(Model {
+                id: 2,
+                ..model(" b2 ")
+            })
+            .unwrap(),
+            (2, false)
+        );
         assert_eq!(c.models[1].model, "b2");
         // 删掉默认的，默认换成剩下的；空出来的编号下次再用
         c.remove(1);
@@ -874,9 +1293,20 @@ mod tests {
     #[test]
     fn agents_lead_migration_and_crud() {
         let d = tempfile::tempdir().unwrap();
-        std::fs::write(Config::path(d.path()), r#"{"system_prompt":"只用中文","models":[]}"#).unwrap();
+        std::fs::write(
+            Config::path(d.path()),
+            r#"{"system_prompt":"只用中文","models":[]}"#,
+        )
+        .unwrap();
         let mut c = Config::load(d.path());
-        assert_eq!((c.agents.len(), c.lead().id.as_str(), c.lead().prompt.as_str()), (4, LEAD, "只用中文"));
+        assert_eq!(
+            (
+                c.agents.len(),
+                c.lead().id.as_str(),
+                c.lead().prompt.as_str()
+            ),
+            (4, LEAD, "只用中文")
+        );
         // 第一次用：照原型给 4 个 Agent，研究员默认不带搜索网页
         let names: Vec<&str> = c.agents.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(names, vec!["主控", "研究员", "整理员", "写手"]);
@@ -886,12 +1316,32 @@ mod tests {
         assert!(!raw.contains("system_prompt"));
         assert_eq!(Config::load(d.path()), c);
         // 新建：名字截短、工具去重去掉不认识的、emoji 只留一个字
-        let id = c.upsert_agent(Agent { name: " 审查员审查员审查员审查员审查员 ".into(), emoji: "ab".into(), tools: vec!["读文件".into(), "读文件".into(), "飞".into()], model: 9, ..Agent::default() }).unwrap();
+        let id = c
+            .upsert_agent(Agent {
+                name: " 审查员审查员审查员审查员审查员 ".into(),
+                emoji: "ab".into(),
+                tools: vec!["读文件".into(), "读文件".into(), "飞".into()],
+                model: 9,
+                ..Agent::default()
+            })
+            .unwrap();
         let a = c.agents.iter().find(|a| a.id == id).unwrap();
-        assert_eq!((a.name.chars().count(), a.emoji.as_str(), a.tools.len(), a.model), (12, "b", 1, 0));
+        assert_eq!(
+            (
+                a.name.chars().count(),
+                a.emoji.as_str(),
+                a.tools.len(),
+                a.model
+            ),
+            (12, "b", 1, 0)
+        );
         // 主控不能删，也不能去掉读文件
         assert!(c.remove_agent(LEAD).is_err());
-        c.upsert_agent(Agent { tools: vec![], ..c.lead().clone() }).unwrap();
+        c.upsert_agent(Agent {
+            tools: vec![],
+            ..c.lead().clone()
+        })
+        .unwrap();
         assert_eq!(c.lead().tools, vec!["读文件".to_string()]);
         // 模型删了，用它的 Agent 改回跟随默认
         let m = c.upsert(model("x")).unwrap().0;
@@ -907,8 +1357,10 @@ mod tests {
 
     #[test]
     fn endpoint_normalizes() {
-        let mut m = Model::default();
-        m.base_url = "https://api.deepseek.com/v1/".into();
+        let mut m = Model {
+            base_url: "https://api.deepseek.com/v1/".into(),
+            ..Default::default()
+        };
         assert_eq!(m.endpoint(), "https://api.deepseek.com/v1/chat/completions");
         m.base_url = "http://localhost:11434/v1/chat/completions".into();
         assert_eq!(m.endpoint(), "http://localhost:11434/v1/chat/completions");

@@ -14,6 +14,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: 前端代码检查（biome）
+        run: npx biome ci src tools/mock-tauri.js
       - run: python -m pip install playwright pillow
       - name: 安装测试用的浏览器
         run: |
@@ -48,12 +55,20 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
 
       - run: npm ci
+
+      - run: cargo fmt --check
+        working-directory: src-tauri
+
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: src-tauri
 
       - run: cargo test --locked
         working-directory: src-tauri

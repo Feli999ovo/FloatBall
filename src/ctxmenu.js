@@ -21,7 +21,10 @@ T.event.listen("ctx:show", (e) => {
     b.textContent = it.label;
     if (it.check != null) {
       b.setAttribute("aria-checked", String(!!it.check));
-      const ck = document.createElement("i"); ck.className = "x-ck"; ck.setAttribute("aria-hidden", "true"); ck.textContent = "✓";
+      const ck = document.createElement("i");
+      ck.className = "x-ck";
+      ck.setAttribute("aria-hidden", "true");
+      ck.textContent = "✓";
       b.appendChild(ck);
     }
     menu.appendChild(b);
@@ -32,17 +35,30 @@ T.event.listen("ctx:show", (e) => {
   requestAnimationFrame(() => menu.classList.add("on"));
   menu.focus({ preventScroll: true }); // 焦点放在菜单上（不高亮任何一项，和原型一样）；方向键从第一项开始
 });
-menu.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) close(b.dataset.id); });
+menu.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) close(b.dataset.id);
+});
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") return close("");
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
-    const bs = [...menu.querySelectorAll("button")]; if (!bs.length) return;
+    const bs = [...menu.querySelectorAll("button")];
+    if (!bs.length) return;
     const i = bs.indexOf(document.activeElement);
-    const n = i < 0 ? (e.key === "ArrowDown" ? 0 : bs.length - 1) : (i + (e.key === "ArrowDown" ? 1 : bs.length - 1)) % bs.length;
+    const n =
+      i < 0
+        ? e.key === "ArrowDown"
+          ? 0
+          : bs.length - 1
+        : (i + (e.key === "ArrowDown" ? 1 : bs.length - 1)) % bs.length;
     bs[n].focus();
   }
 });
 // 点到菜单外（窗口失去焦点）就关掉
-window.addEventListener("blur", () => setTimeout(() => { if (!document.hasFocus()) close(""); }, 60));
+window.addEventListener("blur", () =>
+  setTimeout(() => {
+    if (!document.hasFocus()) close("");
+  }, 60),
+);
 document.addEventListener("contextmenu", (e) => e.preventDefault());

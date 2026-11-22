@@ -12,7 +12,10 @@ struct FileLog;
 static FILE: Mutex<Option<File>> = Mutex::new(None);
 
 pub fn line(level: &str, msg: &str) {
-    let ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
     let th = std::thread::current();
     let text = format!("{ms} [{level}] [{}] {msg}\n", th.name().unwrap_or("-"));
     if let Ok(mut g) = FILE.lock() {
@@ -22,7 +25,6 @@ pub fn line(level: &str, msg: &str) {
         }
     }
 }
-
 
 impl log::Log for FileLog {
     fn enabled(&self, m: &log::Metadata) -> bool {
@@ -44,19 +46,42 @@ pub fn init(dir: &Path) {
     }
     let path = dir.join("floatball.log");
     eprintln!("日志：{}", path.display());
-    let big = std::fs::metadata(&path).map(|m| m.len() > 1 << 20).unwrap_or(false);
-    let f = if big { File::create(&path) } else { OpenOptions::new().create(true).append(true).open(&path) };
+    let big = std::fs::metadata(&path)
+        .map(|m| m.len() > 1 << 20)
+        .unwrap_or(false);
+    let f = if big {
+        File::create(&path)
+    } else {
+        OpenOptions::new().create(true).append(true).open(&path)
+    };
     let Ok(f) = f else { return };
     *FILE.lock().unwrap() = Some(f);
     let ok = log::set_logger(&FileLog).is_ok();
     if ok {
         log::set_max_level(log::LevelFilter::Info);
     }
-    line("INFO", &format!("启动 {}，log 记录器 {}", env!("CARGO_PKG_VERSION"), if ok { "装上了" } else { "已被别的库占用" }));
+    line(
+        "INFO",
+        &format!(
+            "启动 {}，log 记录器 {}",
+            env!("CARGO_PKG_VERSION"),
+            if ok {
+                "装上了"
+            } else {
+                "已被别的库占用"
+            }
+        ),
+    );
     // 线程崩了也记下来（图形界面程序没有控制台，不记就看不到）
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        line("ERROR", &format!("崩溃（线程 {}）：{info}", std::thread::current().name().unwrap_or("-")));
+        line(
+            "ERROR",
+            &format!(
+                "崩溃（线程 {}）：{info}",
+                std::thread::current().name().unwrap_or("-")
+            ),
+        );
         prev(info);
     }));
 }

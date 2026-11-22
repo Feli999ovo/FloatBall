@@ -10,6 +10,7 @@
     "icon": "tauri icon app-icon.png"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.8",
     "@tauri-apps/cli": "^2"
   },
   "license": "MIT"
