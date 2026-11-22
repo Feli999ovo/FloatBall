@@ -89,7 +89,13 @@ impl Task {
         })
     }
 
-    pub(super) async fn budget_wait(&self, kind: &str, used: u64, limit: u64, more: u64) -> Option<Answer> {
+    pub(super) async fn budget_wait(
+        &self,
+        kind: &str,
+        used: u64,
+        limit: u64,
+        more: u64,
+    ) -> Option<Answer> {
         let id = self.asks.next.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         self.asks.wait.lock().unwrap().insert(id, tx);
