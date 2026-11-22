@@ -56,7 +56,11 @@ pub fn save_routine(
 }
 
 #[tauri::command]
-pub fn delete_routine(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub fn delete_routine(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
     let mut next = state.cfg.lock().unwrap().clone();
     next.routines.retain(|r| r.id != id);
     commit(&app, &state, next)

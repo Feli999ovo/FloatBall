@@ -106,7 +106,11 @@ pub fn delete_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Resu
 }
 
 #[tauri::command]
-pub fn set_default_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Result<(), String> {
+pub fn set_default_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: u32,
+) -> Result<(), String> {
     let mut next = state.cfg.lock().unwrap().clone();
     if !next.models.iter().any(|m| m.id == id) {
         return Err("这个模型已经不在了".into());
