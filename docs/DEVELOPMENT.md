@@ -110,6 +110,9 @@ floatball/
 │     ├─ llm.rs            OpenAI 兼容流式调用 + SSE 解析
 │     ├─ config.rs         设置（config.json）+ 钥匙串
 │     ├─ store.rs          历史记录（SQLite）
+│     ├─ changes.rs        文件改动备份、整文件撤回、过期清理。`undo_change(id, confirm_changed)` 执行撤回
+│     ├─ agent.rs          工具与 Agent 执行。`chat` 接收可选 `plan`、`pre_allow` 和 `review_agent`
+│     ├─ routine.rs        定时任务触发时间和一次性派发状态
 │     └─ capture.rs        截屏、读文本文件
 ├─ tools/                  只用于测试：浏览器里模拟 Tauri 的脚本、界面测试
 └─ design-reference/       网页原型，做后续功能时照着它的设计

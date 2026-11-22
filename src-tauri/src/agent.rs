@@ -1284,6 +1284,24 @@ mod tests {
     }
 
     #[test]
+    fn review_uses_selected_agent_and_only_read_only_tools() {
+        let mut e = env(vec![text("审查完成")], |c| {
+            c.upsert_agent(Agent { name: "审查员".into(), prompt: "独立审查".into(), tools: vec!["写文件".into()], ..Agent::default() }).unwrap();
+        });
+        let id = e.task.cfg.agents[1].id.clone();
+        let review = crate::review_agent_for(&e.task.cfg, &id).unwrap();
+        Arc::get_mut(&mut e.task).unwrap().plan_only = true;
+        assert!(crate::review_agent_for(&e.task.cfg, "missing").is_err());
+        let out = rt().block_on(e.task.run(&review, vec![json!({"role":"user","content":"审查文件"})], false));
+        assert_eq!(out.unwrap(), "审查完成");
+        let got = e.got.lock().unwrap();
+        assert!(got[0]["messages"][0]["content"].as_str().unwrap().contains("独立审查"));
+        let tools: Vec<_> = got[0]["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap()).collect();
+        assert!(tools.contains(&"read_file"));
+        assert!(!tools.contains(&"write_file") && !tools.contains(&"delegate"));
+    }
+
+    #[test]
     fn planning_limits_main_and_delegated_tools() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("should-not-exist.txt");

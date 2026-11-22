@@ -124,7 +124,7 @@
         if (r) (r.runs ||= []).unshift({ at: Math.floor(Date.now() / 1000), ok: a.ok, note: a.note });
         (st.rtDone ||= []).push([a.id, a.ok, a.note]); changed(); return null;
       }
-      case "answer_ask": (st.answers ||= []).push(a); if (st.onAnswer) { const f = st.onAnswer; st.onAnswer = null; setTimeout(() => f(a.answer), 30); return true; } return false;
+      case "answer_ask": (st.answers ||= []).push(a); if (st.pendingAnswers?.[a.ask]) { const f = st.pendingAnswers[a.ask]; delete st.pendingAnswers[a.ask]; f(a.answer); return true; } if (st.onAnswer) { const f = st.onAnswer; st.onAnswer = null; setTimeout(() => f(a.answer), 30); return true; } return false;
       case "save_perm": st.cfg.always_allow = a.alwaysAllow; st.cfg.pause_away = a.pauseAway; changed(); return null;
       case "save_prefs": Object.assign(st.cfg, a.prefs); changed(); return st.shortcutBusy ? a.prefs.shortcut + " 被别的程序占用了" : null;
       // 能力资料：真实程序查内置的 models.dev 快照，这里只放测试用到的几个
@@ -259,6 +259,22 @@
             }, 50);
             return null;
           }
+        }
+        if (a.reviewAgent) {
+          st.reviewRequest = { q, plan: a.plan, reviewAgent: a.reviewAgent };
+          setTimeout(() => { ch.onmessage({ type: "delta", text: "审查结论：请补充说明" }); ch.onmessage({ type: "done" }); }, 30);
+          return null;
+        }
+        if (st.pendingProbe && q.startsWith("待办用例")) {
+          const budget = q.endsWith("预算"), ask = budget ? 94 : 93;
+          (st.pendingAnswers ||= {})[ask] = () => {
+            ch.onmessage({ type: "delta", text: "已处理" }); ch.onmessage({ type: "done" });
+          };
+          setTimeout(() => {
+            if (budget) ch.onmessage({ type: "budget", ask, kind: "tokens", used: 50000, limit: 50000, more: 20000 });
+            else ch.onmessage({ type: "ask", ask, call: "t1", kind: "写入", desc: "待确认写入测试", scope: "测试", hi: false });
+          }, 35);
+          return null;
         }
         if (st.receiptProbe) {
           const out = (event) => { if (st.cancelled !== a.id) ch.onmessage(event); };
