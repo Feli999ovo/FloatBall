@@ -7,6 +7,7 @@ use chrono::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Routine {
@@ -49,6 +50,7 @@ impl Default for Routine {
     }
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(default)]
 pub struct Run {

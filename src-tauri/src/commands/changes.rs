@@ -1,6 +1,7 @@
 use crate::*;
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn undo_change(
     app: AppHandle,
     id: String,

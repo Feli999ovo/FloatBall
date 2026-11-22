@@ -47,6 +47,7 @@ pub(crate) fn review_agent_for(cfg: &Config, id: &str) -> Result<config::Agent, 
 /// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
 /// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 #[allow(clippy::too_many_arguments)] // Tauri 命令的参数由前端传入，不能合并
 pub fn chat(
     app: AppHandle,
@@ -173,12 +174,14 @@ pub fn chat(
 
 /// 确认卡片上的选择
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn answer_ask(state: State<'_, AppState>, ask: u64, answer: agent::Answer) -> bool {
     state.asks.answer(ask, answer)
 }
 
 /// 权限页：撤销一条「总是允许」、开关「离开电脑时暂停敏感操作」
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_perm(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -192,6 +195,7 @@ pub fn save_perm(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn cancel_chat(state: State<'_, AppState>, id: String) {
     if let Some(h) = state.chats.lock().unwrap().remove(&id) {
         h.abort();

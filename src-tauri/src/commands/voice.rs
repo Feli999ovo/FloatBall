@@ -9,6 +9,7 @@ pub(crate) const VOICE_NO_KEY: &str =
 
 /// 按下说话时调用：系统识别在 Windows 上从这里开始听麦克风（其他情况什么都不做）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn stt_begin(state: State<'_, AppState>) -> Result<(), String> {
     let v = state.cfg.lock().unwrap().voice.clone();
     if v.engine != "system" {
@@ -24,6 +25,7 @@ pub async fn stt_begin(state: State<'_, AppState>) -> Result<(), String> {
 
 /// 取消录音：系统识别不要结果
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn stt_cancel() {
     let _ = tauri::async_runtime::spawn_blocking(stt::cancel).await;
 }
@@ -71,6 +73,7 @@ pub(crate) fn recognize_file(_p: &std::path::Path, _lang: &str) -> Result<String
 
 /// 语音识别：系统自带（默认）或语音设置里选的模型服务商。返回识别出的文字
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn transcribe(
     state: State<'_, AppState>,
     audio: String,

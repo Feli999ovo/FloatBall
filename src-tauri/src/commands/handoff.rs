@@ -2,6 +2,7 @@ use crate::*;
 
 /// 交给终端：扫描本机装了的编程 CLI 和终端（只读 PATH，不运行它们）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn handoff_scan() -> handoff::Scan {
     tauri::async_runtime::spawn_blocking(handoff::scan)
         .await
@@ -12,6 +13,7 @@ pub async fn handoff_scan() -> handoff::Scan {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn handoff_pick(start: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || handoff::pick_folder(&start))
         .await
@@ -21,6 +23,7 @@ pub async fn handoff_pick(start: String) -> Result<Option<String>, String> {
 /// 交给终端：写好交接说明，在终端里、项目文件夹下打开工具。
 /// tool = "custom" 时运行自定义命令。返回 (说明文件, 要粘贴的那句话；能直接带上时为空)
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 #[allow(clippy::too_many_arguments)] // Tauri 命令的参数由前端传入，不能合并
 pub fn handoff_go(
     app: AppHandle,

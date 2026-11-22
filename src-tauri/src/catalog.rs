@@ -34,6 +34,7 @@ pub struct Catalog {
 }
 
 /// 查到的能力
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Caps {
     pub tools: Option<bool>,

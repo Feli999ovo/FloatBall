@@ -34,6 +34,7 @@ impl agent::MemoryStore for AppMemory {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn agent_memory_counts(
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, u32>, String> {
@@ -41,6 +42,7 @@ pub fn agent_memory_counts(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn agent_memory_list(
     state: State<'_, AppState>,
     agent: String,
@@ -49,6 +51,7 @@ pub fn agent_memory_list(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn agent_memory_delete(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -62,6 +65,7 @@ pub fn agent_memory_delete(
 
 /// 撤销对话里的自动记忆，只删除指定 Agent 下这一条
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn forget_memory(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -74,6 +78,7 @@ pub fn forget_memory(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn history_append(
     state: State<'_, AppState>,
     conv_id: Option<i64>,
@@ -84,21 +89,25 @@ pub fn history_append(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn history_list(state: State<'_, AppState>) -> Result<Vec<store::ConvSummary>, String> {
     with_store(&state, |s| s.list(200))
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn history_load(state: State<'_, AppState>, conv_id: i64) -> Result<Vec<store::Msg>, String> {
     with_store(&state, |s| s.load(conv_id))
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn history_delete(state: State<'_, AppState>, conv_id: i64) -> Result<(), String> {
     with_store(&state, |s| s.delete(conv_id))
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn history_clear(state: State<'_, AppState>) -> Result<(), String> {
     with_store(&state, |s| s.clear())
 }

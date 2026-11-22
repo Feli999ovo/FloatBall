@@ -11,6 +11,7 @@ use std::{
 
 const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Change {
     pub id: String,

@@ -12,6 +12,7 @@ const KEYRING_SERVICE: &str = "com.floatball.desktop";
 pub const MAX_MODELS: u32 = 32;
 
 /// 模型库里的一个模型（OpenAI 兼容接口）
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Model {
@@ -82,6 +83,7 @@ fn default_usd_cny() -> f64 {
     DEFAULT_USD_CNY
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Skill {
     #[serde(default)]
@@ -93,6 +95,7 @@ pub struct Skill {
 pub const LEAD: &str = "lead";
 
 /// 一个 Agent：主控（id = lead，不能删）或用户建的小伙伴
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Agent {
@@ -149,6 +152,7 @@ impl Agent {
 }
 
 /// 总是允许的一类操作：种类（写入 / 打开网页 / 删除 / 发送）+ 范围（文件夹名、网站、收件人）
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(default)]
 pub struct Allow {
@@ -185,6 +189,7 @@ impl Default for Handoff {
     }
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Limits {
@@ -275,6 +280,7 @@ pub struct Config {
 }
 
 /// 悬停快捷入口（原型的 hoverEntries）。order 里 show 的前 4 个按顺序排开
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Hover {
@@ -284,6 +290,7 @@ pub struct Hover {
     pub order: Vec<HoverItem>,
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HoverItem {
     pub id: String,
@@ -342,6 +349,7 @@ impl Hover {
 }
 
 /// 语音（原型的 vcCfg）。识别用模型库里某个模型的接口地址和 Key，调它的 /audio/transcriptions
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Voice {
@@ -395,6 +403,7 @@ impl Voice {
 pub const TALK_RALT: &str = "RightAlt";
 
 /// 划词工具栏（原型的 selCfg）。order 里勾了「显示」的前 6 个放在工具栏上，其余放进「⋯」
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Sel {

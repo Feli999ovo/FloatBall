@@ -26,6 +26,7 @@ pub fn check_permission() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WindowKey {
     pub id: u32,
@@ -154,6 +155,7 @@ pub fn foreground_window() -> Option<WindowKey> {
     fallback
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Target {
@@ -161,6 +163,7 @@ pub enum Target {
     Screen { id: u32 },
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(serde::Serialize)]
 pub struct Source {
     target: Target,
@@ -269,6 +272,7 @@ pub fn backdrop_at(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Result<S
 
 /// 设置窗口的玻璃底：整块屏幕缩到八分之一、模糊、提饱和度。x、y、w、h 是这块屏幕的物理像素位置和大小，
 /// 页面按自己窗口的位置把对应那一块露出来。
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(serde::Serialize, Clone, Debug, PartialEq)]
 pub struct ScreenBackdrop {
     pub url: String,

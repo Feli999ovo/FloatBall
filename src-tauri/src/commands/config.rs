@@ -2,6 +2,7 @@ use crate::*;
 
 /// 给界面看的设置：config.json 里的内容，加上每个模型有没有存 Key、默认模型能不能用。Key 本身不给界面。
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn get_config(app: AppHandle, state: State<'_, AppState>) -> Value {
     let cfg = state.cfg.lock().unwrap().clone();
     let has_key = |id: u32| config::get_api_key(id).is_some();
@@ -78,6 +79,7 @@ pub(crate) fn commit(app: &AppHandle, state: &AppState, next: Config) -> Result<
 
 /// 新增或修改模型库里的一个模型。api_key：None 表示不改；Some("") 表示删除。返回模型的编号。
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_model(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -98,6 +100,7 @@ pub fn save_model(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn delete_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Result<(), String> {
     let mut next = state.cfg.lock().unwrap().clone();
     next.remove(id);
@@ -106,6 +109,7 @@ pub fn delete_model(app: AppHandle, state: State<'_, AppState>, id: u32) -> Resu
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn set_default_model(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -121,6 +125,7 @@ pub fn set_default_model(
 
 /// 查模型能力（models.dev 资料）
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn model_caps(
     state: State<'_, AppState>,
     provider: String,
@@ -170,6 +175,7 @@ pub(crate) fn refresh_catalog(app: &AppHandle, force: bool) {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn catalog_refresh(app: AppHandle) {
     refresh_catalog(&app, false);
 }
@@ -193,6 +199,7 @@ pub(crate) fn today() -> String {
     format!("{:04}-{:02}-{:02}", if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Deserialize)]
 pub(crate) struct Prefs {
     shortcut: String,
@@ -233,6 +240,7 @@ pub(crate) struct Prefs {
 }
 
 /// 多显示器：鼠标位置和所有屏幕（都是物理像素），给小球判断该待在哪块屏幕
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize)]
 pub(crate) struct Screen {
     x: i32,
@@ -243,6 +251,7 @@ pub(crate) struct Screen {
     primary: bool,
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize)]
 pub(crate) struct Screens {
     cursor: Option<(f64, f64)>,
@@ -250,6 +259,7 @@ pub(crate) struct Screens {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn screens(app: AppHandle) -> Screens {
     let prim = app.primary_monitor().ok().flatten().map(|m| *m.position());
     let list = app
@@ -276,6 +286,7 @@ pub fn screens(app: AppHandle) -> Screens {
 
 /// 模型以外的设置。返回 Some(提示)：已经保存，但有快捷键被别的程序占用了
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_prefs(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -359,6 +370,7 @@ pub fn save_prefs(
 
 /// 新建或修改一个 Agent，返回它的 id
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_agent(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -376,6 +388,7 @@ pub fn save_agent(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_skill(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -392,6 +405,7 @@ pub fn save_skill(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn delete_skill(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let mut cfg = state.cfg.lock().unwrap();
     let mut next = cfg.clone();
@@ -404,6 +418,7 @@ pub fn delete_skill(app: AppHandle, state: State<'_, AppState>, id: String) -> R
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn delete_agent(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let mut cfg = state.cfg.lock().unwrap();
     let mut next = cfg.clone();
@@ -419,6 +434,7 @@ pub fn delete_agent(app: AppHandle, state: State<'_, AppState>, id: String) -> R
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_limits(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -435,6 +451,7 @@ pub fn save_limits(
 
 /// 记忆偏好：只保存是否在记住前询问
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_memory_prefs(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -447,6 +464,7 @@ pub fn save_memory_prefs(
 
 /// 交给终端偏好：只保存设置，不打开终端或运行自定义命令
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn save_handoff_prefs(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -468,6 +486,7 @@ pub(crate) fn key_for(api_key: Option<String>, id: Option<u32>) -> Option<String
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn test_connection(
     base_url: String,
     model: String,
@@ -488,6 +507,7 @@ pub async fn test_connection(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn list_models(
     base_url: String,
     api_key: Option<String>,
@@ -501,6 +521,7 @@ pub async fn list_models(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn set_autostart(app: AppHandle, on: bool) -> Result<bool, String> {
     let al = app.autolaunch();
     if on { al.enable() } else { al.disable() }.map_err(|e| e.to_string())?;

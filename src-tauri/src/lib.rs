@@ -2,6 +2,78 @@
 //! 前端（src/）负责小球、胶囊输入框和对话卡片的样子；这里负责系统能力：
 //! 托盘、右键菜单、全局快捷键、开机启动、模型调用、钥匙串、历史记录、截屏。
 
+macro_rules! floatball_commands {
+    ($collector:ident) => {
+        $collector![
+            commands::config::get_config,
+            commands::config::save_model,
+            commands::config::delete_model,
+            commands::config::set_default_model,
+            commands::config::save_prefs,
+            commands::window::settings_backdrop,
+            commands::window::settings_goto,
+            commands::config::screens,
+            commands::selection::sel_status,
+            commands::selection::sel_place,
+            commands::selection::sel_resize,
+            commands::selection::sel_hide,
+            commands::selection::sel_act,
+            commands::selection::sel_copy,
+            commands::selection::open_url,
+            commands::selection::sel_open_privacy,
+            commands::config::save_agent,
+            commands::config::delete_agent,
+            commands::config::save_skill,
+            commands::config::delete_skill,
+            commands::config::save_limits,
+            commands::config::save_memory_prefs,
+            commands::config::save_handoff_prefs,
+            commands::handoff::handoff_scan,
+            commands::handoff::handoff_pick,
+            commands::handoff::handoff_go,
+            commands::routine::save_routine,
+            commands::routine::delete_routine,
+            commands::routine::routine_next,
+            commands::routine::routine_done,
+            commands::changes::undo_change,
+            commands::chat::answer_ask,
+            commands::chat::save_perm,
+            commands::config::list_models,
+            commands::config::model_caps,
+            commands::config::catalog_refresh,
+            commands::voice::stt_begin,
+            commands::voice::stt_cancel,
+            commands::window::open_settings,
+            commands::window::save_position,
+            commands::config::test_connection,
+            commands::config::set_autostart,
+            commands::chat::chat,
+            commands::chat::cancel_chat,
+            commands::history::history_append,
+            commands::history::history_list,
+            commands::history::history_load,
+            commands::history::history_delete,
+            commands::history::history_clear,
+            commands::history::agent_memory_counts,
+            commands::history::agent_memory_list,
+            commands::history::agent_memory_delete,
+            commands::history::forget_memory,
+            commands::capture::capture_screen,
+            commands::capture::capture_window,
+            commands::capture::share_sources,
+            commands::capture::capture_shared,
+            commands::capture::open_screen_privacy,
+            commands::capture::backdrop,
+            commands::capture::read_text_file,
+            commands::window::show_context_menu,
+            commands::window::ctx_act,
+            commands::window::hide_ball,
+            commands::capture::js_log,
+            commands::voice::transcribe,
+        ]
+    };
+}
+
 mod agent;
 mod applog;
 mod capture;
@@ -192,6 +264,7 @@ fn place_initial<R: Runtime>(w: &WebviewWindow<R>, saved: Option<(f64, f64)>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    use tauri::generate_handler;
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             show_ball(app);
@@ -321,73 +394,21 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::config::get_config,
-            commands::config::save_model,
-            commands::config::delete_model,
-            commands::config::set_default_model,
-            commands::config::save_prefs,
-            commands::window::settings_backdrop,
-            commands::window::settings_goto,
-            commands::config::screens,
-            commands::selection::sel_status,
-            commands::selection::sel_place,
-            commands::selection::sel_resize,
-            commands::selection::sel_hide,
-            commands::selection::sel_act,
-            commands::selection::sel_copy,
-            commands::selection::open_url,
-            commands::selection::sel_open_privacy,
-            commands::config::save_agent,
-            commands::config::delete_agent,
-            commands::config::save_skill,
-            commands::config::delete_skill,
-            commands::config::save_limits,
-            commands::config::save_memory_prefs,
-            commands::config::save_handoff_prefs,
-            commands::handoff::handoff_scan,
-            commands::handoff::handoff_pick,
-            commands::handoff::handoff_go,
-            commands::routine::save_routine,
-            commands::routine::delete_routine,
-            commands::routine::routine_next,
-            commands::routine::routine_done,
-            commands::changes::undo_change,
-            commands::chat::answer_ask,
-            commands::chat::save_perm,
-            commands::config::list_models,
-            commands::config::model_caps,
-            commands::config::catalog_refresh,
-            commands::voice::stt_begin,
-            commands::voice::stt_cancel,
-            commands::window::open_settings,
-            commands::window::save_position,
-            commands::config::test_connection,
-            commands::config::set_autostart,
-            commands::chat::chat,
-            commands::chat::cancel_chat,
-            commands::history::history_append,
-            commands::history::history_list,
-            commands::history::history_load,
-            commands::history::history_delete,
-            commands::history::history_clear,
-            commands::history::agent_memory_counts,
-            commands::history::agent_memory_list,
-            commands::history::agent_memory_delete,
-            commands::history::forget_memory,
-            commands::capture::capture_screen,
-            commands::capture::capture_window,
-            commands::capture::share_sources,
-            commands::capture::capture_shared,
-            commands::capture::open_screen_privacy,
-            commands::capture::backdrop,
-            commands::capture::read_text_file,
-            commands::window::show_context_menu,
-            commands::window::ctx_act,
-            commands::window::hide_ball,
-            commands::capture::js_log,
-            commands::voice::transcribe
-        ])
+        .invoke_handler(floatball_commands!(generate_handler))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(feature = "gen-ipc")]
+pub fn export_ipc(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri_specta::{collect_commands, Builder};
+    Builder::<tauri::Wry>::new()
+        .commands(floatball_commands!(collect_commands))
+        .typ::<commands::window::CtxShow>()
+        .typ::<selection::Picked>()
+        .typ::<routine::Routine>()
+        // The existing webview interface decodes JSON integers as JavaScript numbers.
+        .dangerously_cast_bigints_to_number()
+        .export(specta_typescript::Typescript::default(), path)?;
+    Ok(())
 }

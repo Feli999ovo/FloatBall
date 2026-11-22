@@ -2,6 +2,7 @@ use crate::*;
 
 /// 卡片的毛玻璃底图（见 capture::backdrop_at）。拿不到就返回空，前端用不透明的底。
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<String> {
     #[cfg(windows)]
     {
@@ -18,6 +19,7 @@ pub async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Optio
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn capture_screen(app: AppHandle) -> Result<String, String> {
     let (cx, cy) = app
         .cursor_position()
@@ -51,6 +53,7 @@ pub(crate) async fn capture_without_ball(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn capture_window(app: AppHandle) -> Result<String, String> {
     let key = app
         .state::<AppState>()
@@ -66,6 +69,7 @@ pub async fn capture_window(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn share_sources() -> Result<Vec<capture::Source>, String> {
     capture::check_permission()?;
     tauri::async_runtime::spawn_blocking(capture::sources)
@@ -74,6 +78,7 @@ pub async fn share_sources() -> Result<Vec<capture::Source>, String> {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub async fn capture_shared(
     app: AppHandle,
     target: capture::Target,
@@ -102,6 +107,7 @@ pub async fn capture_shared(
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn open_screen_privacy() -> Result<(), String> {
     if cfg!(target_os = "macos") {
         open_external(
@@ -112,6 +118,7 @@ pub fn open_screen_privacy() -> Result<(), String> {
     }
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize)]
 pub(crate) struct TextFile {
     name: String,
@@ -119,12 +126,14 @@ pub(crate) struct TextFile {
 }
 
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn read_text_file(path: String) -> Result<TextFile, String> {
     capture::read_text_file(&path).map(|(name, text)| TextFile { name, text })
 }
 
 /// 前端的报错打到终端（npm run dev 时能看到），方便排查
 #[tauri::command]
+#[cfg_attr(feature = "gen-ipc", specta::specta)]
 pub fn js_log(msg: String) {
     eprintln!("[前端] {msg}");
     log::warn!("[前端] {msg}");

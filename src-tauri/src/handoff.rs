@@ -84,6 +84,7 @@ pub const TOOLS: &[Tool] = &[
     },
 ];
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Found {
     pub id: String,
@@ -94,12 +95,14 @@ pub struct Found {
     pub direct: bool,
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Term {
     pub id: String,
     pub name: String,
 }
 
+#[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
 #[derive(Serialize)]
 pub struct Scan {
     pub tools: Vec<Found>,
