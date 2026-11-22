@@ -434,10 +434,15 @@ fn save_routine(app: AppHandle, state: State<'_, AppState>, routine: routine::Ro
     let mut next = state.cfg.lock().unwrap().clone();
     let mut r = routine::clean(routine);
     if r.prompt.is_empty() { return Err("要写上每次让它做什么".into()); }
+    let now = chrono::Local::now();
+    if r.every == "once" {
+        let when = routine::once_at(&r, &chrono::Local).ok_or("请选择有效的日期和时间")?;
+        if when <= now { return Err("这个时间已经过了".into()); }
+    }
     if let Some(old) = next.routines.iter_mut().find(|x| !r.id.is_empty() && x.id == r.id) {
         // 改了时间不补跑之前的：从现在开始算
-        if old.every != r.every || old.time != r.time || old.weekday != r.weekday || !old.on && r.on {
-            r.last = chrono::Local::now().timestamp();
+        if old.every != r.every || old.time != r.time || old.weekday != r.weekday || old.monthday != r.monthday || old.date != r.date || !old.on && r.on {
+            r.last = now.timestamp();
         } else {
             r.last = old.last;
         }
@@ -446,7 +451,7 @@ fn save_routine(app: AppHandle, state: State<'_, AppState>, routine: routine::Ro
     } else {
         if next.routines.len() >= routine::MAX_ROUTINES { return Err(format!("最多 {} 个定时任务", routine::MAX_ROUTINES)); }
         r.id = (1..).map(|i| format!("rt{i}")).find(|id| !next.routines.iter().any(|x| &x.id == id)).unwrap();
-        r.last = chrono::Local::now().timestamp(); // 新建的从下一次到点开始
+        r.last = now.timestamp(); // 新建的从下一次到点开始
         r.runs.clear();
         next.routines.push(r.clone());
     }
@@ -529,9 +534,7 @@ fn spawn_routines(app: AppHandle) {
             let now = chrono::Local::now();
             let mut next = st.cfg.lock().unwrap().clone();
             let fire: Vec<routine::Routine> = next.routines.iter_mut().filter_map(|r| {
-                let ts = routine::due(r, &now)?;
-                r.last = ts;
-                Some(r.clone())
+                routine::mark_due(r, &now).then(|| r.clone())
             }).collect();
             if fire.is_empty() { continue; }
             if let Err(e) = commit(&app, &st, next) { log::warn!("定时任务保存失败：{e}"); continue; }
@@ -879,7 +882,7 @@ pub(crate) fn prepare_messages(system_prompt: &str, vision: bool, messages: Vec<
 /// 提问交给主控（agent.rs）：主控用自己的指令和模型，可以用工具、把步骤交给别的 Agent。
 /// 主模型出错（还没回一个字）时换备用模型再试一次。
 #[tauri::command]
-fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, temporary: Option<bool>, plan: Option<bool>, on_event: Channel<ChatEvent>) -> Result<(), String> {
+fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Value>, temporary: Option<bool>, plan: Option<bool>, pre_allow: Option<Vec<String>>, on_event: Channel<ChatEvent>) -> Result<(), String> {
     let cfg = state.cfg.lock().unwrap().clone();
     let lead = cfg.lead().clone();
     let catalog = state.catalog.lock().unwrap().clone();
@@ -912,7 +915,8 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
     let trash = state.data_dir.join("回收站");
     let asks = state.asks.clone();
     let task = tauri::async_runtime::spawn(async move {
-        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone(), plan.unwrap_or_default());
+        let pre_allow = pre_allow.unwrap_or_default();
+        let t = agent::Task::new(cfg.clone(), world.clone(), asks.clone(), trash.clone(), emit.clone(), plan.unwrap_or_default(), pre_allow.clone());
         *t.catalog.lock().unwrap() = Some(catalog.clone());
         let mut r = t.run(&lead, messages.clone(), true).await;
         let mut prompt = t.prompt.load(std::sync::atomic::Ordering::Relaxed);
@@ -924,7 +928,7 @@ fn chat(app: AppHandle, state: State<'_, AppState>, id: String, messages: Vec<Va
             let mut l2 = lead.clone();
             l2.model = lead.fallback;
             l2.auto = false;
-            let t2 = agent::Task::new(cfg, world, asks, trash, emit, plan.unwrap_or_default());
+            let t2 = agent::Task::new(cfg, world, asks, trash, emit, plan.unwrap_or_default(), pre_allow);
             *t2.catalog.lock().unwrap() = Some(catalog);
             r = t2.run(&l2, messages, true).await;
             prompt += t2.prompt.load(std::sync::atomic::Ordering::Relaxed);

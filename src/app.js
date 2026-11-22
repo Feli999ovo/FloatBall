@@ -416,7 +416,21 @@ setInterval(() => { if (convs.size && !$("#vTask").hidden) renderTasks(); }, 100
 const WK = "日一二三四五六";
 let rtNext = {}, rtOpen = "", rtNew = null, rtFocus = "";
 const hm2 = (d) => String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-function rtSched(r) { return r.every === "hour" ? `每小时 :${r.time.slice(3)}` : (r.every === "week" ? "每周" + WK[r.weekday] : "每天") + " " + r.time; }
+const RT_ALLOW = [["写入", "写文件"], ["打开", "打开网页"], ["删除", "删除文件（移到回收站）"], ["发送", "写邮件草稿"]];
+const rtComplete = (r) => r.every === "once" && !!r.last && r.last >= new Date(`${r.date}T${r.time}`).getTime() / 1000;
+function rtSched(r) {
+  switch (r.every) {
+    case "hour": return `每小时 :${r.time.slice(3)}`;
+    case "week": return `每周${WK[r.weekday]} ${r.time}`;
+    case "workday": return `工作日 ${r.time}`;
+    case "month": return `每月 ${r.monthday} 号 ${r.time}`;
+    case "once": {
+      const [, month, day] = r.date.split("-");
+      return `${+month}月${+day}日 ${r.time} 一次`;
+    }
+    default: return `每天 ${r.time}`;
+  }
+}
 function rtWhen(ts) {
   if (!ts) return "";
   const d = new Date(ts * 1000), day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
@@ -426,7 +440,7 @@ function rtWhen(ts) {
 async function rtRefresh() { try { rtNext = await invoke("routine_next"); } catch (e) { rtNext = {}; jslog("routine_next 失败：" + e); } }
 function rtAddBtn() {
   const b = document.createElement("button"); b.type = "button"; b.className = "rtadd"; b.textContent = "+ 新建定时任务";
-  b.onclick = () => { rtNew = { id: "", name: "", prompt: "", every: "day", weekday: 1, time: "09:00", on: true }; rtFocus = "rtEdprompt"; renderTasks(); };
+  b.onclick = () => { rtNew = { id: "", name: "", prompt: "", every: "day", weekday: 1, monthday: 1, date: "", allow: [], time: "09:00", on: true }; rtFocus = "rtEdprompt"; renderTasks(); };
   return b;
 }
 function rtRow(r) {
@@ -436,10 +450,12 @@ function rtRow(r) {
   name.setAttribute("aria-expanded", rtOpen === r.id);
   const sw = document.createElement("button"); sw.type = "button"; sw.className = "x-sw"; sw.setAttribute("role", "switch");
   sw.setAttribute("aria-checked", r.on); sw.setAttribute("aria-label", `定时任务「${r.name}」开关`);
+  sw.disabled = rtComplete(r);
   sw.onclick = (e) => { e.stopPropagation(); rtSave({ ...r, on: !r.on }, `${r.on ? "已关闭" : "已开启"}：${r.name}`); };
   row.append(name, sw);
   const sub = document.createElement("p"); sub.className = "rts";
-  sub.textContent = rtSched(r) + " · " + (r.on ? (rtNext[r.id] ? "下次 " + rtWhen(rtNext[r.id]) : "") : "已关闭");
+  const status = rtComplete(r) ? "已完成" : !r.on ? "已关闭" : rtNext[r.id] ? "下次 " + rtWhen(rtNext[r.id]) : "";
+  sub.textContent = rtSched(r) + (status ? " · " + status : "");
   d.append(row, sub);
   if (rtOpen === r.id) d.appendChild(r._edit ? rtForm(r._edit) : rtDetail(r));
   name.onclick = () => { rtOpen = rtOpen === r.id ? "" : r.id; rtFocus = "rtN" + r.id; renderTasks(); };
@@ -459,7 +475,7 @@ function rtDetail(r) {
   const d = rtBox(), row = rtDl(d);
   row("指令", r.prompt);
   row("何时运行", rtSched(r));
-  row("下次运行", r.on ? rtWhen(rtNext[r.id]) || "—" : "已暂停");
+  row("下次运行", rtComplete(r) ? "已完成" : r.on ? rtWhen(rtNext[r.id]) || "—" : "已暂停");
   const ul = document.createElement("ul");
   const runs = r.runs || [];
   if (!runs.length) { const li = document.createElement("li"); li.textContent = "还没有运行过"; ul.appendChild(li); }
@@ -473,8 +489,10 @@ function rtDetail(r) {
     const bar = rtBtns(d, [["确认删除", () => { rtOpen = ""; invoke("delete_routine", { id: r.id }).then(() => toast(`已删除：${r.name}`)).catch(toastErr); }, "danger"], ["取消", () => { r._del = false; renderTasks(); }]]);
     const p = document.createElement("p"); p.textContent = "删除后不再运行"; bar.prepend(p);
   } else {
-    rtBtns(d, [["立即测试", () => rtRun(r, "手动测试")], ["编辑", () => { r._edit = { ...r }; rtFocus = "rtEdprompt"; renderTasks(); }],
-      [r.on ? "暂停" : "恢复", () => rtSave({ ...r, on: !r.on }, `${r.on ? "已暂停" : "已恢复"}：${r.name}`)], ["删除", () => { r._del = true; renderTasks(); }, "danger"]]);
+    const buttons = [["立即测试", () => rtRun(r, "手动测试")], ["编辑", () => { r._edit = { ...r }; rtFocus = "rtEdprompt"; renderTasks(); }]];
+    if (!rtComplete(r)) buttons.push([r.on ? "暂停" : "恢复", () => rtSave({ ...r, on: !r.on }, `${r.on ? "已暂停" : "已恢复"}：${r.name}`)]);
+    buttons.push(["删除", () => { r._del = true; renderTasks(); }, "danger"]);
+    rtBtns(d, buttons);
   }
   return d;
 }
@@ -488,20 +506,37 @@ function rtForm(dr) {
   row("名字", inp("name", "不填就用指令开头", "名字"));
   const wrap = document.createElement("div"); wrap.className = "rtw";
   const sel = (id, label, opts, v) => { const s = document.createElement("select"); s.className = "x-in"; s.id = id; s.setAttribute("aria-label", label); opts.forEach(([val, t]) => s.add(new Option(t, val))); s.value = v; return s; };
-  const ev = sel("rtEdevery", "多久一次", [["day", "每天"], ["week", "每周"], ["hour", "每小时"]], dr.every);
+  const ev = sel("rtEdevery", "多久一次", [["day", "每天"], ["workday", "工作日"], ["week", "每周"], ["month", "每月"], ["hour", "每小时"], ["once", "只一次"]], dr.every);
   const wk = sel("rtEdweekday", "星期几", [1, 2, 3, 4, 5, 6, 0].map((i) => [i, "周" + WK[i]]), dr.weekday);
   const tm = document.createElement("input"); tm.type = "time"; tm.className = "x-in"; tm.id = "rtEdtime"; tm.value = dr.time; tm.setAttribute("aria-label", "时间");
-  const sync = () => { wk.hidden = dr.every !== "week"; };
+  const md = sel("rtEdmonthday", "每月几号", Array.from({ length: 31 }, (_, i) => [i + 1, `${i + 1} 号`]), dr.monthday || 1);
+  const date = document.createElement("input"); date.type = "date"; date.className = "x-in"; date.id = "rtEddate";
+  date.setAttribute("aria-label", "日期"); date.value = dr.date || "";
+  const now = new Date();
+  date.min = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const sync = () => { wk.hidden = dr.every !== "week"; md.hidden = dr.every !== "month"; date.hidden = dr.every !== "once"; };
   ev.onchange = () => { dr.every = ev.value; sync(); };
   wk.onchange = () => (dr.weekday = +wk.value);
+  md.onchange = () => (dr.monthday = +md.value);
+  date.oninput = () => (dr.date = date.value);
   tm.oninput = () => (dr.time = tm.value || "09:00");
-  sync(); wrap.append(ev, wk, tm); row("何时运行", wrap);
+  sync(); wrap.append(ev, wk, md, date, tm); row("何时运行", wrap);
+  const permissions = document.createElement("details"), legend = document.createElement("summary");
+  legend.textContent = "不在电脑前时也允许"; permissions.appendChild(legend);
+  const explanation = document.createElement("p"); explanation.textContent = "只对这个定时任务有效"; permissions.appendChild(explanation);
+  for (const [kind, text] of RT_ALLOW) {
+    const label = document.createElement("label"), input = document.createElement("input");
+    input.type = "checkbox"; input.checked = (dr.allow || []).includes(kind);
+    input.onchange = () => { dr.allow = input.checked ? [...(dr.allow || []), kind] : (dr.allow || []).filter((k) => k !== kind); };
+    label.append(input, text); permissions.appendChild(label);
+  }
+  permissions.className = "rt-allow"; d.appendChild(permissions);
   const close = () => { if (dr === rtNew) rtNew = null; else { const r = ((S.cfg && S.cfg.routines) || []).find((x) => x.id === dr.id); if (r) r._edit = null; } };
   const save = async () => {
     if (!dr.prompt.trim()) { toast("要写上每次让它做什么"); document.getElementById("rtEdprompt").focus(); return; }
     const isNew = !dr.id, { _edit, _del, ...r } = dr;
     const label = r.name.trim() || r.prompt.trim().slice(0, 12);
-    if (await rtSave(r, isNew ? `已创建：${label}` : `已保存：${label}`)) close();
+    if (await rtSave(r, isNew ? `已创建：${label}` : `已保存：${label}`)) { close(); renderTasks(); }
   };
   rtBtns(d, [["保存", save, "x-pri"], ["取消", () => { close(); renderTasks(); }]]);
   d.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); renderTasks(); } });
@@ -516,7 +551,7 @@ function rtRun(r, note) {
   showConv(c);
   S.msgs.push({ role: "user", content: r.prompt });
   addUserBubble(r.prompt, []);
-  run();
+  run(undefined, c, false, r.allow || []);
   const task = c.task;
   if (task) { task.title = "定时 · " + r.name; task.rt = { id: r.id, note }; }
   saveMsg(c, "user", r.prompt).catch(() => {});
@@ -1160,7 +1195,7 @@ async function send(textArg) {
 
 const HO_RE = /改代码|写代码|重构|脚本|bug|报错/i;
 let chatSeq = 0;
-function run(currentContent, conv = S.conv, plan = conv.plan) {
+function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
   const id = "c" + Date.now() + "-" + (++chatSeq);
   const userMessage = conv.msgs.at(-1);
   const prompt = currentContent ?? userMessage.content;
@@ -1285,7 +1320,7 @@ function run(currentContent, conv = S.conv, plan = conv.plan) {
   };
   conv.stop = el._stop; if (here()) S.stopFn = el._stop;
   const messages = currentContent === undefined ? conv.msgs : [...conv.msgs.slice(0, -1), { role: "user", content: currentContent }];
-  invoke("chat", { id, messages, temporary: conv.tmp || conv.tmpChanging, plan, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
+  invoke("chat", { id, messages, temporary: conv.tmp || conv.tmpChanging, plan, preAllow, onEvent: ch }).catch((e) => ch.onmessage({ type: "error", message: String(e) }));
 }
 // ───────── 多 Agent 计划卡（照搬原型 runTeam 的 .x-plan）：主控每交给一个 Agent 一步，卡里多一行 ─────────
 S.agBusy = {}; // Agent id → 正在做的那一步（任务页 Agents 头像条的状态）
@@ -1463,7 +1498,8 @@ function toolPill(el, ev) {
   const lead = ((S.cfg && S.cfg.agents) || [])[0];
   const who = lead && ev.agent && ev.agent !== lead.name ? ev.agent + " · " : "";
   w.firstChild.firstChild.innerHTML = icoSvg(ev.name.startsWith("交给") ? "upload" : TOOL_ICO[ev.name] || "pages");
-  w.querySelector(".x-tl").textContent = who + ev.name + (ev.arg ? " · " + ev.arg : "");
+  const preAuthorized = ev.result === "已预授权" || ev.result?.startsWith("已预授权 · ");
+  w.querySelector(".x-tl").textContent = who + ev.name + (ev.arg ? " · " + ev.arg : "") + (preAuthorized ? " · 已预授权" : "");
   w.className = "x-tw" + ({ wait: " wait", done: " done", no: " no", err: " err" }[ev.status] || "");
   if (ev.status === "no") w.querySelector(".x-tp").textContent = "✕ 已拒绝";
   if (ev.status === "err") w.querySelector(".x-tc").textContent = "✕";

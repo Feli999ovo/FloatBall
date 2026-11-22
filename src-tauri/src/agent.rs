@@ -85,6 +85,7 @@ struct DelegateSummary {
 pub struct Task {
     pub cfg: Config,
     plan_only: bool,
+    pre_allow: Vec<String>,
     pub world: Arc<dyn World>,
     pub asks: Arc<Asks>,
     /// 删除的文件移到这里（悬浮球回收站），可以找回
@@ -215,9 +216,9 @@ fn handoff_summary(result: &str, writes: u64) -> (u64, String) {
 }
 
 impl Task {
-    pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>, plan_only: bool) -> Arc<Self> {
+    pub fn new(cfg: Config, world: Arc<dyn World>, asks: Arc<Asks>, trash: PathBuf, emit: Arc<dyn Fn(ChatEvent) + Send + Sync>, plan_only: bool, pre_allow: Vec<String>) -> Arc<Self> {
         let par = cfg.limits.parallel.max(1) as usize;
-        Arc::new(Self { cfg, plan_only, world, asks, trash, emit, tokens: AtomicU64::new(0), prompt: AtomicU64::new(0), completion: AtomicU64::new(0), cost: Mutex::new(Some(0.0)), has_usage: Default::default(), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default(), catalog: Mutex::new(None), last_delegate: Mutex::new(None) })
+        Arc::new(Self { cfg, plan_only, pre_allow, world, asks, trash, emit, tokens: AtomicU64::new(0), prompt: AtomicU64::new(0), completion: AtomicU64::new(0), cost: Mutex::new(Some(0.0)), has_usage: Default::default(), steps: AtomicU64::new(0), allowed: Mutex::new(HashSet::new()), par: Semaphore::new(par), seq: AtomicU64::new(0), more_tokens: AtomicU64::new(0), more_steps: AtomicU64::new(0), budget_ask: tokio::sync::Mutex::new(()), budget_stop: Default::default(), catalog: Mutex::new(None), last_delegate: Mutex::new(None) })
     }
 
     fn price_for(&self, base: &str, model: &str, provider: &str, prompt: u64, completion: u64) -> Option<f64> {
@@ -507,7 +508,7 @@ impl Task {
             let text = arg(&a, "text").split_whitespace().collect::<Vec<_>>().join(" ");
             if text.is_empty() || text.chars().count() > 500 { return "请提供 1 至 500 字的简短事实或偏好".into(); }
             let text = if self.cfg.memory_ask {
-                let ans = self.ask(&call, "记住", &format!("记住：{text}"), &agent.name, false, true).await;
+                let (ans, _) = self.ask(&call, "记住", &format!("记住：{text}"), &agent.name, false, true).await;
                 if !ans.allow {
                     let why = if ans.reason.is_empty() {
                         "用户拒绝记住这条".to_string()
@@ -564,14 +565,16 @@ impl Task {
         }
         // 需要确认的先问
         let rk = risk(&c.name);
+        let mut pre_authorized = false;
         if rk > 0 {
             let (desc, scope, kind) = describe(&c.name, &a);
             let key = format!("{kind} · {scope}");
             let always = self.cfg.always_allow.iter().any(|x| x.kind == kind && x.scope == scope);
             let once = rk == 1 && self.allowed.lock().unwrap().contains(&key);
             if !always && !once {
-                self.pill(&call, agent, &name, &shown, "wait", "");
-                let ans = self.ask(&call, &kind, &desc, &scope, rk == 2, false).await;
+                if !self.pre_authorized(&kind) { self.pill(&call, agent, &name, &shown, "wait", ""); }
+                let (ans, pre) = self.ask(&call, &kind, &desc, &scope, rk == 2, false).await;
+                pre_authorized = pre;
                 if !ans.allow {
                     let why = if ans.reason.is_empty() { "用户拒绝了这个操作".to_string() } else { format!("用户拒绝了这个操作，原因：{}", ans.reason) };
                     self.pill(&call, agent, &name, &shown, "no", &why);
@@ -584,22 +587,29 @@ impl Task {
                 if ans.always {
                     self.world.remember(Allow { kind: kind.clone(), scope: scope.clone() });
                 }
-                self.allowed.lock().unwrap().insert(key);
+                if !pre_authorized { self.allowed.lock().unwrap().insert(key); }
             }
         }
-        self.pill(&call, agent, &name, &shown, "run", "");
+        self.pill(&call, agent, &name, &shown, "run", if pre_authorized { "已预授权" } else { "" });
         let r = self.exec(&c.name, &a).await;
         if c.name == "write_file" && r.is_ok() {
             if let Some(stats) = stats { stats.writes.fetch_add(1, Ordering::Relaxed); }
         }
-        match &r {
-            Ok(out) => self.pill(&call, agent, &name, &shown, "done", out),
-            Err(e) => self.pill(&call, agent, &name, &shown, "err", e),
-        }
+        let (status, result) = match &r { Ok(out) => ("done", out), Err(e) => ("err", e) };
+        let shown_result = if pre_authorized { format!("已预授权 · {result}") } else { result.clone() };
+        self.pill(&call, agent, &name, &shown, status, &shown_result);
         r.unwrap_or_else(|e| format!("出错了：{e}"))
     }
 
-    async fn ask(&self, call: &str, kind: &str, desc: &str, scope: &str, hi: bool, no_always: bool) -> Answer {
+    fn pre_authorized(&self, kind: &str) -> bool {
+        let routine_kind = match kind { "打开网页" => "打开", "写入" | "删除" | "发送" => kind, _ => return false };
+        self.pre_allow.iter().any(|k| k == routine_kind)
+    }
+
+    async fn ask(&self, call: &str, kind: &str, desc: &str, scope: &str, hi: bool, no_always: bool) -> (Answer, bool) {
+        if self.pre_authorized(kind) {
+            return (Answer { allow: true, ..Answer::default() }, true);
+        }
         let id = self.asks.next.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         self.asks.wait.lock().unwrap().insert(id, tx);
@@ -611,7 +621,7 @@ impl Task {
             tokio::time::timeout(Duration::from_secs(300), rx).await.ok().and_then(|r| r.ok())
         };
         self.asks.wait.lock().unwrap().remove(&id);
-        r.unwrap_or(Answer { reason: "5 分钟没有确认，已跳过".into(), ..Answer::default() })
+        (r.unwrap_or(Answer { reason: "5 分钟没有确认，已跳过".into(), ..Answer::default() }), false)
     }
 
     async fn exec(&self, name: &str, a: &Value) -> Result<String, String> {
@@ -912,7 +922,7 @@ mod tests {
         let events = Arc::new(Mutex::new(vec![]));
         let ev = events.clone();
         let dir = tempfile::tempdir().unwrap();
-        let task = Task::new(cfg, fake.clone(), Arc::new(Asks::default()), dir.path().join("回收站"), Arc::new(move |e| ev.lock().unwrap().push(e)), false);
+        let task = Task::new(cfg, fake.clone(), Arc::new(Asks::default()), dir.path().join("回收站"), Arc::new(move |e| ev.lock().unwrap().push(e)), false, vec![]);
         Env { task, fake, events, got, dir }
     }
 
@@ -1230,6 +1240,30 @@ mod tests {
         // 子 Agent 的正文不流到主控的气泡里
         let deltas: String = e.events.lock().unwrap().iter().filter_map(|x| match x { ChatEvent::Delta { text } => Some(text.clone()), _ => None }).collect();
         assert_eq!(deltas, "审查员说没有错别字");
+    }
+
+    #[test]
+    fn routine_permission_only_applies_to_selected_kind_in_its_task() {
+        let mut e = env(vec![], |c| c.agents[0].tools.push("删除".into()));
+        let path = e.dir.path().join("report.txt");
+        let write = llm::Call { id: "w".into(), name: "write_file".into(), args: json!({"path":path,"content":"周报"}).to_string() };
+        let delete = llm::Call { id: "d".into(), name: "delete_file".into(), args: json!({"path":path}).to_string() };
+        Arc::get_mut(&mut e.task).unwrap().pre_allow = vec!["写入".into()];
+        rt().block_on(async {
+            let lead = e.task.cfg.lead();
+            assert!(e.task.call(lead, &write, None).await.starts_with("已写入"));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "周报");
+            assert!(!e.events.lock().unwrap().iter().any(|x| matches!(x, ChatEvent::Ask { .. })));
+            assert!(e.events.lock().unwrap().iter().any(|x| matches!(x, ChatEvent::Tool { result, status, .. } if status == "done" && result.starts_with("已预授权"))));
+            let (_, (desc, _, _)) = tokio::join!(e.task.call(lead, &delete, None), answer(&e, Answer::default()));
+            assert!(desc.starts_with("删除"));
+            assert!(path.exists());
+        });
+        let ordinary = env(vec![], |_| {});
+        rt().block_on(async {
+            let (_, (desc, _, _)) = tokio::join!(ordinary.task.call(ordinary.task.cfg.lead(), &write, None), answer(&ordinary, Answer::default()));
+            assert!(desc.starts_with("写入文件"));
+        });
     }
 
     #[test]

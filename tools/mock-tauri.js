@@ -83,6 +83,7 @@
       case "save_routine": {
         const r = { ...a.routine }, list = (st.cfg.routines ||= []);
         if (!String(r.prompt || "").trim()) throw "要写上每次让它做什么";
+        if (r.every === "once" && new Date(`${r.date}T${r.time}`).getTime() <= Date.now()) throw "这个时间已经过了";
         r.name = String(r.name || "").trim() || r.prompt.trim().slice(0, 12);
         const old = list.find((x) => r.id && x.id === r.id);
         if (old) Object.assign(old, r, { runs: old.runs || [] });
@@ -205,6 +206,20 @@
           return null;
         }
         if (!view().ready) { setTimeout(() => ch.onmessage({ type: "error", message: "还没有填 API Key。右键小球 → 设置 → 模型。" }), 50); return null; }
+        if (st.routineProbe && q === st.routineProbe) {
+          st.lastRoutineAllow = a.preAllow;
+          const pre = a.preAllow.includes("写入");
+          const out = (event) => ch.onmessage(event);
+          const pill = (status, result = "") => out({ type: "tool", call: "write-1", agent: "主控", name: "写入文件", arg: "周报.txt", status, result });
+          setTimeout(() => {
+            if (pre) {
+              pill("done", "已预授权 · 已写入周报.txt"); out({ type: "delta", text: "写好了" }); out({ type: "done" });
+            } else {
+              pill("wait"); out({ type: "ask", ask: 91, call: "write-1", kind: "写入", desc: "写入周报.txt", scope: "周报", hi: false });
+            }
+          }, 20);
+          return null;
+        }
         if (st.rememberNext) {
           const { agent, text } = st.rememberNext;
           delete st.rememberNext;

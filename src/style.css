@@ -701,6 +701,10 @@ body:not(.collapsed) #vcBub, body:not(.collapsed) #vcRip { display: none; }
 #tasks .rd .rtw { display: flex; flex-wrap: wrap; gap: 6px; }
 #tasks .rd .rtw [hidden] { display: none; }
 #tasks .rd .rtw input[type="time"] { width: 104px; color-scheme: dark; }
+#tasks .rd.ed .rtw input[type="date"] { flex: 1 0 100%; color-scheme: dark; }
+#tasks .rt-allow { margin-top: 8px; font: var(--type-caption); }
+#tasks .rt-allow p { margin: 4px 0; color: var(--mut); }
+#tasks .rt-allow label { display: flex; align-items: center; gap: 5px; }
 #tasks .rtadd { align-self: flex-start; margin: 4px 8px 0; padding: 4px 10px; border: 1px dashed rgba(255, 255, 255, 0.28); border-radius: 8px; background: none; color: rgba(255, 241, 220, 0.85); font: var(--type-caption); cursor: pointer; }
 #tasks .rtadd:hover, #tasks .rtadd:focus-visible { background: rgba(255, 255, 255, 0.06); outline: none; border-color: rgba(255, 241, 220, 0.6); }
 #tasks .rnote { margin: 6px 8px 0; font: var(--type-caption); color: rgba(255, 255, 255, 0.45); }
