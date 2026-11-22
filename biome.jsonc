@@ -1,0 +1,20 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": ["src/*.js", "tools/mock-tauri.js"]
+  },
+  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      // 下面几条只是写法偏好。改写它们要动几百处逻辑，而本次整理的原则是不改行为，所以先关掉。
+      "complexity": { "useOptionalChain": "off", "noCommaOperator": "off" },
+      "suspicious": {
+        "noAssignInExpressions": "off",
+        "useIterableCallbackReturn": "off",
+        "noRedundantUseStrict": "off"
+      }
+    }
+  }
+}

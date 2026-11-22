@@ -734,21 +734,19 @@
           const gap = st.slow ? 900 : 60;
           setTimeout(() => {
             send({ type: "delta", text: "我把它拆成 3 步，分给小伙伴们：" });
-            steps
-              .slice(0, repeat ? 2 : steps.length)
-              .forEach(([call, id, name, task], i) =>
-                send({
-                  type: "team",
-                  call,
-                  agent_id: id,
-                  agent: name,
-                  task,
-                  model: st.teamLocal ? "Ollama · llama3" : "gpt-4o-mini",
-                  status: i ? "wait" : "run",
-                  tokens: 0,
-                  cost: null,
-                }),
-              );
+            steps.slice(0, repeat ? 2 : steps.length).forEach(([call, id, name, task], i) =>
+              send({
+                type: "team",
+                call,
+                agent_id: id,
+                agent: name,
+                task,
+                model: st.teamLocal ? "Ollama · llama3" : "gpt-4o-mini",
+                status: i ? "wait" : "run",
+                tokens: 0,
+                cost: null,
+              }),
+            );
             let i = 0;
             (function next() {
               if (i >= steps.length) {
