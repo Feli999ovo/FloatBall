@@ -18,7 +18,6 @@ mod stt;
 
 use catalog::Catalog;
 use commands::capture::*;
-use commands::changes::*;
 use commands::chat::*;
 use commands::config::*;
 use commands::history::*;
