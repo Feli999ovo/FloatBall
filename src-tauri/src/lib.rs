@@ -17,6 +17,7 @@ mod store;
 mod stt;
 
 use catalog::Catalog;
+use commands::capture::*;
 use commands::history::*;
 use config::{Config, Model};
 use llm::ChatEvent;
@@ -1399,133 +1400,6 @@ fn cancel_chat(state: State<'_, AppState>, id: String) {
 
 // ───────── 截屏与文件 ─────────
 
-/// 卡片的毛玻璃底图（见 capture::backdrop_at）。拿不到就返回空，前端用不透明的底。
-#[tauri::command]
-async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Option<String> {
-    #[cfg(windows)]
-    {
-        tauri::async_runtime::spawn_blocking(move || capture::backdrop_at(px, py, x, y, w, h))
-            .await
-            .ok()
-            .and_then(|r| r.ok())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (px, py, x, y, w, h);
-        None
-    }
-}
-
-#[tauri::command]
-async fn capture_screen(app: AppHandle) -> Result<String, String> {
-    let (cx, cy) = app
-        .cursor_position()
-        .map(|p| (p.x as i32, p.y as i32))
-        .unwrap_or((0, 0));
-    capture_without_ball(&app, move || capture::capture_at(cx, cy)).await
-}
-
-async fn capture_without_ball(
-    app: &AppHandle,
-    take: impl FnOnce() -> Result<String, String> + Send + 'static,
-) -> Result<String, String> {
-    capture::check_permission()?;
-    let state = app.state::<AppState>();
-    let _guard = state.screen_capture.lock().await;
-    let win = main_window(app).ok_or("no window")?;
-    let was_visible = win.is_visible().unwrap_or(false);
-    let was_focused = win.is_focused().unwrap_or(false);
-    if was_visible {
-        hide_win(&win);
-        tokio::time::sleep(std::time::Duration::from_millis(220)).await;
-    }
-    let res = tauri::async_runtime::spawn_blocking(take).await;
-    if was_visible {
-        show_win(&win);
-    }
-    if was_focused {
-        let _ = win.set_focus();
-    }
-    res.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn capture_window(app: AppHandle) -> Result<String, String> {
-    let key = app
-        .state::<AppState>()
-        .current_window
-        .lock()
-        .unwrap()
-        .take()
-        .ok_or(capture::WINDOW_UNAVAILABLE)?;
-    capture::check_permission()?;
-    tauri::async_runtime::spawn_blocking(move || capture::capture_window(key))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn share_sources() -> Result<Vec<capture::Source>, String> {
-    capture::check_permission()?;
-    tauri::async_runtime::spawn_blocking(capture::sources)
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn capture_shared(app: AppHandle, target: capture::Target) -> Result<Option<String>, String> {
-    let supported = {
-        let state = app.state::<AppState>();
-        let cfg = state.cfg.lock().unwrap();
-        cfg.effective_model_for(cfg.lead())
-            .is_some_and(|model| model.vision)
-    };
-    if !supported {
-        return Ok(None);
-    }
-    let image = match target {
-        capture::Target::Screen { id } => {
-            capture_without_ball(&app, move || capture::capture_monitor(id)).await?
-        }
-        capture::Target::Window { key } => {
-            capture::check_permission()?;
-            tauri::async_runtime::spawn_blocking(move || capture::capture_window(key))
-                .await
-                .map_err(|e| e.to_string())??
-        }
-    };
-    Ok(Some(image))
-}
-
-#[tauri::command]
-fn open_screen_privacy() -> Result<(), String> {
-    if cfg!(target_os = "macos") {
-        open_external(
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-        )
-    } else {
-        Ok(())
-    }
-}
-
-#[derive(Serialize)]
-struct TextFile {
-    name: String,
-    text: String,
-}
-
-#[tauri::command]
-fn read_text_file(path: String) -> Result<TextFile, String> {
-    capture::read_text_file(&path).map(|(name, text)| TextFile { name, text })
-}
-
-/// 前端的报错打到终端（npm run dev 时能看到），方便排查
-#[tauri::command]
-fn js_log(msg: String) {
-    eprintln!("[前端] {msg}");
-    log::warn!("[前端] {msg}");
-}
-
 // ───────── 菜单、托盘、快捷键 ─────────
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>, for_tray: bool) -> tauri::Result<Menu<R>> {
@@ -2072,17 +1946,17 @@ pub fn run() {
             commands::history::agent_memory_list,
             commands::history::agent_memory_delete,
             commands::history::forget_memory,
-            capture_screen,
-            capture_window,
-            share_sources,
-            capture_shared,
-            open_screen_privacy,
-            backdrop,
-            read_text_file,
+            commands::capture::capture_screen,
+            commands::capture::capture_window,
+            commands::capture::share_sources,
+            commands::capture::capture_shared,
+            commands::capture::open_screen_privacy,
+            commands::capture::backdrop,
+            commands::capture::read_text_file,
             show_context_menu,
             ctx_act,
             hide_ball,
-            js_log,
+            commands::capture::js_log,
             transcribe
         ])
         .run(tauri::generate_context!())
