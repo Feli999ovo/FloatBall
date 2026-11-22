@@ -35,7 +35,7 @@ jobs:
               New-Item -ItemType Directory -Force $dir | Out-Null
               Set-Content -Path (Join-Path $dir 'config.json') -Value $config -Encoding utf8
             }
-            ./tools/shoot-windows.ps1 -Exe $exe -Out "$kind/shots" -Wallpaper design-reference/wallpaper.jpg
+            ./tools/tmp-r5-shoot.ps1 -Exe $exe -Out "$kind/shots" -Wallpaper design-reference/wallpaper.jpg
             New-Item -ItemType Directory -Force "compare/$kind" | Out-Null
             Get-ChildItem "$kind/shots" | Where-Object Name -Match '^(01_|04_|07b_)' | Copy-Item -Destination "compare/$kind"
           }
