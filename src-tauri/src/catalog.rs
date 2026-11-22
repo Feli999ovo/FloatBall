@@ -70,7 +70,10 @@ impl Catalog {
     /// 缓存是否该更新了（按文件修改时间）
     pub fn stale(dir: &Path) -> bool {
         match std::fs::metadata(Self::cache_path(dir)).and_then(|m| m.modified()) {
-            Ok(t) => t.elapsed().map(|e| e.as_secs() > REFRESH_EVERY).unwrap_or(true),
+            Ok(t) => t
+                .elapsed()
+                .map(|e| e.as_secs() > REFRESH_EVERY)
+                .unwrap_or(true),
             Err(_) => true,
         }
     }
@@ -78,7 +81,11 @@ impl Catalog {
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let tmp = dir.join("models-dev.json.tmp");
-        std::fs::write(&tmp, serde_json::to_string(self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        std::fs::write(
+            &tmp,
+            serde_json::to_string(self).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, Self::cache_path(dir)).map_err(|e| e.to_string())
     }
 
@@ -98,11 +105,17 @@ impl Catalog {
                     for (mid, mv) in ms {
                         if let Some(r) = row(mv) {
                             m.insert(mid.clone(), r);
-                            if let Some(price) = price_row(mv) { c.insert(mid.clone(), price); }
+                            if let Some(price) = price_row(mv) {
+                                c.insert(mid.clone(), price);
+                            }
                         }
                     }
                 }
-                let n = p.get("name").and_then(|x| x.as_str()).unwrap_or(pid).to_string();
+                let n = p
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or(pid)
+                    .to_string();
                 providers.insert(pid.clone(), Provider { n, h: host, m, c });
             }
         }
@@ -114,7 +127,12 @@ impl Catalog {
                 }
             }
         }
-        Catalog { v: 1, fetched: fetched.into(), providers, labs: lab }
+        Catalog {
+            v: 1,
+            fetched: fetched.into(),
+            providers,
+            labs: lab,
+        }
     }
 
     /// 联网下载并精简。失败就返回错误，调用方继续用旧的。
@@ -148,12 +166,25 @@ impl Catalog {
         let local = provider_label.starts_with("Ollama") || is_local_host(&host);
         let m = model.trim();
         let ml = m.to_lowercase();
-        let mut caps = Caps { tools: None, vision: None, reasoning: None, ctx: None, local, src: "none", name: String::new(), provider: String::new() };
+        let mut caps = Caps {
+            tools: None,
+            vision: None,
+            reasoning: None,
+            ctx: None,
+            local,
+            src: "none",
+            name: String::new(),
+            provider: String::new(),
+        };
 
         // 服务商：选了哪家就用哪家；选「自定义」时按接口地址认
-        let pid: Option<String> = label_pid(provider_label)
-            .map(str::to_string)
-            .or_else(|| if local { None } else { self.pid_by_host(&host, &ml) });
+        let pid: Option<String> = label_pid(provider_label).map(str::to_string).or_else(|| {
+            if local {
+                None
+            } else {
+                self.pid_by_host(&host, &ml)
+            }
+        });
         if let Some(p) = &pid {
             caps.provider = p.clone();
         } else if local {
@@ -185,7 +216,11 @@ impl Catalog {
         }
         let tail = ml.rsplit('/').next().unwrap_or(&ml).to_string();
         let prefer = pid.as_deref().map(lab_of).unwrap_or("");
-        let mut hits: Vec<(&String, &Row)> = self.labs.iter().filter(|(k, _)| k.to_lowercase().rsplit('/').next() == Some(tail.as_str())).collect();
+        let mut hits: Vec<(&String, &Row)> = self
+            .labs
+            .iter()
+            .filter(|(k, _)| k.to_lowercase().rsplit('/').next() == Some(tail.as_str()))
+            .collect();
         hits.sort_by_key(|(k, _)| (!k.starts_with(&format!("{prefer}/")), k.len()));
         if let Some((_, r)) = hits.first() {
             fill(&mut caps, r, "lab");
@@ -206,8 +241,14 @@ impl Catalog {
             let mut best: Option<(&String, &Row)> = None;
             for (k, r) in &self.labs {
                 let kt = norm(k.rsplit('/').next().unwrap_or(k));
-                if kt == want || (kt.starts_with(&want) && !kt[want.len()..].starts_with(|c: char| c.is_ascii_digit())) {
-                    if best.map(|(b, _)| kt.len() < norm(b.rsplit('/').next().unwrap_or(b)).len()).unwrap_or(true) {
+                if kt == want
+                    || (kt.starts_with(&want)
+                        && !kt[want.len()..].starts_with(|c: char| c.is_ascii_digit()))
+                {
+                    if best
+                        .map(|(b, _)| kt.len() < norm(b.rsplit('/').next().unwrap_or(b)).len())
+                        .unwrap_or(true)
+                    {
                         best = Some((k, r));
                     }
                 }
@@ -222,26 +263,66 @@ impl Catalog {
     /// 价格只用该服务商的准确模型数据，其他服务商的同名模型可能有不同价格。
     pub fn price(&self, base: &str, model: &str, label: &str) -> Option<(f64, f64)> {
         let host = host_of(base)?;
-        if is_local_host(&host) { return None; }
+        if is_local_host(&host) {
+            return None;
+        }
         let name = model.trim().to_lowercase();
         if let Some(pid) = label_pid(label) {
             let provider = self.providers.get(pid)?;
-            if provider.h != host || !provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name)) { return None; }
-            return provider.c.get(&name).copied().or_else(|| provider.c.iter().find(|(k, _)| k.to_lowercase() == name).map(|(_, cost)| *cost))
-                .filter(|(input, output)| input.is_finite() && output.is_finite() && *input >= 0.0 && *output >= 0.0);
+            if provider.h != host || !provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name)) {
+                return None;
+            }
+            return provider
+                .c
+                .get(&name)
+                .copied()
+                .or_else(|| {
+                    provider
+                        .c
+                        .iter()
+                        .find(|(k, _)| k.to_lowercase() == name)
+                        .map(|(_, cost)| *cost)
+                })
+                .filter(|(input, output)| {
+                    input.is_finite() && output.is_finite() && *input >= 0.0 && *output >= 0.0
+                });
         }
-        let by_label = self.providers.iter().find(|(pid, provider)|
-            (provider.n.eq_ignore_ascii_case(label) || pid.eq_ignore_ascii_case(label))
-                && provider.h == host && provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name))
-        ).map(|(pid, _)| pid.clone());
+        let by_label = self
+            .providers
+            .iter()
+            .find(|(pid, provider)| {
+                (provider.n.eq_ignore_ascii_case(label) || pid.eq_ignore_ascii_case(label))
+                    && provider.h == host
+                    && provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name))
+            })
+            .map(|(pid, _)| pid.clone());
         let pid = by_label.or_else(|| {
-            let mut matches = self.providers.iter().filter(|(_, provider)| provider.h == host && provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name))).map(|(pid, _)| pid.clone());
+            let mut matches = self
+                .providers
+                .iter()
+                .filter(|(_, provider)| {
+                    provider.h == host
+                        && provider.m.keys().any(|key| key.eq_ignore_ascii_case(&name))
+                })
+                .map(|(pid, _)| pid.clone());
             let only = matches.next()?;
             matches.next().is_none().then_some(only)
         })?;
         let provider = self.providers.get(&pid)?;
-        provider.c.get(&name).copied().or_else(|| provider.c.iter().find(|(k, _)| k.to_lowercase() == name).map(|(_, cost)| *cost))
-            .filter(|(input, output)| input.is_finite() && output.is_finite() && *input >= 0.0 && *output >= 0.0)
+        provider
+            .c
+            .get(&name)
+            .copied()
+            .or_else(|| {
+                provider
+                    .c
+                    .iter()
+                    .find(|(k, _)| k.to_lowercase() == name)
+                    .map(|(_, cost)| *cost)
+            })
+            .filter(|(input, output)| {
+                input.is_finite() && output.is_finite() && *input >= 0.0 && *output >= 0.0
+            })
     }
 
     /// 按接口地址认服务商；同一个地址有几家时，选列表里有这个模型的那家
@@ -249,7 +330,12 @@ impl Catalog {
         if host.is_empty() {
             return None;
         }
-        let same: Vec<&String> = self.providers.iter().filter(|(_, p)| p.h == host).map(|(k, _)| k).collect();
+        let same: Vec<&String> = self
+            .providers
+            .iter()
+            .filter(|(_, p)| p.h == host)
+            .map(|(k, _)| k)
+            .collect();
         same.iter()
             .find(|k| find_ci(&self.providers[k.as_str()].m, ml).is_some())
             .or(same.first())
@@ -295,9 +381,22 @@ fn known_host(pid: &str) -> &'static str {
     }
 }
 
-pub fn estimate_cny(price: Option<(f64, f64)>, prompt: u64, completion: u64, usd_cny: f64) -> Option<f64> {
+pub fn estimate_cny(
+    price: Option<(f64, f64)>,
+    prompt: u64,
+    completion: u64,
+    usd_cny: f64,
+) -> Option<f64> {
     let (input, output) = price?;
-    if !usd_cny.is_finite() || usd_cny <= 0.0 || !input.is_finite() || !output.is_finite() || input < 0.0 || output < 0.0 { return None; }
+    if !usd_cny.is_finite()
+        || usd_cny <= 0.0
+        || !input.is_finite()
+        || !output.is_finite()
+        || input < 0.0
+        || output < 0.0
+    {
+        return None;
+    }
     let total = (prompt as f64 * input + completion as f64 * output) / 1_000_000.0 * usd_cny;
     total.is_finite().then_some(total)
 }
@@ -312,23 +411,43 @@ fn price_row(m: &Value) -> Option<(f64, f64)> {
 fn row(m: &Value) -> Option<Row> {
     let mo = m.get("modalities");
     let has = |side: &str, what: &str| {
-        mo.and_then(|x| x.get(side)).and_then(|x| x.as_array()).map(|a| a.iter().any(|v| v == what))
+        mo.and_then(|x| x.get(side))
+            .and_then(|x| x.as_array())
+            .map(|a| a.iter().any(|v| v == what))
     };
-    let out_empty = mo.and_then(|x| x.get("output")).and_then(|x| x.as_array()).map(|a| a.is_empty()).unwrap_or(true);
+    let out_empty = mo
+        .and_then(|x| x.get("output"))
+        .and_then(|x| x.as_array())
+        .map(|a| a.is_empty())
+        .unwrap_or(true);
     if !out_empty && has("output", "text") == Some(false) {
         return None;
     }
     Some((
-        m.get("tool_call").and_then(|x| x.as_bool()).unwrap_or(false),
+        m.get("tool_call")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false),
         has("input", "image").unwrap_or(false),
-        m.get("reasoning").and_then(|x| x.as_bool()).unwrap_or(false),
-        m.get("limit").and_then(|l| l.get("context")).and_then(|x| x.as_u64()).unwrap_or(0),
-        m.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        m.get("reasoning")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false),
+        m.get("limit")
+            .and_then(|l| l.get("context"))
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
+        m.get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
     ))
 }
 
 fn find_ci<'a>(m: &'a BTreeMap<String, Row>, ml: &str) -> Option<&'a Row> {
-    m.get(ml).or_else(|| m.iter().find(|(k, _)| k.to_lowercase() == ml).map(|(_, v)| v))
+    m.get(ml).or_else(|| {
+        m.iter()
+            .find(|(k, _)| k.to_lowercase() == ml)
+            .map(|(_, v)| v)
+    })
 }
 
 /// 只留字母和数字，去掉 Ollama 的 :latest
@@ -345,11 +464,19 @@ pub fn host_of(url: &str) -> Option<String> {
     let hostport = rest.split(['/', '?', '#']).next()?;
     let hostport = hostport.rsplit('@').next()?;
     let host = if hostport.starts_with('[') {
-        hostport.split(']').next()?.trim_start_matches('[').to_string()
+        hostport
+            .split(']')
+            .next()?
+            .trim_start_matches('[')
+            .to_string()
     } else {
         hostport.split(':').next()?.to_string()
     };
-    if host.is_empty() { None } else { Some(host.to_lowercase()) }
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_lowercase())
+    }
 }
 
 pub fn is_local_host(h: &str) -> bool {
@@ -362,12 +489,20 @@ pub fn ctx_label(n: u64) -> String {
     if n >= 1_000_000 {
         let m = n as f64 / 1_048_576.0;
         let m2 = n as f64 / 1_000_000.0;
-        let v = if (m - m.round()).abs() < (m2 - m2.round()).abs() { m } else { m2 };
+        let v = if (m - m.round()).abs() < (m2 - m2.round()).abs() {
+            m
+        } else {
+            m2
+        };
         format!("{}M", trim_num(v))
     } else if n >= 1000 {
         let k = n as f64 / 1024.0;
         let k2 = n as f64 / 1000.0;
-        let v = if (k - k.round()).abs() < (k2 - k2.round()).abs() { k } else { k2 };
+        let v = if (k - k.round()).abs() < (k2 - k2.round()).abs() {
+            k
+        } else {
+            k2
+        };
         format!("{}K", trim_num(v))
     } else {
         n.to_string()
@@ -376,7 +511,11 @@ pub fn ctx_label(n: u64) -> String {
 
 #[cfg_attr(not(test), allow(dead_code))]
 fn trim_num(v: f64) -> String {
-    if (v - v.round()).abs() < 0.05 { format!("{}", v.round() as u64) } else { format!("{:.1}", v) }
+    if (v - v.round()).abs() < 0.05 {
+        format!("{}", v.round() as u64)
+    } else {
+        format!("{:.1}", v)
+    }
 }
 
 #[cfg(test)]
@@ -389,8 +528,13 @@ mod tests {
 
     #[test]
     fn estimates_cny_from_both_token_types_without_a_network_rate() {
-        assert!((estimate_cny(Some((0.15, 0.6)), 1_000, 1_000, 7.2).unwrap() - 0.0054).abs() < 1e-12);
-        assert_eq!(estimate_cny(Some((0.0, 0.0)), 100_000, 100_000, 7.2), Some(0.0));
+        assert!(
+            (estimate_cny(Some((0.15, 0.6)), 1_000, 1_000, 7.2).unwrap() - 0.0054).abs() < 1e-12
+        );
+        assert_eq!(
+            estimate_cny(Some((0.0, 0.0)), 100_000, 100_000, 7.2),
+            Some(0.0)
+        );
         assert_eq!(estimate_cny(None, 1, 1, 7.2), None);
         assert_eq!(estimate_cny(Some((0.1, 0.2)), 1, 1, f64::INFINITY), None);
     }
@@ -400,12 +544,23 @@ mod tests {
         let raw = r#"{"v":1,"fetched":"2026-11-14","providers":{"openai":{"n":"OpenAI","h":"api.openai.com","m":{"gpt-4o":[true,true,false,128000,"GPT-4o"]}}},"labs":{}}"#;
         let old: Catalog = serde_json::from_str(raw).unwrap();
         assert!(old.providers["openai"].c.is_empty());
-        assert!(old.price("https://api.openai.com/v1", "gpt-4o", "").is_none());
+        assert!(old
+            .price("https://api.openai.com/v1", "gpt-4o", "")
+            .is_none());
         let raw = serde_json::json!({"openai":{"models":{"gpt-4o":{"cost":{"input":2.5,"output":10}},"no-price":{"cost":{"input":1}},"free":{"cost":{"input":0,"output":0}}}}});
         let c = Catalog::trim(&raw, &Value::Null, "2026-11-21");
-        assert_eq!(c.price("https://api.openai.com/v1", "GPT-4o", ""), Some((2.5, 10.0)));
-        assert_eq!(c.price("https://api.openai.com/v1", "free", ""), Some((0.0, 0.0)));
-        assert_eq!(c.price("http://localhost:11434/v1", "gpt-4o", "OpenAI"), None);
+        assert_eq!(
+            c.price("https://api.openai.com/v1", "GPT-4o", ""),
+            Some((2.5, 10.0))
+        );
+        assert_eq!(
+            c.price("https://api.openai.com/v1", "free", ""),
+            Some((0.0, 0.0))
+        );
+        assert_eq!(
+            c.price("http://localhost:11434/v1", "gpt-4o", "OpenAI"),
+            None
+        );
         assert_eq!(c.price("https://api.openai.com/v1", "no-price", ""), None);
         assert_eq!(c.price("https://unknown.example/v1", "gpt-4o", ""), None);
         let raw = serde_json::json!({
@@ -413,7 +568,10 @@ mod tests {
             "beta": {"name":"Beta", "api":"https://same.example/v1", "models":{"shared":{"cost":{"input":8,"output":9}}}}
         });
         let c = Catalog::trim(&raw, &Value::Null, "2026-11-21");
-        assert_eq!(c.price("https://same.example/v1", "shared", "Alpha"), Some((1.0, 2.0)));
+        assert_eq!(
+            c.price("https://same.example/v1", "shared", "Alpha"),
+            Some((1.0, 2.0))
+        );
         assert_eq!(c.price("https://same.example/v1", "shared", ""), None);
     }
 
@@ -422,17 +580,27 @@ mod tests {
         let c = cat();
         assert!(c.providers.len() > 100 && c.labs.len() > 300);
         assert!(c.providers["openai"].h == "api.openai.com");
-        assert_eq!(c.price("https://api.openai.com/v1", "gpt-4o-mini", "OpenAI"), Some((0.15, 0.6)));
+        assert_eq!(
+            c.price("https://api.openai.com/v1", "gpt-4o-mini", "OpenAI"),
+            Some((0.15, 0.6))
+        );
     }
 
     #[test]
     fn exact_provider() {
         let c = cat().lookup("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini");
         assert_eq!(c.src, "exact");
-        assert_eq!((c.tools, c.vision, c.reasoning, c.ctx), (Some(true), Some(true), Some(false), Some(128000)));
+        assert_eq!(
+            (c.tools, c.vision, c.reasoning, c.ctx),
+            (Some(true), Some(true), Some(false), Some(128000))
+        );
         assert_eq!(c.provider, "openai");
         assert!(!c.local);
-        let c = cat().lookup("通义千问", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus");
+        let c = cat().lookup(
+            "通义千问",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "qwen-plus",
+        );
         assert_eq!((c.src, c.provider.as_str()), ("exact", "alibaba-cn"));
     }
 
@@ -443,7 +611,11 @@ mod tests {
         assert_eq!(c.src, "lab");
         assert_eq!(c.tools, Some(true));
         // 中转平台的 厂商/模型 写法
-        let c = cat().lookup("自定义", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini");
+        let c = cat().lookup(
+            "自定义",
+            "https://openrouter.ai/api/v1",
+            "openai/gpt-4o-mini",
+        );
         assert_eq!(c.provider, "openrouter");
         assert!(c.src == "exact" || c.src == "lab");
         assert_eq!(c.vision, Some(true));
@@ -473,8 +645,14 @@ mod tests {
 
     #[test]
     fn hosts_and_ctx() {
-        assert_eq!(host_of("https://API.deepseek.com/v1").as_deref(), Some("api.deepseek.com"));
-        assert_eq!(host_of("http://localhost:11434/v1").as_deref(), Some("localhost"));
+        assert_eq!(
+            host_of("https://API.deepseek.com/v1").as_deref(),
+            Some("api.deepseek.com")
+        );
+        assert_eq!(
+            host_of("http://localhost:11434/v1").as_deref(),
+            Some("localhost")
+        );
         assert_eq!(host_of("http://[::1]:8080/v1").as_deref(), Some("::1"));
         assert_eq!(ctx_label(128000), "128K");
         assert_eq!(ctx_label(131072), "128K");
@@ -488,11 +666,18 @@ mod tests {
     #[test]
     fn trim_matches_bundled() {
         let raw = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tools/models-dev-raw");
-        let (Ok(a), Ok(l)) = (std::fs::read_to_string(raw.join("api.json")), std::fs::read_to_string(raw.join("models.json"))) else {
+        let (Ok(a), Ok(l)) = (
+            std::fs::read_to_string(raw.join("api.json")),
+            std::fs::read_to_string(raw.join("models.json")),
+        ) else {
             eprintln!("跳过：没有原始数据");
             return;
         };
-        let t = Catalog::trim(&serde_json::from_str(&a).unwrap(), &serde_json::from_str(&l).unwrap(), &cat().fetched);
+        let t = Catalog::trim(
+            &serde_json::from_str(&a).unwrap(),
+            &serde_json::from_str(&l).unwrap(),
+            &cat().fetched,
+        );
         let b = cat();
         for (k, p) in &b.providers {
             assert_eq!(Some(p), t.providers.get(k), "服务商 {k}");

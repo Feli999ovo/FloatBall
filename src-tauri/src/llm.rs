@@ -6,22 +6,38 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-fn is_false(value: &bool) -> bool { !value }
+fn is_false(value: &bool) -> bool {
+    !value
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatEvent {
     /// 正文增量
-    Delta { text: String },
+    Delta {
+        text: String,
+    },
     /// 推理模型的思考过程增量（DeepSeek-R1 等的 reasoning_content）
-    Reasoning { text: String },
+    Reasoning {
+        text: String,
+    },
     /// 用量（部分服务在最后一个包里给）
-    Usage { prompt: u64, completion: u64 },
+    Usage {
+        prompt: u64,
+        completion: u64,
+    },
     Done,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// 模型要调用工具（流里分段到达，按 index 拼起来）。只在 Rust 里用，不发给界面
     #[serde(skip)]
-    ToolCall { index: usize, id: String, name: String, args: String },
+    ToolCall {
+        index: usize,
+        id: String,
+        name: String,
+        args: String,
+    },
     /// Agent 用了一个工具：界面上显示成一行「工具药丸」。status：run / done / no（被拒绝）/ err
     Tool {
         call: String,
@@ -38,12 +54,42 @@ pub enum ChatEvent {
         agent_id: Option<String>,
     },
     /// 主控把一步交给别的 Agent：界面上是「多 Agent 计划卡」的一行。status：wait（排队）/ run / done / err；tokens 是这一步（子 Agent）用掉的
-    Team { call: String, agent_id: String, agent: String, task: String, model: String, model_id: u32, status: String, tokens: u64, prompt: u64, completion: u64, cost: Option<f64> },
-    Handoff { from_call: String, to_call: String, from: String, to: String, count: u64, unit: String, cost: Option<f64> },
-    Cost { amount: Option<f64> },
-    Change { change: crate::changes::Change },
+    Team {
+        call: String,
+        agent_id: String,
+        agent: String,
+        task: String,
+        model: String,
+        model_id: u32,
+        status: String,
+        tokens: u64,
+        prompt: u64,
+        completion: u64,
+        cost: Option<f64>,
+    },
+    Handoff {
+        from_call: String,
+        to_call: String,
+        from: String,
+        to: String,
+        count: u64,
+        unit: String,
+        cost: Option<f64>,
+    },
+    Cost {
+        amount: Option<f64>,
+    },
+    Change {
+        change: crate::changes::Change,
+    },
     /// 预算用满（kind：tokens / steps），任务暂停，等用户选「再给一些」或「停止」，答案也走 answer_ask（allow = 再给）
-    Budget { ask: u64, kind: String, used: u64, limit: u64, more: u64 },
+    Budget {
+        ask: u64,
+        kind: String,
+        used: u64,
+        limit: u64,
+        more: u64,
+    },
     /// 需要用户确认（发送、删除、写文件等）。界面显示确认卡片，用户的选择通过 answer_ask 传回
     Ask {
         ask: u64,
@@ -88,7 +134,9 @@ impl SseParser {
     }
 
     fn handle_line(&mut self, line: &str, out: &mut Vec<ChatEvent>) {
-        let Some(data) = line.strip_prefix("data:") else { return };
+        let Some(data) = line.strip_prefix("data:") else {
+            return;
+        };
         let data = data.trim();
         if data.is_empty() {
             return;
@@ -97,7 +145,9 @@ impl SseParser {
             self.finished = true;
             return;
         }
-        let Ok(v) = serde_json::from_str::<Value>(data) else { return };
+        let Ok(v) = serde_json::from_str::<Value>(data) else {
+            return;
+        };
         if let Some(err) = v.get("error") {
             let msg = err
                 .get("message")
@@ -111,13 +161,17 @@ impl SseParser {
             for key in ["reasoning_content", "reasoning"] {
                 if let Some(t) = delta.get(key).and_then(Value::as_str) {
                     if !t.is_empty() {
-                        out.push(ChatEvent::Reasoning { text: t.to_string() });
+                        out.push(ChatEvent::Reasoning {
+                            text: t.to_string(),
+                        });
                     }
                 }
             }
             if let Some(t) = delta.get("content").and_then(Value::as_str) {
                 if !t.is_empty() {
-                    out.push(ChatEvent::Delta { text: t.to_string() });
+                    out.push(ChatEvent::Delta {
+                        text: t.to_string(),
+                    });
                 }
             }
             push_tool_calls(delta, out);
@@ -125,7 +179,10 @@ impl SseParser {
         if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
             out.push(ChatEvent::Usage {
                 prompt: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0),
-                completion: u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0),
+                completion: u
+                    .get("completion_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
             });
         }
     }
@@ -133,10 +190,24 @@ impl SseParser {
 
 /// delta.tool_calls / message.tool_calls → ToolCall 事件
 fn push_tool_calls(v: &Value, out: &mut Vec<ChatEvent>) {
-    for (i, c) in v.get("tool_calls").and_then(Value::as_array).into_iter().flatten().enumerate() {
-        let s = |p: &str| c.pointer(p).and_then(Value::as_str).unwrap_or("").to_string();
+    for (i, c) in v
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let s = |p: &str| {
+            c.pointer(p)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         out.push(ChatEvent::ToolCall {
-            index: c.get("index").and_then(Value::as_u64).map_or(i, |x| x as usize),
+            index: c
+                .get("index")
+                .and_then(Value::as_u64)
+                .map_or(i, |x| x as usize),
             id: s("/id"),
             name: s("/function/name"),
             args: s("/function/arguments"),
@@ -164,7 +235,13 @@ pub fn client(endpoint: &str) -> reqwest::Client {
 
 /// 语音识别：OpenAI 兼容的 /audio/transcriptions（multipart 上传录音）。
 /// lang：auto 不传、zh / en 直接传；粤语（yue）不是 ISO-639-1，不传 language，改用提示词说明是粤语
-pub fn transcription_form(model: &str, lang: &str, audio: &[u8], mime: &str, boundary: &str) -> Vec<u8> {
+pub fn transcription_form(
+    model: &str,
+    lang: &str,
+    audio: &[u8],
+    mime: &str,
+    boundary: &str,
+) -> Vec<u8> {
     let ext = match mime.split(';').next().unwrap_or("").trim() {
         "audio/mp4" | "audio/x-m4a" | "audio/aac" => "m4a",
         "audio/ogg" => "ogg",
@@ -180,7 +257,10 @@ pub fn transcription_form(model: &str, lang: &str, audio: &[u8], mime: &str, bou
     }
     let mut b = Vec::with_capacity(audio.len() + 512);
     for (k, v) in fields {
-        b.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n").as_bytes());
+        b.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n")
+                .as_bytes(),
+        );
     }
     let ct = mime.split(';').next().unwrap_or("audio/webm").trim();
     b.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"voice.{ext}\"\r\nContent-Type: {ct}\r\n\r\n").as_bytes());
@@ -189,32 +269,76 @@ pub fn transcription_form(model: &str, lang: &str, audio: &[u8], mime: &str, bou
     b
 }
 
-pub async fn transcribe(base: &str, api_key: Option<&str>, model: &str, lang: &str, audio: Vec<u8>, mime: &str) -> Result<String, String> {
+pub async fn transcribe(
+    base: &str,
+    api_key: Option<&str>,
+    model: &str,
+    lang: &str,
+    audio: Vec<u8>,
+    mime: &str,
+) -> Result<String, String> {
     let url = format!("{base}/audio/transcriptions");
-    let boundary = format!("fbvoice{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+    let boundary = format!(
+        "fbvoice{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
     let body = transcription_form(model, lang, &audio, mime, &boundary);
     let mut req = client(&url)
         .post(&url)
         .timeout(Duration::from_secs(60))
-        .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+        .header(
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
         .body(body);
     if let Some(k) = api_key {
         req = req.bearer_auth(k);
     }
-    let resp = req.send().await.map_err(|e| if e.is_connect() { format!("连不上接口地址：{e}") } else if e.is_timeout() { "识别超时".into() } else { e.to_string() })?;
+    let resp = req.send().await.map_err(|e| {
+        if e.is_connect() {
+            format!("连不上接口地址：{e}")
+        } else if e.is_timeout() {
+            "识别超时".into()
+        } else {
+            e.to_string()
+        }
+    })?;
     let code = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     if !(200..300).contains(&code) {
-        return Err(if code == 404 { format!("这个服务商没有语音识别接口，或识别模型名不对（404）：{}", text.chars().take(160).collect::<String>()) } else { friendly_status(code, &text) });
+        return Err(if code == 404 {
+            format!(
+                "这个服务商没有语音识别接口，或识别模型名不对（404）：{}",
+                text.chars().take(160).collect::<String>()
+            )
+        } else {
+            friendly_status(code, &text)
+        });
     }
-    let v: Value = serde_json::from_str(&text).map_err(|_| format!("识别结果看不懂：{}", text.chars().take(160).collect::<String>()))?;
-    Ok(v.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string())
+    let v: Value = serde_json::from_str(&text).map_err(|_| {
+        format!(
+            "识别结果看不懂：{}",
+            text.chars().take(160).collect::<String>()
+        )
+    })?;
+    Ok(v.get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string())
 }
 
 fn friendly_status(code: u16, body: &str) -> String {
     let detail = serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_string))
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| body.chars().take(200).collect());
     let hint = match code {
         401 | 403 => "API Key 不对或没有权限",
@@ -228,12 +352,25 @@ fn friendly_status(code: u16, body: &str) -> String {
 
 /// 发起流式请求，把事件逐个交给 `emit`。返回前一定会发出 Done 或 Error。
 #[cfg(test)]
-pub async fn stream_chat(endpoint: &str, api_key: Option<&str>, model: &str, messages: &[Value], emit: impl FnMut(ChatEvent)) {
+pub async fn stream_chat(
+    endpoint: &str,
+    api_key: Option<&str>,
+    model: &str,
+    messages: &[Value],
+    emit: impl FnMut(ChatEvent),
+) {
     stream_chat_with(endpoint, api_key, model, messages, &json!({}), emit).await
 }
 
 /// 同上，extra 里的字段（tools、max_tokens 等）合并进请求
-pub async fn stream_chat_with(endpoint: &str, api_key: Option<&str>, model: &str, messages: &[Value], extra: &Value, mut emit: impl FnMut(ChatEvent)) {
+pub async fn stream_chat_with(
+    endpoint: &str,
+    api_key: Option<&str>,
+    model: &str,
+    messages: &[Value],
+    extra: &Value,
+    mut emit: impl FnMut(ChatEvent),
+) {
     let mut body = json!({
         "model": model,
         "messages": messages,
@@ -277,12 +414,18 @@ pub async fn stream_chat_with(endpoint: &str, api_key: Option<&str>, model: &str
                 Ok(r) => {
                     let c = r.status().as_u16();
                     let t = r.text().await.unwrap_or_default();
-                    emit(ChatEvent::Error { message: friendly_status(c, &t) })
+                    emit(ChatEvent::Error {
+                        message: friendly_status(c, &t),
+                    })
                 }
-                Err(e) => emit(ChatEvent::Error { message: e.to_string() }),
+                Err(e) => emit(ChatEvent::Error {
+                    message: e.to_string(),
+                }),
             };
         }
-        emit(ChatEvent::Error { message: friendly_status(status.as_u16(), &text) });
+        emit(ChatEvent::Error {
+            message: friendly_status(status.as_u16(), &text),
+        });
         return;
     }
     pump(resp, emit).await
@@ -299,8 +442,13 @@ async fn pump(resp: reqwest::Response, mut emit: impl FnMut(ChatEvent)) {
     if !is_sse {
         match resp.json::<Value>().await {
             Ok(v) => {
-                if let Some(t) = v.pointer("/choices/0/message/content").and_then(Value::as_str) {
-                    emit(ChatEvent::Delta { text: t.to_string() });
+                if let Some(t) = v
+                    .pointer("/choices/0/message/content")
+                    .and_then(Value::as_str)
+                {
+                    emit(ChatEvent::Delta {
+                        text: t.to_string(),
+                    });
                 }
                 let mut calls = vec![];
                 if let Some(m) = v.pointer("/choices/0/message") {
@@ -310,12 +458,17 @@ async fn pump(resp: reqwest::Response, mut emit: impl FnMut(ChatEvent)) {
                 if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
                     emit(ChatEvent::Usage {
                         prompt: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0),
-                        completion: u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0),
+                        completion: u
+                            .get("completion_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
                     });
                 }
                 emit(ChatEvent::Done);
             }
-            Err(e) => emit(ChatEvent::Error { message: format!("读不懂返回内容：{e}") }),
+            Err(e) => emit(ChatEvent::Error {
+                message: format!("读不懂返回内容：{e}"),
+            }),
         }
         return;
     }
@@ -325,12 +478,16 @@ async fn pump(resp: reqwest::Response, mut emit: impl FnMut(ChatEvent)) {
     loop {
         match tokio::time::timeout(idle, stream.next()).await {
             Err(_) => {
-                emit(ChatEvent::Error { message: "模型 90 秒没有回应，已停止".into() });
+                emit(ChatEvent::Error {
+                    message: "模型 90 秒没有回应，已停止".into(),
+                });
                 return;
             }
             Ok(None) => break,
             Ok(Some(Err(e))) => {
-                emit(ChatEvent::Error { message: format!("连接中断：{e}") });
+                emit(ChatEvent::Error {
+                    message: format!("连接中断：{e}"),
+                });
                 return;
             }
             Ok(Some(Ok(bytes))) => {
@@ -377,7 +534,14 @@ fn record_usage(turn: &mut Turn, prompt: u64, completion: u64) {
 }
 
 /// 请求一轮（可带工具）。正文和思考过程照常通过 emit 流给界面；工具调用拼好后放在返回值里
-pub async fn turn(endpoint: &str, api_key: Option<&str>, model: &str, messages: &[Value], extra: &Value, mut emit: impl FnMut(ChatEvent)) -> Result<Turn, String> {
+pub async fn turn(
+    endpoint: &str,
+    api_key: Option<&str>,
+    model: &str,
+    messages: &[Value],
+    extra: &Value,
+    mut emit: impl FnMut(ChatEvent),
+) -> Result<Turn, String> {
     let mut t = Turn::default();
     let mut err = None;
     stream_chat_with(endpoint, api_key, model, messages, extra, |ev| match ev {
@@ -387,7 +551,12 @@ pub async fn turn(endpoint: &str, api_key: Option<&str>, model: &str, messages: 
         }
         ChatEvent::Reasoning { .. } => emit(ev),
         ChatEvent::Usage { prompt, completion } => record_usage(&mut t, prompt, completion),
-        ChatEvent::ToolCall { index, id, name, args } => {
+        ChatEvent::ToolCall {
+            index,
+            id,
+            name,
+            args,
+        } => {
             while t.calls.len() <= index {
                 t.calls.push(Call::default());
             }
@@ -433,10 +602,19 @@ pub async fn list_models(base: &str, api_key: Option<&str>) -> Result<Vec<String
 /// OpenAI 兼容接口返回 {"data":[{"id":…}]}；个别服务用 {"models":[{"name":…}]}
 fn parse_model_list(text: &str) -> Result<Vec<String>, String> {
     let v: Value = serde_json::from_str(text).map_err(|_| "读不懂接口返回的内容".to_string())?;
-    let list = v.get("data").or_else(|| v.get("models")).and_then(Value::as_array).ok_or("接口返回的内容里没有模型列表")?;
+    let list = v
+        .get("data")
+        .or_else(|| v.get("models"))
+        .and_then(Value::as_array)
+        .ok_or("接口返回的内容里没有模型列表")?;
     let mut ids: Vec<String> = list
         .iter()
-        .filter_map(|m| m.get("id").or_else(|| m.get("name")).and_then(Value::as_str).map(str::to_string))
+        .filter_map(|m| {
+            m.get("id")
+                .or_else(|| m.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .collect();
     ids.sort();
     ids.dedup();
@@ -444,9 +622,16 @@ fn parse_model_list(text: &str) -> Result<Vec<String>, String> {
 }
 
 /// 设置页「测试连接」：发一句极短的非流式请求
-pub async fn test_connection(endpoint: &str, api_key: Option<&str>, model: &str) -> Result<String, String> {
+pub async fn test_connection(
+    endpoint: &str,
+    api_key: Option<&str>,
+    model: &str,
+) -> Result<String, String> {
     let body = json!({"model": model, "messages": [{"role":"user","content":"ping"}], "max_tokens": 5, "stream": false});
-    let mut req = client(endpoint).post(endpoint).json(&body).timeout(Duration::from_secs(30));
+    let mut req = client(endpoint)
+        .post(endpoint)
+        .json(&body)
+        .timeout(Duration::from_secs(30));
     if let Some(k) = api_key {
         req = req.bearer_auth(k);
     }
@@ -469,7 +654,10 @@ mod tests {
     fn parses_model_lists() {
         let ids = parse_model_list(r#"{"object":"list","data":[{"id":"gpt-4o"},{"id":"deepseek-chat"},{"id":"gpt-4o"},{"object":"x"}]}"#).unwrap();
         assert_eq!(ids, vec!["deepseek-chat", "gpt-4o"]);
-        assert_eq!(parse_model_list(r#"{"models":[{"name":"qwen2.5:7b"}]}"#).unwrap(), vec!["qwen2.5:7b"]);
+        assert_eq!(
+            parse_model_list(r#"{"models":[{"name":"qwen2.5:7b"}]}"#).unwrap(),
+            vec!["qwen2.5:7b"]
+        );
         assert!(parse_model_list("<html>").is_err());
         assert!(parse_model_list(r#"{"error":"x"}"#).is_err());
     }
@@ -487,9 +675,14 @@ mod tests {
         assert_eq!(
             evs,
             vec![
-                ChatEvent::Delta { text: "你好".into() },
+                ChatEvent::Delta {
+                    text: "你好".into()
+                },
                 ChatEvent::Reasoning { text: "想".into() },
-                ChatEvent::Usage { prompt: 3, completion: 2 },
+                ChatEvent::Usage {
+                    prompt: 3,
+                    completion: 2
+                },
             ]
         );
         assert!(p.finished);
@@ -506,13 +699,20 @@ mod tests {
     fn error_payload_and_crlf() {
         let mut p = SseParser::default();
         let evs = p.feed(b"data: {\"error\":{\"message\":\"bad key\"}}\r\n");
-        assert_eq!(evs, vec![ChatEvent::Error { message: "bad key".into() }]);
+        assert_eq!(
+            evs,
+            vec![ChatEvent::Error {
+                message: "bad key".into()
+            }]
+        );
     }
 
     #[test]
     fn last_line_without_newline() {
         let mut p = SseParser::default();
-        assert!(p.feed(b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}").is_empty());
+        assert!(p
+            .feed(b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}")
+            .is_empty());
         assert_eq!(p.flush(), vec![ChatEvent::Delta { text: "x".into() }]);
     }
 
@@ -527,10 +727,22 @@ mod tests {
 
     #[test]
     fn transcription_form_fields() {
-        let f = String::from_utf8_lossy(&transcription_form("m", "yue", b"A", "audio/mp4", "B")).to_string();
-        assert!(f.contains("name=\"prompt\"\r\n\r\n以下是粤语。") && !f.contains("name=\"language\""));
-        assert!(f.contains("filename=\"voice.m4a\"\r\nContent-Type: audio/mp4\r\n\r\nA\r\n--B--\r\n"));
-        let f = String::from_utf8_lossy(&transcription_form("m", "auto", b"A", "audio/ogg;codecs=opus", "B")).to_string();
+        let f = String::from_utf8_lossy(&transcription_form("m", "yue", b"A", "audio/mp4", "B"))
+            .to_string();
+        assert!(
+            f.contains("name=\"prompt\"\r\n\r\n以下是粤语。") && !f.contains("name=\"language\"")
+        );
+        assert!(
+            f.contains("filename=\"voice.m4a\"\r\nContent-Type: audio/mp4\r\n\r\nA\r\n--B--\r\n")
+        );
+        let f = String::from_utf8_lossy(&transcription_form(
+            "m",
+            "auto",
+            b"A",
+            "audio/ogg;codecs=opus",
+            "B",
+        ))
+        .to_string();
         assert!(!f.contains("language") && !f.contains("prompt") && f.contains("voice.ogg"));
     }
 
@@ -548,7 +760,11 @@ mod http_tests {
     use std::net::TcpListener;
 
     /// 起一个只回一次的本地 HTTP 服务，返回地址和收到的请求
-    fn serve(status: &str, ctype: &str, body: &'static str) -> (String, std::thread::JoinHandle<String>) {
+    fn serve(
+        status: &str,
+        ctype: &str,
+        body: &'static str,
+    ) -> (String, std::thread::JoinHandle<String>) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = format!("http://{}", l.local_addr().unwrap());
         let status = status.to_string();
@@ -562,13 +778,25 @@ mod http_tests {
                 req.extend_from_slice(&buf[..n]);
                 let txt = String::from_utf8_lossy(&req).to_string();
                 if let Some(i) = txt.find("\r\n\r\n") {
-                    let len = txt.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())).unwrap_or(0);
-                    if req.len() >= i + 4 + len { break; }
+                    let len = txt
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if req.len() >= i + 4 + len {
+                        break;
+                    }
                 }
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
             }
             // 分几段写出去，模拟网络分包
-            let head = format!("HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\nconnection: close\r\n\r\n");
+            let head =
+                format!("HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\nconnection: close\r\n\r\n");
             s.write_all(head.as_bytes()).unwrap();
             for c in body.as_bytes().chunks(7) {
                 s.write_all(c).unwrap();
@@ -588,67 +816,155 @@ mod http_tests {
             "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n\ndata: [DONE]\n\n",
         );
         let mut evs = vec![];
-        stream_chat(&format!("{addr}/v1/chat/completions"), Some("sk-x"), "m", &[json!({"role":"user","content":"hi"})], |e| evs.push(e)).await;
+        stream_chat(
+            &format!("{addr}/v1/chat/completions"),
+            Some("sk-x"),
+            "m",
+            &[json!({"role":"user","content":"hi"})],
+            |e| evs.push(e),
+        )
+        .await;
         let req = h.join().unwrap();
-        assert!(req.contains("authorization: Bearer sk-x") || req.contains("Authorization: Bearer sk-x"));
+        assert!(
+            req.contains("authorization: Bearer sk-x")
+                || req.contains("Authorization: Bearer sk-x")
+        );
         assert!(req.contains("\"stream\":true"));
-        assert_eq!(evs, vec![ChatEvent::Delta { text: "你".into() }, ChatEvent::Delta { text: "好".into() }, ChatEvent::Done]);
+        assert_eq!(
+            evs,
+            vec![
+                ChatEvent::Delta { text: "你".into() },
+                ChatEvent::Delta { text: "好".into() },
+                ChatEvent::Done
+            ]
+        );
     }
 
     #[tokio::test]
     async fn transcribes_audio() {
-        let (addr, h) = serve("200 OK", "application/json", "{\"text\":\" 帮我整理周报 \"}");
+        let (addr, h) = serve(
+            "200 OK",
+            "application/json",
+            "{\"text\":\" 帮我整理周报 \"}",
+        );
         let audio = b"\x1aE\xdf\xa3fake-webm".to_vec();
-        let t = transcribe(&format!("{addr}/v1"), Some("sk-v"), "whisper-1", "zh", audio, "audio/webm;codecs=opus").await;
+        let t = transcribe(
+            &format!("{addr}/v1"),
+            Some("sk-v"),
+            "whisper-1",
+            "zh",
+            audio,
+            "audio/webm;codecs=opus",
+        )
+        .await;
         let req = h.join().unwrap();
         assert_eq!(t.unwrap(), "帮我整理周报");
         assert!(req.starts_with("POST /v1/audio/transcriptions "));
         assert!(req.to_lowercase().contains("authorization: bearer sk-v"));
         assert!(req.contains("multipart/form-data; boundary=fbvoice"));
-        assert!(req.contains("name=\"model\"\r\n\r\nwhisper-1\r\n") && req.contains("name=\"language\"\r\n\r\nzh\r\n"));
+        assert!(
+            req.contains("name=\"model\"\r\n\r\nwhisper-1\r\n")
+                && req.contains("name=\"language\"\r\n\r\nzh\r\n")
+        );
         assert!(req.contains("filename=\"voice.webm\"\r\nContent-Type: audio/webm\r\n\r\n\u{1a}E"));
     }
 
     #[tokio::test]
     async fn transcribe_404_explains() {
-        let (addr, h) = serve("404 Not Found", "application/json", "{\"error\":{\"message\":\"not found\"}}");
-        let e = transcribe(&format!("{addr}/v1"), None, "x", "auto", vec![1, 2], "audio/mp4").await.unwrap_err();
+        let (addr, h) = serve(
+            "404 Not Found",
+            "application/json",
+            "{\"error\":{\"message\":\"not found\"}}",
+        );
+        let e = transcribe(
+            &format!("{addr}/v1"),
+            None,
+            "x",
+            "auto",
+            vec![1, 2],
+            "audio/mp4",
+        )
+        .await
+        .unwrap_err();
         h.join().unwrap();
         assert!(e.contains("没有语音识别接口") && e.contains("404"), "{e}");
     }
 
     #[tokio::test]
     async fn reports_http_errors() {
-        let (addr, h) = serve("401 Unauthorized", "application/json", "{\"error\":{\"message\":\"Incorrect API key\"}}");
+        let (addr, h) = serve(
+            "401 Unauthorized",
+            "application/json",
+            "{\"error\":{\"message\":\"Incorrect API key\"}}",
+        );
         let mut evs = vec![];
-        stream_chat(&format!("{addr}/v1/chat/completions"), Some("bad"), "m", &[], |e| evs.push(e)).await;
+        stream_chat(
+            &format!("{addr}/v1/chat/completions"),
+            Some("bad"),
+            "m",
+            &[],
+            |e| evs.push(e),
+        )
+        .await;
         h.join().unwrap();
         match &evs[..] {
-            [ChatEvent::Error { message }] => assert!(message.contains("API Key") && message.contains("401")),
+            [ChatEvent::Error { message }] => {
+                assert!(message.contains("API Key") && message.contains("401"))
+            }
             other => panic!("{other:?}"),
         }
     }
 
     #[tokio::test]
     async fn non_streaming_fallback() {
-        let (addr, h) = serve("200 OK", "application/json", "{\"choices\":[{\"message\":{\"content\":\"整段\"}}]}");
+        let (addr, h) = serve(
+            "200 OK",
+            "application/json",
+            "{\"choices\":[{\"message\":{\"content\":\"整段\"}}]}",
+        );
         let mut evs = vec![];
-        stream_chat(&format!("{addr}/v1/chat/completions"), None, "m", &[], |e| evs.push(e)).await;
+        stream_chat(
+            &format!("{addr}/v1/chat/completions"),
+            None,
+            "m",
+            &[],
+            |e| evs.push(e),
+        )
+        .await;
         let req = h.join().unwrap();
         assert!(!req.to_ascii_lowercase().contains("authorization"));
-        assert_eq!(evs, vec![ChatEvent::Delta { text: "整段".into() }, ChatEvent::Done]);
+        assert_eq!(
+            evs,
+            vec![
+                ChatEvent::Delta {
+                    text: "整段".into()
+                },
+                ChatEvent::Done
+            ]
+        );
     }
 
     #[tokio::test]
     async fn connection_refused() {
         let mut evs = vec![];
-        stream_chat("http://127.0.0.1:9/v1/chat/completions", None, "m", &[], |e| evs.push(e)).await;
+        stream_chat(
+            "http://127.0.0.1:9/v1/chat/completions",
+            None,
+            "m",
+            &[],
+            |e| evs.push(e),
+        )
+        .await;
         assert!(matches!(&evs[..], [ChatEvent::Error { message }] if message.contains("连不上")));
     }
 
     #[tokio::test]
     async fn test_connection_ok() {
-        let (addr, h) = serve("200 OK", "application/json", "{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}");
+        let (addr, h) = serve(
+            "200 OK",
+            "application/json",
+            "{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}",
+        );
         let r = test_connection(&format!("{addr}/v1/chat/completions"), Some("k"), "m").await;
         h.join().unwrap();
         assert!(r.unwrap().contains("连接成功"));

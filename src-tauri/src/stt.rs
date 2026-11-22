@@ -51,26 +51,43 @@ mod imp {
     pub fn begin(lang: &str) -> Result<(), String> {
         cancel();
         let rec = match super::lang_tag(lang) {
-            Some(t) => Language::CreateLanguage(&HSTRING::from(t)).and_then(|l| SpeechRecognizer::Create(&l)).map_err(err)?,
+            Some(t) => Language::CreateLanguage(&HSTRING::from(t))
+                .and_then(|l| SpeechRecognizer::Create(&l))
+                .map_err(err)?,
             None => SpeechRecognizer::new().map_err(err)?,
         };
-        let c = SpeechRecognitionTopicConstraint::Create(SpeechRecognitionScenario::Dictation, &HSTRING::from("dictation")).map_err(err)?;
-        rec.Constraints().and_then(|v| v.Append(&c.cast::<ISpeechRecognitionConstraint>()?)).map_err(err)?;
-        let r = rec.CompileConstraintsAsync().and_then(|op| op.get()).map_err(err)?;
+        let c = SpeechRecognitionTopicConstraint::Create(
+            SpeechRecognitionScenario::Dictation,
+            &HSTRING::from("dictation"),
+        )
+        .map_err(err)?;
+        rec.Constraints()
+            .and_then(|v| v.Append(&c.cast::<ISpeechRecognitionConstraint>()?))
+            .map_err(err)?;
+        let r = rec
+            .CompileConstraintsAsync()
+            .and_then(|op| op.get())
+            .map_err(err)?;
         let st = r.Status().map_err(err)?;
         if st != SpeechRecognitionResultStatus::Success {
-            return Err(if st == SpeechRecognitionResultStatus::TopicLanguageNotSupported {
-                "Windows 的语音识别不支持这个语言，在悬浮球设置 → 语音里换语言或改用服务商识别".into()
-            } else if st == SpeechRecognitionResultStatus::NetworkFailure {
-                "Windows 语音识别要联网，现在连不上".into()
-            } else {
-                format!("Windows 语音识别用不了（{}）", st.0)
-            });
+            return Err(
+                if st == SpeechRecognitionResultStatus::TopicLanguageNotSupported {
+                    "Windows 的语音识别不支持这个语言，在悬浮球设置 → 语音里换语言或改用服务商识别"
+                        .into()
+                } else if st == SpeechRecognitionResultStatus::NetworkFailure {
+                    "Windows 语音识别要联网，现在连不上".into()
+                } else {
+                    format!("Windows 语音识别用不了（{}）", st.0)
+                },
+            );
         }
         let text = Arc::new(Mutex::new(String::new()));
         let t2 = text.clone();
         let sess = rec.ContinuousRecognitionSession().map_err(err)?;
-        sess.ResultGenerated(&TypedEventHandler::<SpeechContinuousRecognitionSession, SpeechContinuousRecognitionResultGeneratedEventArgs>::new(move |_, args| {
+        sess.ResultGenerated(&TypedEventHandler::<
+            SpeechContinuousRecognitionSession,
+            SpeechContinuousRecognitionResultGeneratedEventArgs,
+        >::new(move |_, args| {
             if let Some(a) = args.as_ref() {
                 let r = a.Result()?;
                 if r.Status()? == SpeechRecognitionResultStatus::Success {
@@ -87,8 +104,14 @@ mod imp {
 
     /// 松开：停下，返回听到的文字
     pub fn end() -> Result<String, String> {
-        let Some(live) = LIVE.lock().unwrap().take() else { return Err("没在听".into()) };
-        live.rec.ContinuousRecognitionSession().and_then(|s| s.StopAsync()).and_then(|a| a.get()).map_err(err)?;
+        let Some(live) = LIVE.lock().unwrap().take() else {
+            return Err("没在听".into());
+        };
+        live.rec
+            .ContinuousRecognitionSession()
+            .and_then(|s| s.StopAsync())
+            .and_then(|a| a.get())
+            .map_err(err)?;
         // 停下时最后一句的结果可能稍后才到
         std::thread::sleep(std::time::Duration::from_millis(150));
         let t = live.text.lock().unwrap().trim().to_string();
@@ -98,7 +121,11 @@ mod imp {
     /// 取消：不要结果
     pub fn cancel() {
         if let Some(live) = LIVE.lock().unwrap().take() {
-            let _ = live.rec.ContinuousRecognitionSession().and_then(|s| s.CancelAsync()).and_then(|a| a.get());
+            let _ = live
+                .rec
+                .ContinuousRecognitionSession()
+                .and_then(|s| s.CancelAsync())
+                .and_then(|a| a.get());
         }
     }
 }
@@ -147,7 +174,10 @@ mod imp {
         authorize()?;
         let rec = unsafe {
             match super::lang_tag(lang) {
-                Some(t) => SFSpeechRecognizer::initWithLocale(SFSpeechRecognizer::alloc(), &NSLocale::initWithLocaleIdentifier(NSLocale::alloc(), &NSString::from_str(t))),
+                Some(t) => SFSpeechRecognizer::initWithLocale(
+                    SFSpeechRecognizer::alloc(),
+                    &NSLocale::initWithLocaleIdentifier(NSLocale::alloc(), &NSString::from_str(t)),
+                ),
                 None => SFSpeechRecognizer::init(SFSpeechRecognizer::alloc()),
             }
         }
@@ -156,23 +186,32 @@ mod imp {
             return Err("这台 Mac 没有这个语言的本机识别：系统设置 → 键盘 → 听写，下载该语言，或在悬浮球设置 → 语音里改用服务商识别".into());
         }
         let url = unsafe { NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy())) };
-        let req = unsafe { SFSpeechURLRecognitionRequest::initWithURL(SFSpeechURLRecognitionRequest::alloc(), &url) };
+        let req = unsafe {
+            SFSpeechURLRecognitionRequest::initWithURL(SFSpeechURLRecognitionRequest::alloc(), &url)
+        };
         unsafe {
             req.setRequiresOnDeviceRecognition(true);
             req.setShouldReportPartialResults(false);
         }
         let (tx, rx) = mpsc::channel::<Result<String, String>>();
-        let block = RcBlock::new(move |res: *mut SFSpeechRecognitionResult, e: *mut NSError| {
-            if let Some(e) = unsafe { e.as_ref() } {
-                let _ = tx.send(Err(format!("系统语音识别出错：{}", unsafe { e.localizedDescription() })));
-            } else if let Some(r) = unsafe { res.as_ref() } {
-                if unsafe { r.isFinal() } {
-                    let _ = tx.send(Ok(unsafe { r.bestTranscription().formattedString() }.to_string()));
+        let block = RcBlock::new(
+            move |res: *mut SFSpeechRecognitionResult, e: *mut NSError| {
+                if let Some(e) = unsafe { e.as_ref() } {
+                    let _ = tx.send(Err(format!("系统语音识别出错：{}", unsafe {
+                        e.localizedDescription()
+                    })));
+                } else if let Some(r) = unsafe { res.as_ref() } {
+                    if unsafe { r.isFinal() } {
+                        let _ = tx.send(Ok(
+                            unsafe { r.bestTranscription().formattedString() }.to_string()
+                        ));
+                    }
                 }
-            }
-        });
+            },
+        );
         let _task = unsafe { rec.recognitionTaskWithRequest_resultHandler(&req, &block) };
-        rx.recv_timeout(Duration::from_secs(60)).map_err(|_| "系统语音识别超时".to_string())?
+        rx.recv_timeout(Duration::from_secs(60))
+            .map_err(|_| "系统语音识别超时".to_string())?
     }
 }
 
