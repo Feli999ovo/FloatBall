@@ -241,9 +241,9 @@ impl Catalog {
             let mut best: Option<(&String, &Row)> = None;
             for (k, r) in &self.labs {
                 let kt = norm(k.rsplit('/').next().unwrap_or(k));
-                if kt == want
+                if (kt == want
                     || (kt.starts_with(&want)
-                        && !kt[want.len()..].starts_with(|c: char| c.is_ascii_digit()))
+                        && !kt[want.len()..].starts_with(|c: char| c.is_ascii_digit())))
                     && best
                         .map(|(b, _)| kt.len() < norm(b.rsplit('/').next().unwrap_or(b)).len())
                         .unwrap_or(true)
