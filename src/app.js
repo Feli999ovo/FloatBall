@@ -1103,6 +1103,53 @@ function setMeta(el, text, opts = {}) {
   if (text) { const s = document.createElement("span"); s.textContent = text; meta.appendChild(s); }
 }
 
+function renderReceipt(el, tools, confirmations, task, usage, model) {
+  if (!tools.size) return;
+  const counts = new Map(), reads = new Set(), writes = new Set(), deletes = new Set(), effects = [];
+  let read = 0, write = 0, allowed = 0, denied = 0;
+  for (const { name, arg, status, path } of tools.values()) {
+    counts.set(name, (counts.get(name) || 0) + 1);
+    const reading = name === "读取文件" || name === "查看文件夹";
+    if (reading) read++;
+    if (name === "写入文件") write++;
+    if (status !== "done") continue;
+    if (path && reading) reads.add(path);
+    if (path && name === "写入文件") writes.add(path);
+    if (path && name === "删除文件") deletes.add(path);
+    if (name === "发送邮件" || name === "打开网页" || name.startsWith("已记住：")) effects.push([name, arg].filter(Boolean).join(" · "));
+  }
+  for (const decision of confirmations.values()) {
+    if (decision === true) allowed++;
+    else if (decision === false) denied++;
+  }
+  const elapsed = `${Math.round((task.t1 - task.t0) / 1000)} 秒`;
+  const cost = Number.isFinite(usage?.cost) ? `约 ${fmtCny(usage.cost)}${Number(S.cfg?.usd_cny) === 7.2 ? "（默认汇率）" : ""}` : "未知";
+  const tokens = (usage?.prompt || 0) + (usage?.completion || 0);
+  const summary = document.createElement("span"); summary.className = "receipt-summary";
+  summary.textContent = `${tools.size} 步 · 读 ${read} · 写 ${write} · 确认 ${confirmations.size} · ${elapsed} · ${cost === "未知" ? "花费未知" : cost}`;
+  const meta = el.querySelector(".meta"), button = document.createElement("button"), detail = document.createElement("dl");
+  button.type = "button"; button.textContent = "明细"; button.setAttribute("aria-expanded", "false");
+  detail.className = "receipt"; detail.hidden = true;
+  const rows = [
+    ["结果", { done: "完成", stop: "已停止", err: "出错" }[task.st]], ["用时", elapsed],
+    ["工具", [...counts].map(([name, n]) => `${name} × ${n}`).join("、")],
+    ["读过", [...reads].join("\n")], ["写过", [...writes].join("\n")], ["移到回收站", [...deletes].join("\n")],
+    ["确认", `允许 ${allowed} 次 · 拒绝 ${denied} 次`], ["其他操作", effects.join("\n")],
+    ["模型", model], ["用量", tokens ? `${fmtTok(tokens)} tokens` : "未知"], ["花费", cost],
+  ];
+  for (const [title, text] of rows) {
+    if (!text) continue;
+    const dt = document.createElement("dt"), dd = document.createElement("dd");
+    dt.textContent = title; dd.textContent = text; detail.append(dt, dd);
+  }
+  button.onclick = () => {
+    detail.hidden = !detail.hidden; button.setAttribute("aria-expanded", !detail.hidden);
+    button.textContent = detail.hidden ? "明细" : "收起明细";
+    if (!detail.hidden) detail.scrollIntoView({ block: "nearest" });
+  };
+  meta.append(summary, button); meta.after(detail);
+}
+
 function buildContent(text, attach) {
   const files = attach.filter((a) => a.kind === "file");
   const imgs = attach.filter((a) => a.kind === "image");
@@ -1214,6 +1261,9 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
   let txt = el.querySelector(".txt");
   // out：整条回复（存历史、复制）；seg：当前这段文字。工具药丸把回复分成几段，药丸后面的字另起一段
   let out = "", seg = "", usage = null, raf = 0;
+  const tools = new Map(), confirmations = new Map();
+  const model = leadModelName();
+  const receipt = () => renderReceipt(el, tools, confirmations, task, usage, model);
   const paint = () => { raf = 0; const live = conv.busy === id; txt.innerHTML = live && !seg ? "" : live ? md(seg + "\uE000").replace("\uE000", '<span class="cur"></span>') : md(seg); scrollEnd(); };
   const ch = new Channel();
   ch.onmessage = (ev) => {
@@ -1222,12 +1272,14 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       out += ev.text; seg += ev.text; // 说话时保持思考的光点（照原型：流式输出时是 think）
       if (!raf) raf = requestAnimationFrame(paint);
     } else if (ev.type === "tool") {
+      tools.set(ev.call, ev);
       toolPill(el, ev);
       if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
       el.insertBefore(txt, el.querySelector(".meta"));
       if (ev.status === "run" && here()) mood("work");
       scrollEnd();
     } else if (ev.type === "team") {
+      tools.set(ev.call, { name: `交给 ${ev.agent}`, status: ev.status });
       teamRow(el, ev);
       if (seg) { txt.classList.remove("cursor"); txt.innerHTML = md(seg); seg = ""; out += "\n\n"; const t2 = document.createElement("div"); t2.className = "txt cursor"; txt = t2; }
       el.insertBefore(txt, el.querySelector(".meta"));
@@ -1242,7 +1294,8 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       if (!S.open || !here()) showPeek(`预算用完，已暂停：${task.title}`, false, () => goConv(conv));
       scrollEnd();
     } else if (ev.type === "ask") {
-      askCard(el, ev);
+      confirmations.set(ev.ask, null);
+      askCard(el, ev, (allow) => confirmations.set(ev.ask, allow));
       conv.need = true; needOn(true); mood("wait"); // 原型：等你确认 → 「等你」表情，收起时球角上亮「!」
       if (!S.open || !here()) showPeek("需要你确认：" + ev.desc, false, () => goConv(conv));
       scrollEnd();
@@ -1259,7 +1312,9 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       saveMsg(conv, "assistant", out).catch(() => {});
       const used = usage && usage.prompt + usage.completion;
       const cost = Number.isFinite(usage?.cost) ? ` · 约 ${fmtCny(usage.cost)}${Number(S.cfg?.usd_cny) === 7.2 ? "（默认汇率）" : ""}` : "";
-      setMeta(el, used ? `${leadModelName()} · ${fmtTok(used)} tokens${cost}` : `${leadModelName()}${cost}`, { copy: out });
+      const usageLine = used ? `${model} · ${fmtTok(used)} tokens${cost}` : `${model}${cost}`;
+      setMeta(el, tools.size ? "" : usageLine, { copy: out });
+      receipt();
       const meta = el.querySelector(".meta");
       if (plan) {
         const execute = document.createElement("button");
@@ -1293,6 +1348,7 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
       txt.textContent = ev.message;
       const noKey = /API Key|设置/.test(ev.message);
       setMeta(el, "", { retry: () => { if (conv.busy || conv.msgs.at(-1) !== userMessage) return; el.remove(); goConv(conv); run(currentContent, conv, plan); }, settings: noKey });
+      receipt();
       mood("error", 4000);
       if (!here()) doneMark(conv);
     }
@@ -1315,7 +1371,8 @@ function run(currentContent, conv = S.conv, plan = conv.plan, preAllow = []) {
     el.querySelectorAll(".x-ap button, .x-ap input").forEach((b) => (b.disabled = true));
     if (out) { txt.innerHTML = md(seg); conv.msgs.push({ role: "assistant", content: out }); saveMsg(conv, "assistant", out + "\n\n（已停止）").catch(() => {}); }
     else txt.textContent = "（已停止）";
-    setMeta(el, "已停止", out ? { copy: out } : {});
+    setMeta(el, tools.size ? "" : "已停止", out ? { copy: out } : {});
+    receipt();
     if (here() || !convs.size) mood("idle");
   };
   conv.stop = el._stop; if (here()) S.stopFn = el._stop;
@@ -1570,7 +1627,7 @@ function budgetCard(el, ev, task) {
   more.focus({ preventScroll: true });
 }
 
-function askCard(el, ev) {
+function askCard(el, ev, onDecision) {
   const w = el.querySelector(`.x-tw[data-call="${ev.call}"]`);
   const c = document.createElement("div");
   c.className = "x-ap" + (ev.hi ? " hi" : ""); c.setAttribute("role", "group"); c.setAttribute("aria-label", "需要你确认");
@@ -1589,6 +1646,7 @@ function askCard(el, ev) {
   let done = false;
   const fin = (b, answer) => {
     if (done) return; done = true;
+    onDecision(answer.allow);
     needOn(false);
     c.querySelectorAll("button,input").forEach((x) => (x.disabled = true)); b.classList.add("on");
     invoke("answer_ask", { ask: ev.ask, answer: { allow: false, always: false, reason: "", edit: "", ...answer } }).then((ok) => { if (!ok) note("这一步已经结束了"); }).catch(() => {});

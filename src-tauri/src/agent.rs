@@ -432,10 +432,10 @@ impl Task {
         })
     }
 
-    fn pill(&self, call: &str, agent: &Agent, name: &str, arg: &str, status: &str, result: &str) {
+    fn pill(&self, call: &str, agent: &Agent, name: &str, arg: &str, status: &str, result: &str, path: Option<String>) {
         (self.emit)(ChatEvent::Tool {
             call: call.into(), agent: agent.name.clone(), name: name.into(), arg: arg.into(),
-            status: status.into(), result: short(result, 600), memory_id: None, agent_id: None,
+            status: status.into(), result: short(result, 600), path, memory_id: None, agent_id: None,
         });
     }
 
@@ -444,7 +444,7 @@ impl Task {
         (self.emit)(ChatEvent::Tool {
             call: call.into(), agent: agent.name.clone(), name, arg: String::new(),
             status: status.into(), result: short(result, 600),
-            memory_id: undo_id, agent_id: undo_id.map(|_| agent.id.clone()),
+            path: None, memory_id: undo_id, agent_id: undo_id.map(|_| agent.id.clone()),
         });
     }
 
@@ -515,7 +515,7 @@ impl Task {
                     } else {
                         format!("用户拒绝记住这条，原因：{}", ans.reason)
                     };
-                    self.pill(&call, agent, "记住偏好", "", "no", &why);
+                    self.pill(&call, agent, "记住偏好", "", "no", &why, None);
                     return why;
                 }
                 if !ans.edit.trim().is_empty() {
@@ -549,7 +549,7 @@ impl Task {
                 skills.iter().find(|skill| skill.name.trim().to_lowercase() == name)
             });
             if let Some(skill) = skill {
-                self.pill(&call, agent, "读技能", &skill.name, "done", "已读取完整步骤");
+                self.pill(&call, agent, "读技能", &skill.name, "done", "已读取完整步骤", None);
                 return format!("技能：{}\n步骤：\n{}", skill.name, skill.steps);
             }
             let names = skills.iter().map(|skill| skill.name.as_str()).collect::<Vec<_>>().join("、");
@@ -560,6 +560,7 @@ impl Task {
             return format!("没有这个工具：{}", c.name);
         };
         let (name, shown) = label(&c.name, &a);
+        let file_tool = matches!(c.name.as_str(), "read_file" | "list_dir" | "write_file" | "delete_file");
         if !agent.tools.iter().any(|t| t == def.group) {
             return format!("{} 没有「{}」这个工具的权限", agent.name, def.group);
         }
@@ -572,12 +573,12 @@ impl Task {
             let always = self.cfg.always_allow.iter().any(|x| x.kind == kind && x.scope == scope);
             let once = rk == 1 && self.allowed.lock().unwrap().contains(&key);
             if !always && !once {
-                if !self.pre_authorized(&kind) { self.pill(&call, agent, &name, &shown, "wait", ""); }
+                if !self.pre_authorized(&kind) { self.pill(&call, agent, &name, &shown, "wait", "", file_tool.then(|| arg(&a, "path"))); }
                 let (ans, pre) = self.ask(&call, &kind, &desc, &scope, rk == 2, false).await;
                 pre_authorized = pre;
                 if !ans.allow {
                     let why = if ans.reason.is_empty() { "用户拒绝了这个操作".to_string() } else { format!("用户拒绝了这个操作，原因：{}", ans.reason) };
-                    self.pill(&call, agent, &name, &shown, "no", &why);
+                    self.pill(&call, agent, &name, &shown, "no", &why, file_tool.then(|| arg(&a, "path")));
                     return why;
                 }
                 if !ans.edit.trim().is_empty() {
@@ -590,14 +591,15 @@ impl Task {
                 if !pre_authorized { self.allowed.lock().unwrap().insert(key); }
             }
         }
-        self.pill(&call, agent, &name, &shown, "run", if pre_authorized { "已预授权" } else { "" });
+        let path = file_tool.then(|| arg(&a, "path"));
+        self.pill(&call, agent, &name, &shown, "run", if pre_authorized { "已预授权" } else { "" }, path.clone());
         let r = self.exec(&c.name, &a).await;
         if c.name == "write_file" && r.is_ok() {
             if let Some(stats) = stats { stats.writes.fetch_add(1, Ordering::Relaxed); }
         }
         let (status, result) = match &r { Ok(out) => ("done", out), Err(e) => ("err", e) };
         let shown_result = if pre_authorized { format!("已预授权 · {result}") } else { result.clone() };
-        self.pill(&call, agent, &name, &shown, status, &shown_result);
+        self.pill(&call, agent, &name, &shown, status, &shown_result, path);
         r.unwrap_or_else(|e| format!("出错了：{e}"))
     }
 
@@ -1240,6 +1242,29 @@ mod tests {
         // 子 Agent 的正文不流到主控的气泡里
         let deltas: String = e.events.lock().unwrap().iter().filter_map(|x| match x { ChatEvent::Delta { text } => Some(text.clone()), _ => None }).collect();
         assert_eq!(deltas, "审查员说没有错别字");
+    }
+
+    #[test]
+    fn file_tool_events_carry_full_paths_only_for_file_tools() {
+        let e = env(vec![], |c| c.agents[0].tools.push("搜索网页".into()));
+        let folder = e.dir.path().join("两个目录下可以有相同的名字，这里只测试完整路径");
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("周报.txt");
+        std::fs::write(&path, "内容").unwrap();
+        let file = llm::Call { name: "read_file".into(), args: json!({"path":path}).to_string(), ..Default::default() };
+        let search = llm::Call { name: "web_search".into(), args: json!({"query":"周报"}).to_string(), ..Default::default() };
+        rt().block_on(async {
+            let lead = e.task.cfg.lead();
+            e.task.call(lead, &file, None).await;
+            e.task.call(lead, &search, None).await;
+        });
+        let events = e.events.lock().unwrap();
+        let tools = events.iter().filter(|ev| matches!(ev, ChatEvent::Tool { status, .. } if status == "done"));
+        let serialized: Vec<Value> = tools.map(|ev| serde_json::to_value(ev).unwrap()).collect();
+        assert_eq!(serialized.len(), 2);
+        assert_eq!(serialized[0]["arg"], "周报.txt");
+        assert_eq!(serialized[0]["path"], json!(path));
+        assert!(serialized[1].get("path").is_none());
     }
 
     #[test]
