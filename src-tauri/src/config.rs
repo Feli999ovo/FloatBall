@@ -1365,6 +1365,96 @@ mod tests {
     }
 
     #[test]
+    fn pre_version_full_legacy_config_matches_existing_behavior() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            Config::path(d.path()),
+            r#"{
+                "model":"legacy-chat",
+                "base_url":"http://localhost:11434/v1",
+                "allow_no_key":true,
+                "vision":false,
+                "shortcut":"Alt+W",
+                "capture_shortcut":"Alt+Shift+S",
+                "new_shortcut":"Alt+C",
+                "tasks_shortcut":"Alt+T",
+                "position":[3.0,4.0],
+                "orb_size":80,
+                "glass":12,
+                "eye":"#ABCDEF",
+                "idle_ms":1234,
+                "follow_system":true,
+                "auto_dock":false,
+                "calm":true,
+                "screen":"last",
+                "screen_slide":false,
+                "catalog_auto":true,
+                "usd_cny":8.4,
+                "limits":{"tokens":1200,"steps":7,"parallel":2},
+                "handoff":{"tool":"codex","term":"powershell","dirs":["C:/work"],"save":false,"custom":"run {file}"},
+                "always_allow":[{"kind":"写入","scope":"C:/work"}],
+                "pause_away":false,
+                "skills":[{"id":"s1","name":"核对","when":"查资料时","steps":"找出处"}],
+                "agents":[
+                    {"id":"lead","name":"主控","role":"拆解","prompt":"主控指令","tint":"#111111","emoji":"A","tools":["读文件"],"skills":["s1"],"model":1,"fallback":1,"auto":true},
+                    {"id":"agent-old","name":"旧 Agent","role":"整理","prompt":"整理指令","tint":"#222222","emoji":"B","tools":["读文件","写文件"],"skills":["s1"],"model":1,"fallback":0,"auto":false}
+                ],
+                "routines":[]
+            }"#,
+        )
+        .unwrap();
+
+        let c = Config::load(d.path());
+        assert_eq!(c.models.len(), 1);
+        assert_eq!(
+            (
+                c.models[0].id,
+                c.models[0].model.as_str(),
+                c.models[0].base_url.as_str(),
+                c.models[0].no_key,
+                c.models[0].vision
+            ),
+            (1, "legacy-chat", "http://localhost:11434/v1", true, false)
+        );
+        assert_eq!(c.default_model, 1);
+        assert_eq!(c.position, Some((3.0, 4.0)));
+        assert_eq!((c.orb_size, c.glass, c.eye.as_str()), (80, 12, "#ABCDEF"));
+        assert_eq!(
+            (c.idle_ms, c.follow_system, c.auto_dock, c.calm),
+            (1234, true, false, true)
+        );
+        assert_eq!(
+            (c.screen.as_str(), c.screen_slide, c.catalog_auto),
+            ("last", false, true)
+        );
+        assert_eq!(c.usd_cny, 8.4);
+        assert_eq!((c.limits.tokens, c.limits.steps, c.limits.parallel), (1200, 7, 2));
+        assert!(c.handoff.hint);
+        assert_eq!(c.handoff.dirs, vec!["C:/work"]);
+        assert_eq!(c.always_allow[0].scope, "C:/work");
+        assert!(!c.pause_away);
+        assert_eq!(c.skills[0].id, "s1");
+        assert_eq!(
+            c.agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["lead", "agent-old"]
+        );
+        assert_eq!(c.agents[0].skills, vec!["s1"]);
+        assert_eq!((c.agents[0].model, c.agents[0].fallback), (1, 1));
+        assert_eq!(c.agents[1].skills, vec!["s1"]);
+        assert_eq!(c.agents[1].model, 1);
+        assert_eq!(
+            (
+                c.win_shortcut.as_str(),
+                c.share_shortcut.as_str(),
+                c.feed_shortcut.as_str()
+            ),
+            ("", "", "")
+        );
+        assert_eq!(c.voice, Voice::default());
+        assert_eq!(c.talk_shortcut, TALK_RALT);
+    }
+
+    #[test]
     fn endpoint_normalizes() {
         let mut m = Model {
             base_url: "https://api.deepseek.com/v1/".into(),
