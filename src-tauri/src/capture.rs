@@ -365,22 +365,33 @@ pub fn encode(img: DynamicImage) -> Result<String, String> {
 }
 
 /// 拖进来的文件：只读文本，最多 200 KB
-pub fn read_text_file(path: &str) -> Result<(String, String), String> {
+pub fn read_text_file(path: &str) -> Result<(String, String), crate::error::AppError> {
+    use crate::error::{AppError, ErrorKind};
     let p = std::path::Path::new(path);
     let name = p
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
-    let meta = std::fs::metadata(p).map_err(|e| e.to_string())?;
+    let meta = std::fs::metadata(p)?;
     if meta.is_dir() {
-        return Err(format!("「{name}」是文件夹，暂时只支持文本文件"));
+        return Err(AppError::new(
+            ErrorKind::Invalid,
+            format!("「{name}」是文件夹，暂时只支持文本文件"),
+        ));
     }
     if meta.len() > 200 * 1024 {
-        return Err(format!("「{name}」超过 200 KB，暂时只读小文本文件"));
+        return Err(AppError::new(
+            ErrorKind::Invalid,
+            format!("「{name}」超过 200 KB，暂时只读小文本文件"),
+        ));
     }
-    let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| format!("「{name}」不是文本文件（PDF、图片等之后支持）"))?;
+    let bytes = std::fs::read(p)?;
+    let text = String::from_utf8(bytes).map_err(|_| {
+        AppError::new(
+            ErrorKind::Invalid,
+            format!("「{name}」不是文本文件（PDF、图片等之后支持）"),
+        )
+    })?;
     Ok((name, text))
 }
 

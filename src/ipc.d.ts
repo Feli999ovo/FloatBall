@@ -193,6 +193,11 @@ export type Answer_Serialize = {
 	edit: string,
 };
 
+export type AppError = {
+	kind: ErrorKind,
+	message: string,
+};
+
 /**  查到的能力 */
 export type Caps = Caps_Serialize | Caps_Deserialize;
 
@@ -324,6 +329,8 @@ export type CtxShow_Serialize = {
 	items: CtxItem_Serialize[],
 	bd: string | null,
 };
+
+export type ErrorKind = "permission" | "network" | "conflict" | "invalid" | "internal";
 
 export type Found = {
 	id: string,

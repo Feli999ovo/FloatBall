@@ -1,5 +1,6 @@
+import { errorMessage } from "../error-message.js";
 import { mood } from "./orb.js";
-import { $ } from "./state.js";
+import { $, invoke } from "./state.js";
 
 export let toastTimer;
 
@@ -13,8 +14,26 @@ export function toast(t) {
 }
 
 export function toastErr(e) {
-  toast(String(e));
+  toast(errorMessage(e));
   mood("error", 2400);
+  const action = {
+    permission: ["去设置", () => invoke("open_settings", { agent: null })],
+    conflict: ["重新加载", () => window.location.reload()],
+  }[e?.kind];
+  if (!action) return;
+  const el = $("#toast");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "toast-action";
+  button.textContent = action[0];
+  button.addEventListener("click", async () => {
+    try {
+      await action[1]();
+    } catch (error) {
+      toast(errorMessage(error));
+    }
+  });
+  el.append(" ", button);
 }
 
 export function initToast() {

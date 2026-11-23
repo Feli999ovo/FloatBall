@@ -375,6 +375,8 @@ body:not(.collapsed) #peek { display: none; }
   padding: 8px 14px; border-radius: 12px; background: rgba(23, 20, 42, 0.96); border: 1px solid var(--line);
   font-size: 12.5px; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.3s var(--spring); }
 #toast.on { opacity: 1; transform: translate(-50%, 0); }
+#toast:has(.toast-action) { z-index: 12; }
+#toast.on .toast-action { cursor: pointer; pointer-events: auto; }
 body.collapsed #toast { display: none; }
 
 @media (prefers-reduced-motion: reduce) {

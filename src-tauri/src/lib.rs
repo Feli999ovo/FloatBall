@@ -81,6 +81,7 @@ mod catalog;
 mod changes;
 mod commands;
 mod config;
+mod error;
 mod handoff;
 mod llm;
 mod routine;

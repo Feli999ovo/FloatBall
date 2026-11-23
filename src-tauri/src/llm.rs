@@ -585,19 +585,27 @@ pub async fn turn(
 }
 
 /// 设置页「获取模型列表」：GET {接口地址}/models
-pub async fn list_models(base: &str, api_key: Option<&str>) -> Result<Vec<String>, String> {
+pub async fn list_models(
+    base: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<String>, crate::error::AppError> {
     let url = format!("{base}/models");
     let mut req = client(&url).get(&url).timeout(Duration::from_secs(20));
     if let Some(k) = api_key {
         req = req.bearer_auth(k);
     }
-    let r = req.send().await.map_err(|e| format!("连不上：{e}"))?;
+    let r = req.send().await.map_err(|e| {
+        crate::error::AppError::new(crate::error::ErrorKind::Network, format!("连不上：{e}"))
+    })?;
     let code = r.status().as_u16();
     let text = r.text().await.unwrap_or_default();
     if !(200..300).contains(&code) {
-        return Err(friendly_status(code, &text));
+        return Err(crate::error::AppError::new(
+            crate::error::ErrorKind::Network,
+            friendly_status(code, &text),
+        ));
     }
-    parse_model_list(&text)
+    Ok(parse_model_list(&text)?)
 }
 
 /// OpenAI 兼容接口返回 {"data":[{"id":…}]}；个别服务用 {"models":[{"name":…}]}
@@ -627,7 +635,7 @@ pub async fn test_connection(
     endpoint: &str,
     api_key: Option<&str>,
     model: &str,
-) -> Result<String, String> {
+) -> Result<String, crate::error::AppError> {
     let body = json!({"model": model, "messages": [{"role":"user","content":"ping"}], "max_tokens": 5, "stream": false});
     let mut req = client(endpoint)
         .post(endpoint)
@@ -637,13 +645,18 @@ pub async fn test_connection(
         req = req.bearer_auth(k);
     }
     let t0 = std::time::Instant::now();
-    let r = req.send().await.map_err(|e| format!("连不上：{e}"))?;
+    let r = req.send().await.map_err(|e| {
+        crate::error::AppError::new(crate::error::ErrorKind::Network, format!("连不上：{e}"))
+    })?;
     let code = r.status().as_u16();
     let text = r.text().await.unwrap_or_default();
     if (200..300).contains(&code) {
         Ok(format!("连接成功，用时 {} 毫秒", t0.elapsed().as_millis()))
     } else {
-        Err(friendly_status(code, &text))
+        Err(crate::error::AppError::new(
+            crate::error::ErrorKind::Network,
+            friendly_status(code, &text),
+        ))
     }
 }
 

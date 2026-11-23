@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use crate::*;
 
 #[tauri::command]
@@ -6,7 +7,7 @@ pub async fn undo_change(
     app: AppHandle,
     id: String,
     confirm_changed: bool,
-) -> Result<bool, String> {
+) -> Result<bool, AppError> {
     let state = app.state::<AppState>();
     let changes = state.changes.clone();
     let trash = state.data_dir.join("回收站");

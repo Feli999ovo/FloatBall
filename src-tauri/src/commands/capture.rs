@@ -1,3 +1,4 @@
+use crate::error::{AppError, ErrorKind};
 use crate::*;
 
 /// 卡片的毛玻璃底图（见 capture::backdrop_at）。拿不到就返回空，前端用不透明的底。
@@ -20,7 +21,7 @@ pub async fn backdrop(px: i32, py: i32, x: i32, y: i32, w: u32, h: u32) -> Optio
 
 #[tauri::command]
 #[cfg_attr(feature = "gen-ipc", specta::specta)]
-pub async fn capture_screen(app: AppHandle) -> Result<String, String> {
+pub async fn capture_screen(app: AppHandle) -> Result<String, AppError> {
     let (cx, cy) = app
         .cursor_position()
         .map(|p| (p.x as i32, p.y as i32))
@@ -31,11 +32,11 @@ pub async fn capture_screen(app: AppHandle) -> Result<String, String> {
 pub(crate) async fn capture_without_ball(
     app: &AppHandle,
     take: impl FnOnce() -> Result<String, String> + Send + 'static,
-) -> Result<String, String> {
-    capture::check_permission()?;
+) -> Result<String, AppError> {
+    check_permission()?;
     let state = app.state::<AppState>();
     let _guard = state.screen_capture.lock().await;
-    let win = main_window(app).ok_or("no window")?;
+    let win = main_window(app).ok_or_else(|| AppError::new(ErrorKind::Internal, "no window"))?;
     let was_visible = win.is_visible().unwrap_or(false);
     let was_focused = win.is_focused().unwrap_or(false);
     if was_visible {
@@ -49,32 +50,34 @@ pub(crate) async fn capture_without_ball(
     if was_focused {
         let _ = win.set_focus();
     }
-    res.map_err(|e| e.to_string())?
+    Ok(res.map_err(|e| e.to_string())??)
 }
 
 #[tauri::command]
 #[cfg_attr(feature = "gen-ipc", specta::specta)]
-pub async fn capture_window(app: AppHandle) -> Result<String, String> {
+pub async fn capture_window(app: AppHandle) -> Result<String, AppError> {
     let key = app
         .state::<AppState>()
         .current_window
         .lock()
         .unwrap()
         .take()
-        .ok_or(capture::WINDOW_UNAVAILABLE)?;
-    capture::check_permission()?;
-    tauri::async_runtime::spawn_blocking(move || capture::capture_window(key))
-        .await
-        .map_err(|e| e.to_string())?
+        .ok_or_else(|| AppError::new(ErrorKind::Invalid, capture::WINDOW_UNAVAILABLE))?;
+    check_permission()?;
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || capture::capture_window(key))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
 }
 
 #[tauri::command]
 #[cfg_attr(feature = "gen-ipc", specta::specta)]
-pub async fn share_sources() -> Result<Vec<capture::Source>, String> {
-    capture::check_permission()?;
-    tauri::async_runtime::spawn_blocking(capture::sources)
+pub async fn share_sources() -> Result<Vec<capture::Source>, AppError> {
+    check_permission()?;
+    Ok(tauri::async_runtime::spawn_blocking(capture::sources)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??)
 }
 
 #[tauri::command]
@@ -82,7 +85,7 @@ pub async fn share_sources() -> Result<Vec<capture::Source>, String> {
 pub async fn capture_shared(
     app: AppHandle,
     target: capture::Target,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, AppError> {
     let supported = {
         let state = app.state::<AppState>();
         let cfg = state.cfg.lock().unwrap();
@@ -97,7 +100,7 @@ pub async fn capture_shared(
             capture_without_ball(&app, move || capture::capture_monitor(id)).await?
         }
         capture::Target::Window { key } => {
-            capture::check_permission()?;
+            check_permission()?;
             tauri::async_runtime::spawn_blocking(move || capture::capture_window(key))
                 .await
                 .map_err(|e| e.to_string())??
@@ -127,7 +130,7 @@ pub(crate) struct TextFile {
 
 #[tauri::command]
 #[cfg_attr(feature = "gen-ipc", specta::specta)]
-pub fn read_text_file(path: String) -> Result<TextFile, String> {
+pub fn read_text_file(path: String) -> Result<TextFile, AppError> {
     capture::read_text_file(&path).map(|(name, text)| TextFile { name, text })
 }
 
@@ -137,4 +140,9 @@ pub fn read_text_file(path: String) -> Result<TextFile, String> {
 pub fn js_log(msg: String) {
     eprintln!("[前端] {msg}");
     log::warn!("[前端] {msg}");
+}
+
+fn check_permission() -> Result<(), AppError> {
+    capture::check_permission()
+        .map_err(|_| AppError::new(ErrorKind::Permission, "请在系统设置里允许屏幕录制"))
 }

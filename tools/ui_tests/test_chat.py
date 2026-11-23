@@ -283,6 +283,14 @@ async def test_chat(orb_page):
     check(await pg.locator("#attach .chip").count() == 0, "移除附件")
     check(await pg.get_attribute("#ask", "placeholder") == "有什么可以帮你？", "移除文件后恢复默认提示")
 
+    await pg.evaluate("__mock.fileError = {kind:'permission', message:'文件读取权限不足'}; __mock.drop({payload:{type:'drop', paths:['notes.md']}})")
+    settings = pg.locator("#toast").get_by_role("button", name="去设置", exact=True)
+    await settings.wait_for()
+    assert "文件读取权限不足" in await pg.inner_text("#toast")
+    await settings.click()
+    assert await pg.evaluate("__mock.calls.includes('open_settings')")
+    await pg.evaluate("delete __mock.fileError")
+
     # 9 历史
     await pg.click("#histBtn"); await pg.wait_for_timeout(300)
     n = await pg.locator("#histList li").count()

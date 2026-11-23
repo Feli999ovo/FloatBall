@@ -300,7 +300,9 @@ impl Task {
                 http_url(&u)?;
                 self.world.fetch(&u).await
             }
-            "read_file" => crate::capture::read_text_file(&arg(a, "path")).map(|(_, t)| t),
+            "read_file" => crate::capture::read_text_file(&arg(a, "path"))
+                .map(|(_, t)| t)
+                .map_err(|e| e.message),
             "list_dir" => list_dir(&arg(a, "path")),
             "write_file" => {
                 let p = arg(a, "path");
