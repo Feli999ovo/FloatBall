@@ -128,7 +128,7 @@ async def test_voice(orb_page):
     check(await pg.get_attribute("#vcMic", "aria-pressed") == "true" and "在听" in await pg.get_attribute("#ask", "placeholder") and await pg.evaluate("document.activeElement.id") == "ask", "点麦克风：开始听写，焦点留在输入框")
     await shot("17_voice_dict")
     await pg.click("#vcMic"); await pg.wait_for_timeout(800)
-    check(await pg.input_value("#ask") == "请帮我把备忘录整理成周报" and await pg.get_attribute("#vcMic", "aria-pressed") == "false" and await pg.get_attribute("#ask", "placeholder") == "有什么可以帮你？", "再点一下：识别结果接在输入框后面，不发送")
+    check(await pg.input_value("#ask") == "请帮我把备忘录整理成周报" and await pg.get_attribute("#vcMic", "aria-pressed") == "false" and await pg.get_attribute("#ask", "placeholder") == "问点什么", "再点一下：识别结果接在输入框后面，不发送")
     await pg.fill("#ask", "")
     await pg.evaluate("""(() => { window.__utt = []; const ss = window.speechSynthesis;
       ss.speak = (u) => { __utt.push(u); }; ss.cancel = () => { __utt.forEach((u) => { if (!u._done) { u._done = 1; u.onerror && u.onerror({}); } }); }; })()""")

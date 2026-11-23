@@ -259,9 +259,10 @@ export function initConversation() {
   // 有请求在跑的对话（跑完就删掉）
   liveById = new Map();
   S.conv = Conv(null);
-  ASK_PH = "有什么可以帮你？";
+  // 提示都要在一行内放得下：胶囊里放了「执行 / 只规划」后输入框只剩约 98–109px（test_chat 里有检查）
+  ASK_PH = "问点什么";
   TMP_PH = "临时对话…";
-  PLAN_PH = "只规划：先出方案…";
+  PLAN_PH = "先出方案…";
   planToggle = $("#planToggle");
   planToggle.onclick = () => {
     S.conv.plan = !S.conv.plan;

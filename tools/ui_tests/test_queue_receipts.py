@@ -7,7 +7,7 @@ async def test_queue_receipts(orb_page):
     # P1 只规划、后台排队和输入历史
     await pg.evaluate("async () => { newChat(); __mock.chatProbe = []; await expand('chat'); }")
     await pg.click("#planToggle")
-    check(await pg.get_attribute("#planToggle", "aria-pressed") == "true" and await pg.is_visible("#planBanner") and await pg.get_attribute("#ask", "placeholder") == "只规划：先出方案…", "只规划切换、横幅和占位文字")
+    check(await pg.get_attribute("#planToggle", "aria-pressed") == "true" and await pg.is_visible("#planBanner") and await pg.get_attribute("#ask", "placeholder") == "先出方案…", "只规划切换、横幅和占位文字")
     for prompt in ["第一条规划", "第二条排队", "第三条排队", "取消这一条"]:
         await pg.fill("#ask", prompt)
         await pg.press("#ask", "Enter")
