@@ -95,6 +95,7 @@ async def test_queue_receipts(orb_page):
     await rows.nth(0).get_by_role("button", name="撤回", exact=True).click()
     await pg.click("#changeOk")
     await pg.wait_for_function("document.querySelector('#toast').textContent.includes('原位置已经有同名文件')")
+    assert await pg.get_by_role("button", name="重新加载").is_visible()
     check(await rows.nth(0).get_by_role("button", name="撤回", exact=True).is_enabled(), "同名冲突说明没有撤回，按钮状态保留")
     await pg.evaluate("delete __mock.receiptProbe; newChat(); __mock.pendingProbe = true")
     for prompt in ["待办用例 写入", "待办用例 预算"]:

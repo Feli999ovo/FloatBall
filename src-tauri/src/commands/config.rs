@@ -492,7 +492,7 @@ pub async fn test_connection(
     model: String,
     api_key: Option<String>,
     id: Option<u32>,
-) -> Result<String, String> {
+) -> Result<String, crate::error::AppError> {
     let m = Model {
         base_url,
         model,
@@ -512,7 +512,7 @@ pub async fn list_models(
     base_url: String,
     api_key: Option<String>,
     id: Option<u32>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, crate::error::AppError> {
     let m = Model {
         base_url,
         ..Model::default()

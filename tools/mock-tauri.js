@@ -456,6 +456,7 @@
         st.screenPrivacyOpened = true;
         return null;
       case "read_text_file":
+        if (st.fileError) throw st.fileError;
         return { name: a.path.split("/").pop(), text: "第一行\n第二行" };
       case "history_append": {
         if (st.historyAppendDelay) await new Promise((r) => setTimeout(r, st.historyAppendDelay));
@@ -499,7 +500,7 @@
       case "undo_change":
         (st.undoResults ||= []).push(a);
         if (a.id === "modify" && !a.confirmChanged) return false;
-        if (a.id === "delete") throw new Error("原位置已经有同名文件，没有撤回");
+        if (a.id === "delete") throw { kind: "conflict", message: "原位置已经有同名文件，没有撤回" };
         return true;
       case "cancel_chat":
         st.cancelled = a.id;

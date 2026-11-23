@@ -1,3 +1,4 @@
+import { isScreenPermission } from "../error-message.js";
 import { activeShare, renderAttach, sharePermission } from "./attach.js";
 import { run } from "./chat.js";
 import { addUserBubble, askHistory, saveMsg, scrollEnd } from "./conversation.js";
@@ -81,7 +82,7 @@ export async function send(textArg) {
         else if (activeShare(c) === share) shared = { kind: "image", url };
       } catch (e) {
         if (S.conv !== c || ask.value !== draft || c.busy) return;
-        if (e === "screen_permission") {
+        if (isScreenPermission(e)) {
           await sharePermission();
           return;
         }

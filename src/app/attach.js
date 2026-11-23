@@ -1,3 +1,4 @@
+import { errorMessage, isScreenPermission } from "../error-message.js";
 import { mood } from "./orb.js";
 import { peekBox, showPeek } from "./peek.js";
 import { $, appWin, ask, invoke, orb, S, T } from "./state.js";
@@ -54,7 +55,7 @@ export async function captureAsk(command = "capture_screen") {
     ask.focus();
   } catch (e) {
     if (conv !== S.conv) return;
-    if (e === "screen_permission") await sharePermission();
+    if (isScreenPermission(e)) await sharePermission();
     else {
       await expand("chat");
       toastErr(e);
@@ -150,8 +151,8 @@ export async function toggleShare() {
     shareList.querySelector("button")?.focus();
   } catch (e) {
     if (!visible()) return;
-    if (e === "screen_permission") showSharePermission();
-    else shareStatus.textContent = String(e);
+    if (isScreenPermission(e)) showSharePermission();
+    else shareStatus.textContent = errorMessage(e);
   }
 }
 
@@ -183,7 +184,7 @@ export function initAttach() {
           S.attach.push({ kind: "file", name: f.name, text: f.text });
           n++;
         } catch (err) {
-          toast(String(err));
+          toastErr(err);
         }
       }
       renderAttach();

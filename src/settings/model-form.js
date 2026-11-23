@@ -1,3 +1,4 @@
+import { errorMessage } from "../error-message.js";
 import { lookupCaps } from "./capabilities.js";
 import { fBase, fEye, fFetch, fKey, fList, fModel, fProv, fRes, fSave, fTest, PROV, slash } from "./providers.js";
 import { reload } from "./startup.js";
@@ -52,7 +53,7 @@ export function initModelForm() {
       res("", "");
     } catch (e) {
       fList.hidden = true;
-      res("bad", String(e));
+      res("bad", errorMessage(e));
     }
     fFetch.disabled = false;
     fFetch.textContent = "获取列表";
@@ -76,7 +77,7 @@ export function initModelForm() {
       // 原型：悬浮球用「完成」状态开心一下
       T.event.emitTo("main", "ball-state", "done").catch(() => {});
     } catch (e) {
-      res("bad", String(e));
+      res("bad", errorMessage(e));
     }
     fTest.disabled = false;
   });
@@ -132,7 +133,7 @@ export function initModelForm() {
         $("libAdd").focus({ preventScroll: true });
       }
     } catch (e) {
-      res("bad", String(e));
+      res("bad", errorMessage(e));
     }
     fSave.disabled = false;
   });

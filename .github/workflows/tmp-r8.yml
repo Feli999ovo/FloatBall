@@ -1,0 +1,34 @@
+name: Specta compatibility
+on:
+  push:
+    branches: [errors-adr]
+permissions:
+  contents: read
+jobs:
+  rust:
+    runs-on: macos-latest
+    env:
+      FLOATBALL_REGENERATE_CONTRACT: '1'
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: cargo run --locked --features gen-ipc --bin gen_ipc -- ../src/ipc.d.ts
+      - name: Save generated files and format changes
+        shell: bash
+        run: |
+          cargo fmt
+          git diff --binary > ../fmt-and-lock.patch
+      - uses: actions/upload-artifact@v7
+        with:
+          name: specta-contract
+          path: |
+            fmt-and-lock.patch
+            src/ipc.d.ts

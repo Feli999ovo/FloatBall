@@ -80,6 +80,7 @@ mod capture;
 mod catalog;
 mod changes;
 mod commands;
+mod error;
 mod config;
 mod handoff;
 mod llm;
