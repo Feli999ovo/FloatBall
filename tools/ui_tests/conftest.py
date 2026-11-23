@@ -10,7 +10,14 @@ import pytest_asyncio
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from local_http import serve
+import ui_support
 from ui_support import OUT, ROOT, WALL
+
+
+@pytest.fixture(autouse=True)
+def _check_starts_on_fresh_line():
+    # 每个用例的第一条 PASS/FAIL 前换行，避开 pytest 的进度点（见 ui_support.check）
+    ui_support._fresh_line[0] = True
 
 
 def pytest_configure(config):

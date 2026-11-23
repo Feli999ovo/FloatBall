@@ -70,6 +70,8 @@ async def test_handoff(orb_page):
     await pg.wait_for_function("document.querySelector('#toast').textContent.includes('配置写入失败')")
     check(await pg.is_visible("#vSkill") and await pg.input_value("#skillSteps") == "先找原文，再核对数字", "保存失败时保留技能草稿")
     await pg.evaluate("delete __mock.skillError")
+    # 失败提示先于 finally 里恢复按钮出现；按钮还禁用时点下去会被吞掉
+    await pg.wait_for_function("!document.querySelector('#skillSave').disabled")
     await pg.click("#skillSave")
     await pg.wait_for_function("document.querySelector('#vSkill').hidden && __mock.cfg.skills?.length === 1")
     saved_skill = await pg.evaluate("__mock.cfg.skills[0]")
