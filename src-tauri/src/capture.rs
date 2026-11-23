@@ -255,9 +255,9 @@ pub fn capture_at(x: i32, y: i32) -> Result<String, String> {
                 .ok_or_else(|| "没有找到显示器".to_string())
         })
         .map_err(|e| e.to_string())?;
-    let img = monitor
-        .capture_image()
-        .map_err(|e| format!("截屏失败（macOS 请检查「屏幕与系统录音」或「屏幕录制」权限）：{e}"))?;
+    let img = monitor.capture_image().map_err(|e| {
+        format!("截屏失败（macOS 请检查「屏幕与系统录音」或「屏幕录制」权限）：{e}")
+    })?;
     encode(DynamicImage::ImageRgba8(img))
 }
 

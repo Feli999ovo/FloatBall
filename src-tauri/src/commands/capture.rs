@@ -143,6 +143,10 @@ pub fn js_log(msg: String) {
 }
 
 fn check_permission() -> Result<(), AppError> {
-    capture::check_permission()
-        .map_err(|_| AppError::new(ErrorKind::Permission, "请在系统设置里允许屏幕与系统录音（旧版 macOS 叫屏幕录制）"))
+    capture::check_permission().map_err(|_| {
+        AppError::new(
+            ErrorKind::Permission,
+            "请在系统设置里允许屏幕与系统录音（旧版 macOS 叫屏幕录制）",
+        )
+    })
 }

@@ -93,7 +93,8 @@ export function closeShareView() {
 
 export function showSharePermission() {
   shareList.replaceChildren();
-  shareStatus.textContent = "请在系统设置 → 隐私与安全性 → 屏幕与系统录音（旧版 macOS 叫屏幕录制）中允许悬浮球，然后重启应用。";
+  shareStatus.textContent =
+    "请在系统设置 → 隐私与安全性 → 屏幕与系统录音（旧版 macOS 叫屏幕录制）中允许悬浮球，然后重启应用。";
   shareSettings.hidden = false;
   shareSettings.focus();
 }
