@@ -10,6 +10,8 @@ use tauri_plugin_global_shortcut::Shortcut;
 const KEYRING_SERVICE: &str = "com.floatball.desktop";
 /// 模型库最多放这么多个。Windows 卸载程序按编号逐个清 Key（src-tauri/windows/hooks.nsh），改这里要一起改。
 pub const MAX_MODELS: u32 = 32;
+/// Version written to config.json after the legacy configuration has been migrated.
+pub const CONFIG_VERSION: u32 = 1;
 
 /// 模型库里的一个模型（OpenAI 兼容接口）
 #[cfg_attr(feature = "gen-ipc", derive(specta::Type))]
@@ -211,6 +213,8 @@ impl Default for Limits {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
+    /// 配置文件格式版本；没有这个字段的文件按 v0 迁移。
+    pub version: u32,
     /// 模型库
     pub models: Vec<Model>,
     /// 提问时用哪个模型（模型的编号）
@@ -500,6 +504,7 @@ impl Sel {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            version: CONFIG_VERSION,
             models: vec![],
             default_model: 0,
             system_prompt: String::new(),
@@ -581,6 +586,72 @@ pub fn default_agents() -> Vec<Agent> {
 
 pub const DEFAULT_PROMPT: &str = "你是住在用户桌面上的悬浮球助手。回答简洁、具体，默认用中文。";
 
+/// Upgrade the raw JSON one schema version at a time.
+///
+/// v0 is the unversioned format used before R7. The migration deliberately
+/// deserializes through the existing defaults and repair rules so old files
+/// keep their fields, references, and fallback behavior.
+fn migrate(mut raw: Value) -> Value {
+    let version = raw
+        .get("version")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(0);
+    for version in version..CONFIG_VERSION {
+        raw = match version {
+            0 => migrate_v0_to_v1(raw),
+            _ => unreachable!("missing configuration migration for v{version}"),
+        };
+    }
+    raw
+}
+
+fn migrate_v0_to_v1(raw: Value) -> Value {
+    let mut c: Config = serde_json::from_value(raw.clone()).unwrap_or_default();
+    // 早期版本只有一个模型，字段直接放在最外层
+    if raw.get("models").is_none() {
+        if let Some(model) = raw.get("model").and_then(Value::as_str) {
+            let d = Model::default();
+            c.models = vec![Model {
+                id: 1,
+                name: String::new(),
+                base_url: raw
+                    .get("base_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&d.base_url)
+                    .to_string(),
+                model: model.to_string(),
+                vision: raw.get("vision").and_then(Value::as_bool).unwrap_or(true),
+                no_key: raw
+                    .get("allow_no_key")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                ..Model::default()
+            }];
+            c.default_model = 1;
+        }
+    }
+    c.clear_conflicting_shortcut_defaults(&raw);
+    c.fix_agents(if raw.get("agents").is_none() {
+        raw.get("system_prompt").and_then(Value::as_str)
+    } else {
+        None
+    });
+    c.version = 1;
+
+    let normalized = serde_json::to_value(c).unwrap_or(Value::Null);
+    match (raw, normalized) {
+        (Value::Object(mut raw), Value::Object(normalized)) => {
+            // Overlay the normalized known fields while retaining unknown fields for
+            // forward compatibility. system_prompt is consumed by the Agent migration.
+            raw.extend(normalized);
+            raw.remove("system_prompt");
+            Value::Object(raw)
+        }
+        (_, normalized) => normalized,
+    }
+}
+
 impl Config {
     pub fn path(dir: &Path) -> PathBuf {
         dir.join("config.json")
@@ -593,37 +664,10 @@ impl Config {
         else {
             return Config::default();
         };
-        let mut c: Config = serde_json::from_value(v.clone()).unwrap_or_default();
-        // 早期版本只有一个模型，字段直接放在最外层
-        if v.get("models").is_none() {
-            if let Some(model) = v.get("model").and_then(Value::as_str) {
-                let d = Model::default();
-                c.models = vec![Model {
-                    id: 1,
-                    name: String::new(),
-                    base_url: v
-                        .get("base_url")
-                        .and_then(Value::as_str)
-                        .unwrap_or(&d.base_url)
-                        .to_string(),
-                    model: model.to_string(),
-                    vision: v.get("vision").and_then(Value::as_bool).unwrap_or(true),
-                    no_key: v
-                        .get("allow_no_key")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                    ..Model::default()
-                }];
-                c.default_model = 1;
-            }
-        }
-        c.clear_conflicting_shortcut_defaults(&v);
-        c.fix_agents(if v.get("agents").is_none() {
-            v.get("system_prompt").and_then(Value::as_str)
-        } else {
-            None
-        });
-        c
+        let mut config: Config = serde_json::from_value(migrate(v)).unwrap_or_default();
+        // Versioned files can still be edited by hand. Keep the lead Agent invariant on every load.
+        config.fix_agents(None);
+        config
     }
 
     pub fn shortcut_bindings(&self) -> [(&str, &'static str); 8] {
@@ -846,9 +890,11 @@ impl Config {
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let tmp = dir.join("config.json.tmp");
+        let mut saved = self.clone();
+        saved.version = CONFIG_VERSION;
         fs::write(
             &tmp,
-            serde_json::to_string_pretty(self).map_err(|e| e.to_string())?,
+            serde_json::to_string_pretty(&saved).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
         fs::rename(&tmp, Self::path(dir)).map_err(|e| e.to_string())
@@ -1362,6 +1408,136 @@ mod tests {
         assert_eq!(c.agents[1].model, 0);
         c.remove_agent(&id).unwrap();
         assert_eq!(c.agents.len(), 4);
+    }
+
+    #[test]
+    fn pre_version_full_legacy_config_matches_existing_behavior() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            Config::path(d.path()),
+            r##"{
+                "model":"legacy-chat",
+                "base_url":"http://localhost:11434/v1",
+                "allow_no_key":true,
+                "vision":false,
+                "shortcut":"Alt+W",
+                "capture_shortcut":"Alt+Shift+S",
+                "new_shortcut":"Alt+C",
+                "tasks_shortcut":"Alt+T",
+                "position":[3.0,4.0],
+                "orb_size":80,
+                "glass":12,
+                "eye":"#ABCDEF",
+                "idle_ms":1234,
+                "follow_system":true,
+                "auto_dock":false,
+                "calm":true,
+                "screen":"last",
+                "screen_slide":false,
+                "catalog_auto":true,
+                "usd_cny":8.4,
+                "limits":{"tokens":1200,"steps":7,"parallel":2},
+                "handoff":{"tool":"codex","term":"powershell","dirs":["C:/work"],"save":false,"custom":"run {file}"},
+                "always_allow":[{"kind":"写入","scope":"C:/work"}],
+                "pause_away":false,
+                "skills":[{"id":"s1","name":"核对","when":"查资料时","steps":"找出处"}],
+                "agents":[
+                    {"id":"lead","name":"主控","role":"拆解","prompt":"主控指令","tint":"#111111","emoji":"A","tools":["读文件"],"skills":["s1"],"model":1,"fallback":1,"auto":true},
+                    {"id":"agent-old","name":"旧 Agent","role":"整理","prompt":"整理指令","tint":"#222222","emoji":"B","tools":["读文件","写文件"],"skills":["s1"],"model":1,"fallback":0,"auto":false}
+                ],
+                "routines":[]
+            }"##,
+        )
+        .unwrap();
+
+        let c = Config::load(d.path());
+        assert_eq!(c.models.len(), 1);
+        assert_eq!(
+            (
+                c.models[0].id,
+                c.models[0].model.as_str(),
+                c.models[0].base_url.as_str(),
+                c.models[0].no_key,
+                c.models[0].vision
+            ),
+            (1, "legacy-chat", "http://localhost:11434/v1", true, false)
+        );
+        assert_eq!(c.default_model, 1);
+        assert_eq!(c.position, Some((3.0, 4.0)));
+        assert_eq!((c.orb_size, c.glass, c.eye.as_str()), (80, 12, "#ABCDEF"));
+        assert_eq!(
+            (c.idle_ms, c.follow_system, c.auto_dock, c.calm),
+            (1234, true, false, true)
+        );
+        assert_eq!(
+            (c.screen.as_str(), c.screen_slide, c.catalog_auto),
+            ("last", false, true)
+        );
+        assert_eq!(c.usd_cny, 8.4);
+        assert_eq!(
+            (c.limits.tokens, c.limits.steps, c.limits.parallel),
+            (1200, 7, 2)
+        );
+        assert!(c.handoff.hint);
+        assert_eq!(c.handoff.dirs, vec!["C:/work"]);
+        assert_eq!(c.always_allow[0].scope, "C:/work");
+        assert!(!c.pause_away);
+        assert_eq!(c.skills[0].id, "s1");
+        assert_eq!(
+            c.agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["lead", "agent-old"]
+        );
+        assert_eq!(c.agents[0].skills, vec!["s1"]);
+        assert_eq!((c.agents[0].model, c.agents[0].fallback), (1, 1));
+        assert_eq!(c.agents[1].skills, vec!["s1"]);
+        assert_eq!(c.agents[1].model, 1);
+        assert_eq!(
+            (
+                c.win_shortcut.as_str(),
+                c.share_shortcut.as_str(),
+                c.feed_shortcut.as_str()
+            ),
+            ("", "", "")
+        );
+        assert_eq!(c.voice, Voice::default());
+        assert_eq!(c.talk_shortcut, TALK_RALT);
+    }
+
+    #[test]
+    fn save_writes_current_config_version() {
+        let d = tempfile::tempdir().unwrap();
+        Config::default().save(d.path()).unwrap();
+        let raw: Value =
+            serde_json::from_str(&std::fs::read_to_string(Config::path(d.path())).unwrap())
+                .unwrap();
+        assert_eq!(
+            raw.get("version").and_then(Value::as_u64),
+            Some(CONFIG_VERSION as u64)
+        );
+    }
+
+    #[test]
+    fn migration_is_idempotent() {
+        let raw: Value = serde_json::from_str(
+            r#"{"model":"legacy-chat","system_prompt":"只用中文","agents":[{"id":"lead","name":"主控"}]}"#,
+        )
+        .unwrap();
+        let once = migrate(raw);
+        assert_eq!(once.get("version").and_then(Value::as_u64), Some(1));
+        assert_eq!(migrate(once.clone()), once);
+    }
+
+    #[test]
+    fn migration_preserves_saved_fields_and_relationships() {
+        let raw: Value = serde_json::from_str(r#"{"future_setting":{"keep":true},"models":[{"id":7,"model":"saved","base_url":"http://saved/v1"}],"default_model":7,"skills":[{"id":"skill-saved","name":"保存的技能","when":"总是","steps":"照做"}],"agents":[{"id":"lead","name":"主控"},{"id":"agent-saved","name":"保存的 Agent","skills":["skill-saved"],"model":7,"fallback":7}]}"#).unwrap();
+        let migrated = migrate(raw);
+        assert_eq!(migrated["future_setting"]["keep"], true);
+        assert_eq!(migrated["models"][0]["id"], 7);
+        assert_eq!(migrated["default_model"], 7);
+        assert_eq!(migrated["agents"][1]["id"], "agent-saved");
+        assert_eq!(migrated["agents"][1]["skills"][0], "skill-saved");
+        assert_eq!(migrated["agents"][1]["model"], 7);
+        assert_eq!(migrated["agents"][1]["fallback"], 7);
     }
 
     #[test]
