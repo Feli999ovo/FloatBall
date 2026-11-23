@@ -1418,7 +1418,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(
             Config::path(d.path()),
-            r#"{
+            r##"{
                 "model":"legacy-chat",
                 "base_url":"http://localhost:11434/v1",
                 "allow_no_key":true,
@@ -1449,7 +1449,7 @@ mod tests {
                     {"id":"agent-old","name":"旧 Agent","role":"整理","prompt":"整理指令","tint":"#222222","emoji":"B","tools":["读文件","写文件"],"skills":["s1"],"model":1,"fallback":0,"auto":false}
                 ],
                 "routines":[]
-            }"#,
+            }"##,
         )
         .unwrap();
 
@@ -1468,8 +1468,14 @@ mod tests {
         assert_eq!(c.default_model, 1);
         assert_eq!(c.position, Some((3.0, 4.0)));
         assert_eq!((c.orb_size, c.glass, c.eye.as_str()), (80, 12, "#ABCDEF"));
-        assert_eq!((c.idle_ms, c.follow_system, c.auto_dock, c.calm), (1234, true, false, true));
-        assert_eq!((c.screen.as_str(), c.screen_slide, c.catalog_auto), ("last", false, true));
+        assert_eq!(
+            (c.idle_ms, c.follow_system, c.auto_dock, c.calm),
+            (1234, true, false, true)
+        );
+        assert_eq!(
+            (c.screen.as_str(), c.screen_slide, c.catalog_auto),
+            ("last", false, true)
+        );
         assert_eq!(c.usd_cny, 8.4);
         assert_eq!((c.limits.tokens, c.limits.steps, c.limits.parallel), (1200, 7, 2));
         assert!(c.handoff.hint);
@@ -1501,10 +1507,8 @@ mod tests {
     fn save_writes_current_config_version() {
         let d = tempfile::tempdir().unwrap();
         Config::default().save(d.path()).unwrap();
-        let raw: Value = serde_json::from_str(
-            &std::fs::read_to_string(Config::path(d.path())).unwrap(),
-        )
-        .unwrap();
+        let raw: Value =
+            serde_json::from_str(&std::fs::read_to_string(Config::path(d.path())).unwrap()).unwrap();
         assert_eq!(
             raw.get("version").and_then(Value::as_u64),
             Some(CONFIG_VERSION as u64)
