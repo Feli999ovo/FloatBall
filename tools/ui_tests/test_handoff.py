@@ -64,6 +64,7 @@ async def test_handoff(orb_page):
     await pg.fill("#skillWhen", "查资料时")
     await pg.fill("#skillSteps", "先找原文，再核对数字")
     await shot("09i_save_skill")
+    await pg.bring_to_front()
     await pg.evaluate("__mock.skillError = '配置写入失败'")
     await pg.click("#skillSave")
     await pg.wait_for_function("document.querySelector('#toast').textContent.includes('配置写入失败')")
