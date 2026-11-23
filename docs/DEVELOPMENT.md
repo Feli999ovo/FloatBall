@@ -94,12 +94,18 @@ python -m pytest tools/ui_tests/test_routines.py
 floatball/
 ├─ package.json            npm run dev / build
 ├─ app-icon.png            应用图标源文件（Logo v6 深色版）
-├─ src/                    前端：纯 HTML/CSS/JS，不需要打包工具
-│  ├─ index.html           小球 + 胶囊 + 卡片（对话 / 历史）
-│  ├─ settings.html/.css/.js  设置窗口（单独的窗口）：模型库、外观、快捷键、通用
+├─ src/                    前端：纯 HTML/CSS/JS（浏览器原生 ES 模块），不需要打包工具
+│  ├─ index.html           小球 + 胶囊 + 卡片（对话 / 任务 / 历史 / 交给终端）
+│  ├─ main.js              小球窗口入口：按顺序初始化 app/ 里的各个模块
+│  ├─ app/                 小球窗口的模块：对话、发送、任务、定时任务、交给终端、共享屏幕、划词、语音等，共享状态在 state.js
+│  ├─ settings.html/.css   设置窗口（单独的窗口）
+│  ├─ settings-main.js     设置窗口入口
+│  ├─ settings/            设置窗口的模块：模型库、Agents、技能、记忆、权限、外观、快捷键、划词、语音
+│  ├─ ctxmenu.* / selbar.* 自绘右键菜单、划词工具栏（各自是单独的透明小窗口）
+│  ├─ error-message.js     后端错误（kind + message）转成给用户看的话和按钮
+│  ├─ ipc.d.ts             从 Rust 生成的前后端接口说明（别手改，见下面 gen_ipc）
 │  ├─ style.css            样子和表情动画
-│  ├─ app.js               交互、窗口展开收起、流式渲染
-│  └─ assets/orb.png       玻璃球（从原型的球转成透明 PNG）
+│  └─ assets/              玻璃球、胶囊图、服务商 logo
 ├─ src-tauri/
 │  ├─ tauri.conf.json      窗口：96×96、透明、无边框、置顶
 │  ├─ tauri.windows.conf.json  只在 Windows 上生效：数据放在 安装目录\data
@@ -116,8 +122,15 @@ floatball/
 │     ├─ changes.rs        文件改动备份、整文件撤回、过期清理。`undo_change(id, confirm_changed)` 执行撤回
 │     ├─ agent/            Agent 运行循环、工具、授权、交接、计价及相应用例
 │     ├─ routine.rs        定时任务触发时间和一次性派发状态
-│     └─ capture.rs        截屏、读文本文件
-├─ tools/                  只用于测试：浏览器里模拟 Tauri 的脚本、界面测试
+│     ├─ handoff.rs        交给终端：扫描本机编程 CLI、写交接说明、打开终端
+│     ├─ selection.rs      划词和读取选中文字
+│     ├─ stt.rs            系统自带语音识别
+│     ├─ catalog.rs        模型资料（能力、单价）
+│     ├─ error.rs          统一错误类型（kind + message）
+│     ├─ capture.rs        截屏、窗口列表、读文本文件
+│     └─ bin/gen_ipc.rs    生成 src/ipc.d.ts（只在 macOS CI 上跑并比对）
+├─ tools/                  只用于测试和构建：浏览器里模拟 Tauri 的脚本（mock-tauri.js）、界面测试（test_ui.py 入口 + ui_tests/）、接口核对（check-ipc.mjs）、Windows 安装和截图脚本
+├─ docs/decisions/         架构决策记录：为什么这么定、什么时候该改
 └─ design-reference/       网页原型，做后续功能时照着它的设计
 ```
 
@@ -150,12 +163,17 @@ floatball/
 
 ## 验证情况
 
-这边没有 Mac 和 Windows，所以在 Linux（arm64）上把**同一份代码**编译成真程序来验证：
+每个 PR 和 `main` 都在 GitHub Actions 上跑全套检查（`.github/workflows/build.yml`）：
 
-- **Rust**：编译无警告；`cargo test` 16 项全部通过（流式解析含汉字被切开、本地 HTTP 流式/401 报错/非流式回退/连不上、测试连接、历史增删、设置读写、截图缩放编码、文本文件规则、不支持图片时去掉截图、本机地址绕过代理）。
-- **真程序端到端**（虚拟屏幕 + 本地假模型服务 `tools/mock_openai.py`，用 xdotool 真点真按）：小球出现在上次的位置；点击展开、打字回车、请求真的发到接口、流式回复和 Markdown 显示正常；Esc 收起回原位；右键弹出系统菜单（7 项中文）；菜单打开历史记录（SQLite 里有这条对话）；全局快捷键呼出和收起；截屏快捷键真的截了屏并出现在输入框；菜单「隐藏小球」后用快捷键唤回，位置不变；拖动后位置写进 config.json。
-- **界面测试** `tools/test_ui.py`（Chromium）：48 项全部通过。
+- **代码检查**：`cargo fmt --check`、`cargo clippy -D warnings`（Windows 和 macOS），前端 `biome ci`。
+- **Rust 测试**：Windows 和 macOS 各跑一遍 `cargo test --locked`。
+- **前后端接口**：macOS 上用 `gen_ipc` 重新生成 `src/ipc.d.ts` 并和仓库里的比对，再用 `tools/check-ipc.mjs` 核对前端和 mock 用到的命令都存在。
+- **界面测试**（Ubuntu + Chromium，浏览器里模拟 Tauri）：`tools/ui_tests/` 里的独立用例，每个从干净状态开始。
+- **Windows 真机**：真装、重装、卸载一遍（`tools/check-windows-install.ps1`），并在真实桌面上截图（`tools/shoot-windows.ps1`，产物「真机截图-windows」）。
+- **打包**：Windows 安装包和 macOS dmg（临时签名，未公证）。
 
-测试中发现并已修好的问题：显示器信息接口用法写错导致点了不展开；展开时窗口贴屏幕边缩回会错误地改掉收起位置；有的窗口管理器隐藏再显示会把小球挪走；开着代理软件时连不上本地模型（Ollama）；有消息时空状态引导没消失；移除文件后输入框提示没恢复。
+具体项数以每次 CI 的结果为准。
 
-**没有在 Mac 和 Windows 真机上跑过。** 第一次在你电脑上运行，最可能需要调的是：Windows 上透明窗口的边缘、Mac 菜单栏图标大小、`Alt+Space` 是否和输入法或 Raycast/Alfred 冲突（冲突就在设置里换一个）。Linux 上窗口最小只能到 200×200（GTK 限制，Mac/Windows 没有这个问题）。遇到报错，把终端里的输出发给我；前端的报错也会以「[前端]」开头打印在终端里。
+**还没有自动化、需要真机手动确认的**：macOS 上的系统授权（屏幕录制、辅助功能、麦克风）；高分屏和多显示器；真实模型接口（界面测试和 Agent 测试用的都是模拟接口）；FAT32 / exFAT 的 U 盘。Windows CI 的桌面是 1024×768、100% 缩放。
+
+遇到报错，把终端里的输出和日志 `floatball.log` 发给维护者（Windows 在 `安装目录\data\logs\`；Mac 在系统的应用日志目录，启动时终端会打印完整路径）；前端的报错也会以「[前端]」开头写进日志。

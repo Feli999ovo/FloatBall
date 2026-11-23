@@ -1,4 +1,4 @@
-//! 程序自己的日志：写到日志目录的 floatball.log（Windows 是 %LOCALAPPDATA%\com.floatball.desktop\logs）。
+//! 程序自己的日志：写到日志目录的 floatball.log（Windows 是 安装目录\data\logs，由 tauri.windows.conf.json 的 appDirectoriesOverride 决定）。
 //! 只记程序在做哪一步、出了什么错，不记对话内容、选中的文字和 Key。超过 1 MB 就从头重写。
 use std::fs::{File, OpenOptions};
 use std::io::Write;
