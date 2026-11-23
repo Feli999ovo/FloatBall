@@ -1,94 +1,47 @@
 # 开发文档
 
-> 面向参与开发的人：完整功能说明、工程结构、和原型的差别、测试与验证记录。用户向介绍见 [README](../README.md)。
+> 面向参与开发的人：构建、技术栈、测试、工程结构和实现注意事项。用户向介绍见 [README](../README.md)。
 
-一个住在桌面上的液态玻璃小球。点一下展开成胶囊输入框和对话卡片，接你自己的模型（任何 OpenAI 兼容接口）。
+悬浮球是基于 Tauri 2 的桌面应用，前端使用原生 HTML、CSS 和 JavaScript，后端使用 Rust；数据保存在本机。当前实现包含对话、Agent、技能、定时任务、共享屏幕、划词和语音等功能。
 
-这是**能真正跑起来的第一版（v0.1）**，不是网页原型。原型里的大部分 Agent 功能（技能库、定时任务、审批、多 Agent、共享屏幕、划词、语音）还没有做，见文末「还没做的」。
+## 技术栈
 
----
+[Tauri 2](https://tauri.app) · Rust · 原生 HTML / CSS / JavaScript（前端无需打包）· SQLite · 系统钥匙串 · [xcap](https://github.com/nashaofu/xcap) 截屏。
 
-## 已经做好的
+## 从源码构建
 
-| 功能 | 说明 |
-|---|---|
-| 透明置顶小球 | 无边框、透明、永远在最上层、不占任务栏 / Dock；所有桌面空间都显示 |
-| 拖动、贴边、记位置 | 按住拖动；松手靠近屏幕左右边 24px 内自动贴边；下次启动回到原位；外接屏拔掉后自动回到主屏 |
-| 展开方向 | 小球在屏幕右半边就向左展开，在下半边就向上展开，不会出屏幕 |
-| 表情 | 待机眨眼、鼠标靠近好奇、输入时聆听、等第一个字时思考（小光点绕圈）、输出时工作、完成眯眼笑、出错歪头、拖文件进来张嘴、10 分钟没动静睡觉、点一下会被戳扁 |
-| 对话 | 流式输出、停止生成、重试、复制、Markdown（标题、列表、代码块、粗体、行内代码）、推理模型的思考过程单独显示、显示 token 用量 |
-| 接你自己的模型 | 任何 OpenAI 兼容 `/chat/completions`。设置里有 OpenAI、DeepSeek、通义千问、Kimi、OpenRouter、Ollama 本地 的一键预设；「测试连接」 |
-| API Key 安全 | 存在系统钥匙串（macOS 钥匙串 / Windows 凭据管理器），不写进任何文件 |
-| 历史记录 | 本地 SQLite，可打开、删除单条、全部删除（二次确认） |
-| 截屏提问 | 截鼠标所在的那块屏幕（先把小球藏起来），缩到最长边 1600px，作为图片发给支持图片的模型；不支持图片的模型会提示 |
-| 拖文件 | 把文本文件（≤200KB，代码、Markdown、txt、csv 等）拖到小球上，内容作为上下文 |
-| 托盘 / 菜单栏 | 显示/隐藏小球、新对话、截屏提问、历史、设置、开机启动、退出 |
-| 右键小球 | 系统原生菜单，同上 |
-| 全局快捷键 | 默认 `Alt+Space` 呼出/收起（Mac 上是 ⌥Space），`Alt+Shift+S` 截屏提问；设置里可改，被占用会提示 |
-| 开机启动 | 设置里或菜单里勾选 |
-| 单实例 | 重复打开只会唤出已有的小球 |
-| 点别处收起 | 输入框有内容、正在生成或点了「固定」时不收 |
-| 第一次打开 | 只显示小球；没配模型时点开小球会提示去设置 |
+### 环境
 
----
+- macOS：Xcode 命令行工具（`xcode-select --install`）、[Rust](https://rustup.rs)、[Node.js](https://nodejs.org) LTS。
+- Windows：[Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（勾选「使用 C++ 的桌面开发」）、[Rust](https://rustup.rs)、[Node.js](https://nodejs.org) LTS；Windows 10/11 通常已预装 WebView2。
 
-## 怎么跑起来
-
-### 1. 装环境（只需一次）
-
-**Mac**
-```bash
-xcode-select --install                                    # 命令行工具
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust
-brew install node                                          # 或去 nodejs.org 下载 LTS
-```
-
-**Windows**
-1. 安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)，勾选「使用 C++ 的桌面开发」
-2. 安装 [Rust](https://www.rust-lang.org/tools/install)（rustup-init.exe）
-3. 安装 [Node.js LTS](https://nodejs.org/)
-4. WebView2：Windows 10/11 一般已自带
-
-### 2. 运行
+### 运行与打包
 
 ```bash
-cd floatball
 npm install
-npm run dev          # 第一次会编译几分钟，之后很快
+npm run dev      # 开发运行，首次编译需要几分钟
+npm run build    # 生成安装包
 ```
 
-小球会出现在屏幕右侧中间。右键小球 → 设置，在「模型」里选一个预设、填 Key、点「测试连接」、保存，就能聊了。
+不想装 Node 也可以在 `src-tauri` 目录运行 `cargo run`。云端构建可在 Actions 手动触发，或推送 `v*` 标签生成安装包；推标签还会生成 Release 草稿。
 
-> Mac 第一次截屏提问时会弹「屏幕录制」权限：系统设置 → 隐私与安全性 → 屏幕与系统录音，打开本应用（开发时是你的终端），然后**重启应用**。
-
-### 3. 打包安装包
+### 测试
 
 ```bash
-npm run build
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+python3 -m pip install playwright pillow pytest pytest-asyncio pytest-random-order
+python3 -m playwright install chromium
+python3 tools/test_ui.py ./ui-shots
+python3 -m pytest tools/ui_tests
 ```
-- Mac：`src-tauri/target/release/bundle/dmg/悬浮球_0.1.0_aarch64.dmg`
-- Windows：`src-tauri\target\release\bundle\msi\` 和 `nsis\` 里的安装程序
 
-自己用不需要签名。要发给别人：
-- **Mac**：需要 Apple 开发者账号（99 美元/年）做签名和公证，否则别人打开会提示「无法验证开发者」。因为透明窗口用了私有接口（`macOSPrivateApi`），只能官网下载分发，不能上 App Store。
-- **Windows**：没有代码签名证书会被 SmartScreen 拦一下（可点「仍要运行」）。
-
-### 4. 跑测试
-
-```bash
-cd src-tauri && cargo test          # Rust：流式解析、HTTP、历史、设置、截图编码
-```
-界面测试（需要 Python 和 Playwright）：
-```bash
-pip install playwright pillow pytest pytest-asyncio pytest-random-order
-python -m playwright install chromium
-python tools/test_ui.py /tmp/ui-shots
-python -m pytest tools/ui_tests/test_routines.py
-```
+全量 CI 检查还包括格式、静态检查、前后端接口核对、Windows 安装卸载和打包；不要把浏览器 mock 测试当作桌面真机验证。
 
 ---
 
 ## 工程结构
+
+README 用的展示图由浏览器 mock 生成，不是真机截图。更新界面后可运行 [`tools/make_readme_shots.py`](../tools/make_readme_shots.py) 重做图片；脚本默认输出到 `docs`，也可用 `--out <目录>` 指定输出目录。脚本从 Git 历史读取原横幅，浅克隆需要先取得原稿提交 `44a95fe`。如系统找不到中文字体，可用 `--font <字体文件>` 指定。
 
 ```
 floatball/
@@ -129,7 +82,7 @@ floatball/
 │     ├─ error.rs          统一错误类型（kind + message）
 │     ├─ capture.rs        截屏、窗口列表、读文本文件
 │     └─ bin/gen_ipc.rs    生成 src/ipc.d.ts（只在 macOS CI 上跑并比对）
-├─ tools/                  只用于测试和构建：浏览器里模拟 Tauri 的脚本（mock-tauri.js）、界面测试（test_ui.py 入口 + ui_tests/）、接口核对（check-ipc.mjs）、Windows 安装和截图脚本
+├─ tools/                  只用于测试和构建：浏览器里模拟 Tauri 的脚本（mock-tauri.js）、界面测试（test_ui.py 入口 + ui_tests/）、接口核对（check-ipc.mjs）、Windows 安装和截图脚本、README 截图生成（make_readme_shots.py）
 ├─ docs/decisions/         架构决策记录：为什么这么定、什么时候该改
 └─ design-reference/       网页原型，做后续功能时照着它的设计
 ```
@@ -142,28 +95,23 @@ floatball/
 
 ---
 
-## 和原型的差别（要知道的）
+## 当前限制
 
-- **玻璃不会透出背后的桌面。** 网页没法读到窗口背后的画面，小球和卡片现在是半透明深色玻璃的「画」出来的样子。真正的毛玻璃要用系统材质：Mac 的 `NSVisualEffectView`、Windows 的 Mica/Acrylic（`window-vibrancy` 库），但它们只能铺满整个矩形窗口，圆形小球要另外处理。这是下一步要做的视觉工作。
-- 小球窗口是 96×96 的方块，四个透明角也会挡住鼠标点击（很小，一般感觉不到）。
-- 展开时窗口会瞬间变大再出现内容，没有原型里那种小球「变形」成胶囊的连续动画。
+- 系统材质（Windows Mica / macOS Liquid Glass）尚未实现。Windows 使用窗口后方的桌面模糊底图。
+- 小球窗口是 96×96 的方块，透明角也会拦截鼠标点击。
+- macOS 尚未在真机上完整验证；高分屏和多显示器也尚未验证。
+- PDF 与图片附件、自动更新、安装包签名和设置导入导出尚未实现。
 
----
+## 划词与剪贴板
 
-## 还没做的（按建议顺序）
+划词默认关闭。启用后，优先通过系统辅助功能接口读取选中文字（Windows UI Automation，macOS 辅助功能），不接触剪贴板。少数应用不支持时会模拟复制，再尝试恢复原剪贴板内容；这种回退可能无法恢复文件或富文本，也可能让 Windows 剪贴板历史记录选中的文字。读取的内容只在用户触发工具栏操作或发送后才会交给模型。`Alt+C` 主动喂入选中文字后，按发送才会发出。
 
-1. 系统毛玻璃材质（见上）
-2. 划词：选中文字后浮出快捷操作（Mac 用辅助功能接口，Windows 用 UI Automation，最难）
-3. 语音输入（先用模型的语音转写接口）
-4. Agent：工具调用、审批（允许一次 / 修改后允许 / 拒绝并说明）、步数和预算上限
-5. 技能库、定时任务、多 Agent
-6. 共享屏幕（Mac ScreenCaptureKit 选择器、Windows GraphicsCapturePicker）
-7. PDF、图片等非文本文件
-8. 自动更新（Tauri updater）
+## 交给终端的数据流
 
+扫描阶段只检查本机 PATH，不运行扫描到的 CLI。执行交接时，悬浮球将交接说明写入所选项目目录的 `.floatball/handoff.md`；关闭项目内保存时，则写入应用数据目录。随后在选定终端和项目目录打开所选 CLI。CLI 会读取交接说明及其中用户指定的上下文。交接内容不会发给悬浮球服务器（悬浮球没有服务器）；所选 CLI 是否向其服务端发送内容，取决于该工具及其配置。
 ## 验证情况
 
-每个 PR 和 `main` 都在 GitHub Actions 上跑全套检查（`.github/workflows/build.yml`）：
+每个 PR 和版本标签都在 GitHub Actions 上跑全套检查（`.github/workflows/build.yml`）：
 
 - **代码检查**：`cargo fmt --check`、`cargo clippy -D warnings`（Windows 和 macOS），前端 `biome ci`。
 - **Rust 测试**：Windows 和 macOS 各跑一遍 `cargo test --locked`。

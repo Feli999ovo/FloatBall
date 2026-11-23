@@ -1,0 +1,39 @@
+name: 问题报告
+description: 报告悬浮球的问题
+title: "[问题] "
+labels: [bug]
+body:
+  - type: input
+    id: os
+    attributes:
+      label: 系统版本
+      description: 例如 Windows 11 23H2 或 macOS 15
+      placeholder: Windows / macOS 及版本号
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: 悬浮球版本
+      placeholder: 例如 0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请按顺序说明怎么触发问题，以及实际发生了什么。
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 看到……
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 可删去密钥和个人信息后粘贴相关日志。Windows 日志在安装目录 data/logs/floatball.log。
+      render: text
+    validations:
+      required: false
