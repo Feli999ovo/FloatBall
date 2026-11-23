@@ -374,14 +374,24 @@ pub fn read_text_file(path: &str) -> Result<(String, String), crate::error::AppE
         .unwrap_or_default();
     let meta = std::fs::metadata(p)?;
     if meta.is_dir() {
-        return Err(AppError::new(ErrorKind::Invalid, format!("「{name}」是文件夹，暂时只支持文本文件")));
+        return Err(AppError::new(
+            ErrorKind::Invalid,
+            format!("「{name}」是文件夹，暂时只支持文本文件"),
+        ));
     }
     if meta.len() > 200 * 1024 {
-        return Err(AppError::new(ErrorKind::Invalid, format!("「{name}」超过 200 KB，暂时只读小文本文件")));
+        return Err(AppError::new(
+            ErrorKind::Invalid,
+            format!("「{name}」超过 200 KB，暂时只读小文本文件"),
+        ));
     }
     let bytes = std::fs::read(p)?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| AppError::new(ErrorKind::Invalid, format!("「{name}」不是文本文件（PDF、图片等之后支持）")))?;
+    let text = String::from_utf8(bytes).map_err(|_| {
+        AppError::new(
+            ErrorKind::Invalid,
+            format!("「{name}」不是文本文件（PDF、图片等之后支持）"),
+        )
+    })?;
     Ok((name, text))
 }
 

@@ -246,11 +246,16 @@ impl Changes {
 
     pub fn undo(&self, id: &str, confirm_changed: bool, trash: &Path) -> Result<bool, AppError> {
         let mut entries = self.0.lock().unwrap();
-        let change = entries.get(id).ok_or_else(|| AppError::new(ErrorKind::Conflict, "找不到这条改动，可能已经撤回"))?;
+        let change = entries
+            .get(id)
+            .ok_or_else(|| AppError::new(ErrorKind::Conflict, "找不到这条改动，可能已经撤回"))?;
         let path = &change.path;
         let current = stamp(path)?;
         if change.kind == "删除" && current.is_some() {
-            return Err(AppError::new(ErrorKind::Conflict, "原位置已经有同名文件，没有撤回"));
+            return Err(AppError::new(
+                ErrorKind::Conflict,
+                "原位置已经有同名文件，没有撤回",
+            ));
         }
         if change.after != current && !confirm_changed {
             return Ok(false);
@@ -261,7 +266,10 @@ impl Changes {
             }
             "新建" => {}
             "修改" | "删除" => {
-                let backup = change.backup.as_deref().ok_or_else(|| AppError::new(ErrorKind::Internal, "找不到备份"))?;
+                let backup = change
+                    .backup
+                    .as_deref()
+                    .ok_or_else(|| AppError::new(ErrorKind::Internal, "找不到备份"))?;
                 staged_copy(backup, path, change.kind == "修改" && current.is_some()).map_err(
                     |e| {
                         if change.kind == "删除" && e.kind() == io::ErrorKind::AlreadyExists {
@@ -347,7 +355,10 @@ mod tests {
         fs::write(&path, "同名新文件").unwrap();
         assert_eq!(
             changes.undo(&deleted.id, false, &trash),
-            Err("原位置已经有同名文件，没有撤回".into())
+            Err(AppError::new(
+                ErrorKind::Conflict,
+                "原位置已经有同名文件，没有撤回"
+            ))
         );
         fs::remove_file(&path).unwrap();
         assert_eq!(changes.undo(&deleted.id, false, &trash), Ok(true));

@@ -64,9 +64,11 @@ pub async fn capture_window(app: AppHandle) -> Result<String, AppError> {
         .take()
         .ok_or_else(|| AppError::new(ErrorKind::Invalid, capture::WINDOW_UNAVAILABLE))?;
     check_permission()?;
-    Ok(tauri::async_runtime::spawn_blocking(move || capture::capture_window(key))
-        .await
-        .map_err(|e| e.to_string())??)
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || capture::capture_window(key))
+            .await
+            .map_err(|e| e.to_string())??,
+    )
 }
 
 #[tauri::command]
@@ -141,5 +143,6 @@ pub fn js_log(msg: String) {
 }
 
 fn check_permission() -> Result<(), AppError> {
-    capture::check_permission().map_err(|_| AppError::new(ErrorKind::Permission, "请在系统设置里允许屏幕录制"))
+    capture::check_permission()
+        .map_err(|_| AppError::new(ErrorKind::Permission, "请在系统设置里允许屏幕录制"))
 }

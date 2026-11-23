@@ -38,7 +38,9 @@ impl From<std::io::Error> for AppError {
         let kind = match error.kind() {
             std::io::ErrorKind::PermissionDenied => ErrorKind::Permission,
             std::io::ErrorKind::AlreadyExists => ErrorKind::Conflict,
-            std::io::ErrorKind::InvalidInput | std::io::ErrorKind::InvalidData => ErrorKind::Invalid,
+            std::io::ErrorKind::InvalidInput | std::io::ErrorKind::InvalidData => {
+                ErrorKind::Invalid
+            }
             _ => ErrorKind::Internal,
         };
         Self::new(kind, error.to_string())
