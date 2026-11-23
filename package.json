@@ -1,7 +1,7 @@
 {
   "name": "floatball",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "液态玻璃悬浮球 · 桌面 AI 助手（Tauri v2）",
   "scripts": {
     "tauri": "tauri",

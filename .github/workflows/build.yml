@@ -171,6 +171,8 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" FloatBall_* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease \
             --title "悬浮球 $GITHUB_REF_NAME 预览版" --notes-file - <<'EOF'
+          完整更新说明见 [CHANGELOG.md](https://github.com/Feli999ovo/FloatBall/blob/main/CHANGELOG.md)。
+
           预览版。还没有做 Apple 公证和 Windows 代码签名，第一次打开时系统会拦一次。
 
           | 平台 | 下载 | 第一次打开 |
