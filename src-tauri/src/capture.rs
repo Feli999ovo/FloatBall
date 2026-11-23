@@ -1,5 +1,5 @@
 //! 截屏提问：截鼠标所在的那块屏幕，缩到最长边 1600 像素，转成 JPEG data URL 交给前端。
-//! macOS 第一次会弹「屏幕录制」权限；在 系统设置 → 隐私与安全性 → 屏幕与系统录音 里打开本应用后需重启应用。
+//! macOS 第一次会弹屏幕录制权限；在 系统设置 → 隐私与安全性 → 屏幕与系统录音（旧版叫「屏幕录制」）里打开本应用后需重启应用。
 //! Windows 不需要授权。
 
 use base64::Engine;
@@ -255,9 +255,9 @@ pub fn capture_at(x: i32, y: i32) -> Result<String, String> {
                 .ok_or_else(|| "没有找到显示器".to_string())
         })
         .map_err(|e| e.to_string())?;
-    let img = monitor
-        .capture_image()
-        .map_err(|e| format!("截屏失败（macOS 请检查「屏幕录制」权限）：{e}"))?;
+    let img = monitor.capture_image().map_err(|e| {
+        format!("截屏失败（macOS 请检查「屏幕与系统录音」或「屏幕录制」权限）：{e}")
+    })?;
     encode(DynamicImage::ImageRgba8(img))
 }
 
