@@ -80,8 +80,10 @@ cd src-tauri && cargo test          # Rust：流式解析、HTTP、历史、设�
 ```
 界面测试（需要 Python 和 Playwright）：
 ```bash
-pip install playwright pillow && playwright install chromium
-python3 tools/test_ui.py /tmp/ui-shots
+pip install playwright pillow pytest pytest-asyncio pytest-random-order
+python -m playwright install chromium
+python tools/test_ui.py /tmp/ui-shots
+python -m pytest tools/ui_tests/test_routines.py
 ```
 
 ---
