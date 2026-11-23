@@ -124,4 +124,4 @@ floatball/
 
 **还没有自动化、需要真机手动确认的**：macOS 上的系统授权（屏幕录制、辅助功能、麦克风）；高分屏和多显示器；真实模型接口（界面测试和 Agent 测试用的都是模拟接口）；FAT32 / exFAT 的 U 盘。Windows CI 的桌面是 1024×768、100% 缩放。
 
-遇到报错，把终端里的输出和日志 `floatball.log` 发给维护者（Windows 在 `安装目录\data\logs\`；Mac 在系统的应用日志目录，启动时终端会打印完整路径）；前端的报错也会以「[前端]」开头写进日志。
+遇到报错，把终端里的输出和日志 `floatball.log` 发给维护者（Windows 在 `安装目录\data\logs\`；Mac 在 `~/Library/Logs/com.floatball.desktop/`，启动时终端也会打印完整路径）；前端的报错也会以「[前端]」开头写进日志。
