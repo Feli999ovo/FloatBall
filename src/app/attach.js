@@ -36,7 +36,7 @@ export function renderAttach() {
     box.appendChild(c);
   });
   box.hidden = S.attach.length === 0;
-  if (!S.attach.some((a) => a.kind === "file")) ask.placeholder = "有什么可以帮你？";
+  if (!S.attach.some((a) => a.kind === "file")) ask.placeholder = "问点什么";
 }
 
 export async function captureAsk(command = "capture_screen") {
@@ -191,7 +191,7 @@ export function initAttach() {
       if (n) {
         mood("done", 1200);
         await expand("chat");
-        ask.placeholder = "想让我对这个文件做什么？";
+        ask.placeholder = "拿它做什么？";
       } else mood("idle");
     }
   });

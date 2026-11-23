@@ -227,7 +227,7 @@ export async function vcStart(mode) {
   me.t0 = performance.now();
   if (mode === "dict") {
     vcAsk0 = ask.placeholder;
-    ask.placeholder = "在听…再点一下麦克风结束";
+    ask.placeholder = "在听…";
     vcMic.classList.add("vc-on");
     vcMic.setAttribute("aria-pressed", "true");
     vcMic.setAttribute("aria-label", "停止听写");

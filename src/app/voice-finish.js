@@ -92,7 +92,7 @@ export async function vcDictStop(thenSend) {
     err = String(e);
   }
   vcMic.classList.remove("vc-busy");
-  ask.placeholder = vcAsk0 || "有什么可以帮你？";
+  ask.placeholder = vcAsk0 || "问点什么";
   if (mutable.vc === me) mutable.vc = null;
   if (err) {
     toastErr(err);

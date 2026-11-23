@@ -281,7 +281,12 @@ async def test_chat(orb_page):
     check("notes.md" in await pg.inner_text("#attach"), "文件出现在附件")
     await pg.click("#attach .chip button")
     check(await pg.locator("#attach .chip").count() == 0, "移除附件")
-    check(await pg.get_attribute("#ask", "placeholder") == "有什么可以帮你？", "移除文件后恢复默认提示")
+    check(await pg.get_attribute("#ask", "placeholder") == "问点什么", "移除文件后恢复默认提示")
+    # 所有提示都要在一行内放得下：胶囊里放了「执行 / 只规划」后输入框很窄，放不下会折行、被切掉一半
+    fits = await pg.evaluate("""(() => { const a = document.querySelector('#ask'), c = document.createElement('canvas').getContext('2d');
+      c.font = getComputedStyle(a).font; const w = a.clientWidth;
+      return ['问点什么', '临时对话…', '先出方案…', '拿它做什么？', '在听…', '识别中…'].filter((t) => c.measureText(t).width > w - 6); })()""")
+    check(fits == [], f"输入框的提示都在一行内放得下 {fits}")
 
     await pg.evaluate("__mock.fileError = {kind:'permission', message:'文件读取权限不足'}; __mock.drop({payload:{type:'drop', paths:['notes.md']}})")
     settings = pg.locator("#toast").get_by_role("button", name="去设置", exact=True)
