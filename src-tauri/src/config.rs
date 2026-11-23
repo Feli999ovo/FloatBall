@@ -621,10 +621,7 @@ fn migrate_v0_to_v1(raw: Value) -> Value {
                     .unwrap_or(&d.base_url)
                     .to_string(),
                 model: model.to_string(),
-                vision: raw
-                    .get("vision")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true),
+                vision: raw.get("vision").and_then(Value::as_bool).unwrap_or(true),
                 no_key: raw
                     .get("allow_no_key")
                     .and_then(Value::as_bool)
@@ -1477,7 +1474,10 @@ mod tests {
             ("last", false, true)
         );
         assert_eq!(c.usd_cny, 8.4);
-        assert_eq!((c.limits.tokens, c.limits.steps, c.limits.parallel), (1200, 7, 2));
+        assert_eq!(
+            (c.limits.tokens, c.limits.steps, c.limits.parallel),
+            (1200, 7, 2)
+        );
         assert!(c.handoff.hint);
         assert_eq!(c.handoff.dirs, vec!["C:/work"]);
         assert_eq!(c.always_allow[0].scope, "C:/work");
@@ -1508,7 +1508,8 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         Config::default().save(d.path()).unwrap();
         let raw: Value =
-            serde_json::from_str(&std::fs::read_to_string(Config::path(d.path())).unwrap()).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(Config::path(d.path())).unwrap())
+                .unwrap();
         assert_eq!(
             raw.get("version").and_then(Value::as_u64),
             Some(CONFIG_VERSION as u64)
